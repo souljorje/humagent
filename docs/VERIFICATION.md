@@ -10,6 +10,20 @@ A runner job checks Bun execution, pnpm execution, and npx installation from a f
 
 See [Check runs](https://github.com/souljorje/humagent/actions/workflows/check.yml) for the result of a specific commit. Do not infer success from this document alone.
 
+## Recorded result
+
+Commit `f35fc67e20dbe1f2bb0939211ffa36a3bee5c6fd` passed [all five CI jobs](https://github.com/souljorje/humagent/actions/runs/41467473992).
+
+The build, 27 core/HTTP/CLI checks, browser suite, and package checks passed. npm installation passed on Linux, macOS, and Windows.
+
+The command-runner tests passed for npx, `bunx --bun`, and `pnpm dlx`. These tests used the exact archive from the build job.
+
+The downloaded CI source matched the local source. The desktop and narrow-layout screenshots were inspected.
+
+A local `npm publish --dry-run` accepted that archive. The command warned that authentication is required for actual publication.
+
+The dry run does not prove registry ownership or publish the package.
+
 ## Checks
 
 - Protocol tests check bounded input, exact edit values, and structured submissions.

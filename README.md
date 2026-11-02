@@ -181,7 +181,7 @@ bun dist/cli.js demo
 
 Before the implementation PR merges, use its `feat/initial-runtime` branch.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for checks. See [docs/RELEASE.md](docs/RELEASE.md) for packaging and publication.
+See [CONTRIBUTING.md](https://github.com/souljorje/humagent/blob/feat/initial-runtime/CONTRIBUTING.md) for checks. See [docs/RELEASE.md](https://github.com/souljorje/humagent/blob/feat/initial-runtime/docs/RELEASE.md) for packaging and publication.
 
 ## Inspiration and license
 
