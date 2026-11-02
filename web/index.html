@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Humagent · Workspace</title><link rel="stylesheet" href="/app.css"><script type="module" src="/app.js"></script></head>
+<body>
+<header class="topbar"><a class="brand" href="#" aria-label="Humagent home"><span class="logo">h</span>humagent<span class="version">preview</span></a><div class="identity"><span class="eyebrow">WORKSPACE</span><strong id="title">Connecting…</strong></div><button id="end" class="quiet">End session</button></header>
+<main>
+<section class="canvas" aria-label="Interface preview">
+  <div class="canvasbar"><div class="segmented" role="group" aria-label="Interaction mode"><button data-mode="interact" aria-pressed="true">Interact</button><button data-mode="annotate" aria-pressed="false">Annotate</button><button data-mode="edit" aria-pressed="false">Propose edit</button></div><button id="refresh" class="quiet">Refresh interface</button></div>
+  <div id="update" class="banner" hidden>The source changed. Refresh to review the new version. App-owned state may reset.</div>
+  <div class="framewrap"><iframe id="frame" title="Working interface" sandbox="allow-scripts allow-forms allow-same-origin"></iframe><div id="connecting" class="loading">Connecting your interface…</div></div>
+  <footer><span id="mode-hint">Use the interface normally. Switch modes to leave contextual feedback.</span><span id="bridge-status">Bridge connecting</span></footer>
+</section>
+<aside class="conversation" aria-label="Conversation with agent">
+  <div class="conversation-head"><div><span class="eyebrow">HUMAN + AGENT</span><h1>Working together</h1></div><span id="presence" class="badge">Connecting</span></div>
+  <div id="transcript" role="log" aria-live="polite"><div class="empty"><span class="empty-icon">↔</span><h2>A shared place to think.</h2><p>Explore the interface, point to what matters, and send choices or feedback to your agent.</p><p class="small">Humagent connects to your agent. It does not run a model.</p></div></div>
+  <div id="outbox" class="outbox" hidden><strong id="outbox-count"></strong><p>Unconfirmed input stays here. Stale feedback must be recreated after checking the new version.</p><button id="retry">Retry pending</button><button id="discard" class="quiet">Discard pending</button></div>
+  <div id="error" role="alert" hidden></div>
+  <form id="composer">
+    <div id="target" hidden><div class="target-heading"><strong>Selected context</strong><button type="button" id="clear-target" class="quiet">Clear</button></div><code id="target-label"></code><blockquote id="quote"></blockquote></div>
+    <label id="replacement-label" hidden>Exact replacement <textarea id="replacement" rows="3" placeholder="Your exact wording. Leave empty to propose deletion."></textarea></label>
+    <label><span id="composer-label">Message to your agent</span><textarea id="message" rows="3" placeholder="What should we work on next?"></textarea></label>
+    <div class="composer-bottom"><span id="save-status">Draft stays in this browser</span><button type="submit" id="send">Send to agent <span aria-hidden="true">↗</span></button></div>
+  </form>
+</aside>
+</main>
+</body></html>

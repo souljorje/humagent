@@ -1,0 +1,21 @@
+{
+  "name": "humagent",
+  "version": "0.1.0",
+  "description": "A local visual collaboration layer for humans and existing agents.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {"node": ">=22"},
+  "bin": {"humagent": "dist/cli.js"},
+  "exports": {".": {"types": "./dist/server.d.ts", "import": "./dist/server.js"}, "./protocol": {"types": "./dist/protocol.d.ts", "import": "./dist/protocol.js"}},
+  "files": ["dist", "web", "skills", "examples", "docs", "README.md", "LICENSE", "THIRD-PARTY-NOTICES.md"],
+  "repository": {"type": "git", "url": "https://github.com/souljorje/humagent.git"},
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "test:browser": "npm run build && node test/browser.mjs",
+    "check": "npm run typecheck && npm test",
+    "prepare": "npm run build"
+  },
+  "devDependencies": {"@types/node": "25.1.0", "typescript": "5.8.3", "playwright-core": "1.56.1"}
+}
