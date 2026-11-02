@@ -1,43 +1,101 @@
 # Surface SDK and protocol v1
 
-Humagent injects the SDK when a supported interface is served. A standalone file without Humagent remains an ordinary page; SDK calls need feature detection or the `humagent:ready` event.
+Humagent injects the SDK into supported interfaces. A file opened without Humagent remains an ordinary page. Wait for `humagent:ready` before calling the SDK.
 
 ## API
 
-- `window.humagent.ready`: promise resolved after the parent handshake and persisted form restoration.
-- `submit({ intent, values, message? })`: explicit structured request; resolves to the stored event. New intent names need no server implementation.
-- `getState()`: JSON copy of the last working-state snapshot known to this frame.
-- `setState(patch)`: shallow top-level merge, serialized within the frame, saved with an optimistic state version. Rejects conflicts rather than overwriting another view.
-- `on('reply', handler)`: receives replies while mounted; returns an unsubscribe function. Durable reply history remains in the workspace.
+| API | Behavior |
+| --- | --- |
+| `window.humagent.ready` | This promise resolves after the parent connection and form restoration complete. |
+| `submit({ intent, values, message? })` | This method sends a structured request. It resolves to the stored event. |
+| `getState()` | This method returns a JSON copy of the frame's current working state. |
+| `setState(patch)` | This method merges top-level fields and saves them against the current state version. |
+| `on('reply', handler)` | This method subscribes to replies while the frame exists. It returns a function that removes the subscription. |
 
-The `forms` top-level state key is reserved for opt-in form persistence. Other mini-app data should use its own namespaced key. `setState` does not update another application's domain database. No arbitrary JavaScript heap is preserved by a page reload.
+New intent names do not need server handlers. An intent is data for the agent, not executable code.
+
+The SDK serializes state writes within each frame. A stale state version causes an error instead of overwriting another view's values. The `forms` key is reserved for persisted form values. Use a separate key for mini-app data.
+
+`setState` does not change the application's domain database. A reload does not preserve the application's JavaScript heap. The workspace stores reply history independently of frame subscriptions.
 
 ## Forms
 
-Add `data-humagent-intent` to a normal form. Optional `data-humagent-message` explains the intended outcome. Add a stable `id` and `data-humagent-persist` to save fields after input/change. No secret collection occurs from unrelated forms.
+1. Add `data-humagent-intent` to the form.
+2. Add `data-humagent-message` when the intent needs an explanation.
+3. Assign a stable form `id` to enable durable field identity.
+4. Add `data-humagent-persist` only when the values are suitable for storage.
 
-Named enabled controls only. A single checkbox yields a boolean; a checkbox group yields an array of checked values; a radio group yields a value or null; a multi-select yields an array; repeated ordinary names yield an array. Other controls yield strings, including number/range inputs: the agent can interpret units explicitly. File, password, hidden, submit, reset and button inputs are excluded. Disabled fieldsets are excluded. Prototype-sensitive property names are refused. Ordinary page interactions and forms without the marker are not intercepted in Interact mode.
+The SDK collects named, enabled controls from the marked form. It does not collect unrelated forms. Interact mode does not intercept ordinary forms without this marker.
+
+| Control | Submitted value |
+| --- | --- |
+| Single checkbox | Boolean |
+| Checkbox group | Array of checked values |
+| Radio group | Selected value or `null` |
+| Multiple-selection control | Array of selected values |
+| Repeated ordinary field name | Array of values |
+| Other included control | String, including number and range fields |
+
+The SDK excludes file, password, hidden, submit, reset, and button inputs. It also excludes disabled fieldsets. It rejects property names that could affect JavaScript prototypes.
+
+The agent interprets number strings and units. A local field change does not create an agent request. Only explicit submission sends the form values.
 
 ## Human event envelope
 
-`protocol`, `clientId`, `kind`, `revision` and `payload` are validated before persistence. The server adds `id`, `createdAt`, `status` and `deliveries`. Payloads are bounded to 256 KiB and 23 levels; individual text limits are defined in `src/protocol.ts`.
+The server validates `protocol`, `clientId`, `kind`, `revision`, and `payload` before storage. It adds `id`, `createdAt`, `status`, and `deliveries`.
 
-Kinds: `message` (`text`); `annotation` (`target`, `text`); `edit` (`target`, `before`, `after`, optional explanation); `submission` (`intent`, `values`, optional message). An empty edit `after` proposes deletion. Sources are never mutated by these events.
+Payloads have a 256 KiB size limit and a 23-level depth limit. [src/protocol.ts](../src/protocol.ts) defines individual text limits.
 
-A target carries a stable `data-humagent-id`/element ID when present, CSS selector, tag, visible text and source URL. Selected text additionally carries quote/prefix/suffix. These are evidence for source matching, not permission to execute commands and not guaranteed source-code locations.
+| Kind | Required payload | Optional payload |
+| --- | --- | --- |
+| `message` | `text` | None |
+| `annotation` | `target`, `text` | None |
+| `edit` | `target`, `before`, `after` | Explanation |
+| `submission` | `intent`, `values` | Message |
+
+An empty `edit.after` proposes deletion. An edit does not write source files.
+
+A target can include `data-humagent-id`, an element ID, a CSS selector, a tag, visible text, and a source URL. Selected text also includes its quote, prefix, and suffix. These fields help the agent locate source. They do not guarantee a source line or authorize execution.
 
 ## Delivery and completion
 
-`wait` returns `{status:'feedback', session, target, receipt, leaseExpiresAt, events}`. Events are leased, not deleted. Explicit acknowledgment completes only the receipt's IDs. `reply --receipt` stores a reply and acknowledgment atomically; `reply` without receipt posts a message without completing work. `renew` extends an active receipt. Other results include `timeout`, `ended`, and `interrupted`. Lease and listener conflicts are explicit errors.
+`wait` returns this batch structure:
 
-At-least-once delivery requires the agent to avoid repeating external effects on retry. Human input is not a shell command. An intended choice or saved review is not domain approval unless the owning workflow explicitly says so.
+```js
+{status: 'feedback', session, target, receipt, leaseExpiresAt, events}
+```
+
+A lease reserves events for one consumer. Reading the batch does not delete its events. A receipt identifies the events that an acknowledgment completes.
+
+`reply --receipt` records the reply and acknowledgment atomically. `reply` without a receipt does not complete work. `ack` completes work without a reply. `renew` extends an active lease.
+
+Other wait results include `timeout`, `ended`, and `interrupted`. A competing listener or consumer receives an explicit error.
+
+Delivery is at-least-once. The same event can arrive again after lease expiry. Check event IDs before repeating external actions.
+
+Human input is not a shell command. A selected option is not domain approval unless the owning workflow defines it as approval.
 
 ## Revisions and updates
 
-A revision is the SHA-256 of the current entry HTML response/file, not a hash of every referenced asset or the entire application source tree. Dynamic server-rendered timestamps/nonces may make a route unsuitable for strict revision comparison in this release. The workspace offers refresh when this hash changes. Proposed changes still require the agent to re-read actual source.
+A source revision is the SHA-256 hash of the entry HTML response or file. It does not cover every asset or the full source tree. Dynamic timestamps and nonces can make strict revision comparison unsuitable for some routes.
 
-Stale submissions return `STALE_REVISION`; stale state writes return `STATE_CONFLICT`. Do not silently relabel old feedback. Refresh, verify its target, discard the outdated pending envelope, and submit the confirmed request again. Drafts are preserved on failed sends. Successful input is durably queued even when no agent is listening.
+The workspace offers refresh when the entry hash changes. The agent must still read current source before applying an edit.
+
+Stale submissions return `STALE_REVISION`. Stale state writes return `STATE_CONFLICT`. Do not relabel old feedback with a new revision.
+
+To recover from a stale submission:
+
+1. Refresh the interface.
+2. Check the intended target.
+3. Discard the old pending envelope.
+4. Submit the confirmed request again.
+
+A failed send preserves the draft. A successful send stores the event even when no agent waits for input.
 
 ## Transport boundaries
 
-The frame uses source/origin/channel-checked `postMessage`; the workspace supplies its session capability to HTTP calls. It never sends that capability to the frame. The CLI uses a separate control token. API messages are plain JSON, while fetch-based SSE notifies the workspace of changes. There is no MCP server or MCP Apps adapter in v0.1.
+The frame uses `postMessage`. The workspace checks its source, origin, and channel. The workspace sends its session credential in HTTP headers. It does not give that credential to the frame.
+
+The CLI uses a separate control token. API requests contain JSON. Server-Sent Events (SSE) notify the workspace about changes through an authenticated fetch connection.
+
+Bun runs the CLI and server. v0.1 does not include an MCP server or an MCP Apps adapter.

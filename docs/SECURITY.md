@@ -1,21 +1,61 @@
 # Security model and limits
 
-Humagent v0.1 is a local development preview, not a hardened multi-user service or a safe way to execute malicious websites.
+Humagent v0.1 is a local development preview. It is not a hardened multi-user service. Do not use it to execute malicious websites.
 
-The workspace and each interface use separate loopback origins. The iframe permits scripts and forms but not top navigation, popups or unrestricted parent access. Origin separation, not the word "sandbox" alone, protects the workspace. The injected channel permits user-input/state operations only. The agent's tool permissions remain authoritative.
+## Browser isolation
 
-Privileged API operations require a random control token. The browser receives a different session-scoped capability via the open URL fragment, moves it into session storage and removes the fragment from the address. It may submit input, save working state, view its transcript or end that session; it cannot open targets, wait as an agent, acknowledge or send agent replies. Treat open URLs as private capabilities. Do not share them publicly.
+The workspace and each interface use separate loopback origins. The frame permits scripts and forms. It does not permit top navigation, popups, or unrestricted access to its parent.
 
-Control discovery files and atomic session files use mode 0600; the default state directory uses 0700 on platforms that support it. These files contain human inputs and must be protected. There is no encryption at rest. Browser composer drafts and unconfirmed sends use local storage; do not use a shared browser profile for sensitive work.
+Origin separation protects the workspace. The iframe sandbox is not sufficient by itself. The injected channel accepts human input and working-state operations only. The agent's tool permissions remain authoritative.
 
-Host/Origin validation, payload limits, prototype-key refusal, realpath containment and loopback-target validation are enforced. State directories cannot be shared as artifact roots. Hidden canonical paths and symlinks escaping the artifact root are refused. No HTTP endpoint executes a shell command or edits source files.
+## Credentials
 
-The file server deliberately shares supported sibling assets. A malicious script within an explicitly shared artifact can read other served assets from that directory, so keep secrets elsewhere. Offline file CSP blocks outbound connections and external resources but is not an operating-system sandbox. `--network` relaxes that boundary for trusted files. Never expose the local ports through a tunnel or reverse proxy without designing authentication and a deployment threat model first.
+Privileged API operations require a random control token. The browser receives a separate credential limited to one session. The initial URL carries this credential in its fragment. The workspace stores it in session storage and removes the fragment from the address.
 
-The application proxy forwards to one user-selected HTTP loopback origin. It does not authenticate to it and strips cookie headers. It preserves upstream CSP/frame protections instead of bypassing them. Applications can still perform their normal local actions through their upstream API. Only review trusted development apps, never administrative/internal services. External redirects are refused. Arbitrary remote URL review is unsupported.
+The browser credential permits input, working-state changes, transcript access, and ending that session. It cannot open targets, wait as an agent, acknowledge events, or send agent replies.
 
-Generated forms and page scripts can submit structured requests; they cannot prove that every request originated from a human gesture. Agents must treat page-controlled content as untrusted input, distinguish instructions from evidence and request authorization for consequential external actions. Form values are not a permission grant.
+Treat session URLs as private credentials. Do not share them publicly. Do not place control credentials in an application frame.
 
-Session delivery is at-least-once. An expired lease can be redelivered even if an earlier consumer performed work but failed to acknowledge it. Use event IDs and normal idempotency/approval mechanisms for consequential operations. No exactly-once execution or production-grade multi-user access control is claimed.
+## Stored data
 
-Please report vulnerabilities privately to the repository owner rather than posting credentials or private artifacts in a public issue.
+Control files and atomic session files use mode `0600`. The state directory uses mode `0700` where the platform supports these permissions. These files contain human input. Humagent does not encrypt them at rest.
+
+Browser drafts and unconfirmed sends use local storage. Do not use a shared browser profile for sensitive work.
+
+## Request and path checks
+
+Humagent validates Host and Origin headers. It limits payloads and rejects unsafe prototype keys. It checks canonical paths and loopback targets. Artifact roots cannot contain Humagent's state directory.
+
+The file server rejects hidden paths and symlinks that escape the artifact root. No HTTP endpoint executes shell commands or edits source files.
+
+## Local HTML
+
+The file server exposes supported sibling assets. A script in the artifact can read those assets. Keep secrets outside the shared directory.
+
+The default Content Security Policy (CSP) blocks external connections and resources. This policy is not an operating-system sandbox. `--network` relaxes these restrictions for trusted files.
+
+Do not expose local ports through a tunnel or proxy without authentication and a documented deployment threat model.
+
+## Application proxy
+
+The proxy forwards requests to one selected HTTP loopback origin. It does not authenticate to that origin. It removes cookie headers and preserves upstream CSP and frame protections.
+
+The application can still use its normal local APIs. Review only trusted development applications. Do not attach to administrative or privileged internal services.
+
+The proxy refuses external redirects. Remote URL review is unsupported.
+
+## Agent permissions
+
+Page scripts and forms can submit structured requests. Humagent cannot prove that each request resulted from a human gesture.
+
+Treat page-controlled content as untrusted input. Distinguish instructions from evidence. Request authorization before consequential external actions. Form values do not grant permissions.
+
+## Delivery retries
+
+Delivery is at-least-once. An event can arrive again after lease expiry, including when an earlier consumer acted but did not acknowledge it.
+
+Use event IDs to detect repeated delivery. Apply the normal approval and idempotency rules to consequential actions. Humagent does not guarantee exactly-once execution.
+
+## Reporting
+
+Report vulnerabilities privately to the repository owner. Do not include credentials or private artifacts in public issues.

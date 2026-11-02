@@ -1,69 +1,124 @@
 # Humagent specification
 
-Status: implementation contract for v0.1.0. Date: 2026-11-02.
+Status: implementation contract for v0.1.0. Updated: 2026-11-02.
+
+The user selected Bun for the runtime and development tools. The user also selected the ASD-STE100 skill for documentation. These changes do not expand the product scope.
 
 ## 1. Product
 
-Humagent is an independent, local-first interaction layer connecting a human and an existing agent through existing or newly generated visual interfaces. It is not an agent, an LLM service, a workflow engine, or a mandatory UI framework. Good Place OS is a dogfood consumer, not a dependency or a privileged integration.
+Humagent connects a human and an existing agent through a local visual interface. That interface can already exist or an agent can generate it.
 
-An agent can open a document or mini-app, receive comments and structured choices, revise the underlying work, and reply without requiring a new backend handler for each task. The interface can be disposable; human input and accepted results must not be disposable by accident.
+Humagent is not an agent, model service, workflow engine, or mandatory UI framework. Good Place OS is a test consumer. It is not a dependency or privileged integration.
 
-## 2. Primary scenarios
+An agent can open an interface, receive input, revise source, and reply. Each task uses the same interaction contract. A new task must not require a new backend handler.
 
-1. Existing interface: attach to a local HTML file or supported localhost app without rewriting its UI. Use the application normally, switch to annotation, and send contextual feedback.
-2. Generated mini-app: create ordinary HTML/CSS/JavaScript, use local interactions without model calls, and submit task-specific values through a generic bridge.
-3. Interactive planning: present choices and editable assumptions, preserve working values, submit an intent and data, then show the agent's revision and explanation.
-4. Document review: select text or a block, comment, or propose an exact replacement. The agent applies changes to the actual source, never blindly serializes a running application's DOM.
+An interface can be temporary. Human input and accepted results must not disappear without an explicit action.
 
-## 3. Release boundary
+## 2. Terms
 
-### v0.1 required
+| Term | Meaning |
+| --- | --- |
+| Surface | The existing or generated interface shown to the human. |
+| Workspace | Humagent's outer browser interface, including conversation and review controls. |
+| Session | The persistent association between a surface, human input, and an agent. |
+| Source revision | The hash of the current entry HTML file or response. |
+| Working state | Values that a surface explicitly saves through Humagent. |
+| Event | A stored message, annotation, exact-edit proposal, or structured submission. |
+| Lease | A temporary reservation of events for one consumer. |
+| Receipt | The identifier used to acknowledge the events in a delivered batch. |
+| Intent | A task-specific name that describes a request to the agent. It is not executable code. |
 
-- Installable CLI package, programmatic server entry point, portable agent skill, typed public contract, examples, automated checks, and attribution.
-- Local HTML files with relative assets; generated HTML/JS mini-apps need no platform rebuild.
-- Localhost HTTP apps through an explicitly selected, fixed-target reverse proxy on a separate origin. Preserve paths, asset requests and ordinary app interaction. Compatibility must be tested, not assumed for every framework.
-- Existing apps may alternatively embed the SDK and connect through an explicit attachment manifest; implement this only if the browser security boundary remains intact. It is not a prerequisite for the first proxy path.
-- Browser workspace with an isolated interface frame, conversation, review mode, exact-edit proposals, connection status, and an explicit refresh control.
-- Declarative form bindings and a small JavaScript SDK. Submission payloads remain structured JSON rather than being appended to prompt prose.
-- Durable session transcript, submissions, drafts, working state, event IDs, revisions, explicit acknowledgment, redelivery and conflict errors.
-- CLI open/wait/reply/ack/status/end/server operations. No LLM key and no automatic execution of page-provided commands.
-- Honest agent presence and a documented active-turn/background-wakeup limitation.
+## 3. Primary scenarios
 
-### Explicit follow-on capabilities
+### Existing interface
 
-Markdown rendering, rich-text formatting, browser-extension attachment to arbitrary websites, authenticated remote browsing, multi-user hosting, MCP Apps presentation, MCP/AG-UI agent adapters, schema-based renderers, arbitrary React compilation, and image/diagram editing are follow-on work unless separately marked implemented in the release record. Native browser HTML/JS is the flexible first authoring path; existing applications retain their own build process.
+Attach to a local HTML file or supported HTTP localhost application. Preserve ordinary application behavior. Allow the human to annotate the interface and send contextual feedback.
 
-Do not add a marketplace, universal workflow DSL, proprietary component catalog, provider-specific agent runner, publishing service, or business approval engine.
+### Generated mini-app
 
-## 4. Architecture and ownership
+Run ordinary HTML, CSS, and JavaScript. Keep local interactions independent of model calls. Send task-specific values through the shared bridge.
+
+### Interactive planning
+
+Present choices and editable assumptions. Preserve values when the surface enables persistence. Submit the values and intent to the agent. Show the agent's revision and explanation.
+
+### Document review
+
+Capture selected text or an element. Accept a comment or exact replacement. The agent applies permitted changes to the actual source. Humagent must not serialize a running application's DOM into source files.
+
+## 4. Release boundary
+
+### Required in v0.1
+
+- Provide an installable CLI package and programmatic server entry point.
+- Include a portable skill, typed protocol, examples, tests, and donor attribution.
+- Serve local HTML with supported relative assets.
+- Run generated HTML/JS without rebuilding Humagent.
+- Attach to a selected HTTP localhost application through an isolated proxy.
+- Preserve paths, assets, HTTP requests, and WebSocket upgrades where the supported proxy permits them.
+- Provide conversation, annotation, exact-edit proposals, connection status, and explicit refresh.
+- Support declarative forms and a small JavaScript SDK.
+- Preserve submission values as JSON instead of appending them to prompt text.
+- Persist transcripts, events, working state, revisions, and acknowledgments.
+- Preserve browser drafts and failed submissions.
+- Provide CLI commands for opening, waiting, replies, acknowledgments, renewal, status, ending, server control, and skill installation.
+- Explain the limits of resuming an agent after its active turn ends.
+
+Framework compatibility requires tests. Successful HTTP forwarding does not establish compatibility with every development framework.
+
+An existing application could later embed the SDK through an attachment manifest. This path requires a separate browser-security check. It is not required for the initial proxy implementation.
+
+### Later work
+
+Markdown rendering, rich-text formatting, remote website attachment, authenticated browsing, and multi-user hosting remain outside v0.1.
+
+MCP Apps, MCP/AG-UI agent adapters, schema renderers, React compilation, and image or diagram editing also remain outside v0.1. A release record must identify any later implementation explicitly.
+
+HTML/JS is the initial authoring path. Existing applications retain their own build process.
+
+Do not add a marketplace, universal workflow language, proprietary catalog, provider-specific agent runner, publishing service, or business approval engine.
+
+## 5. Architecture and ownership
 
 ```text
 Existing agent
-    <-> CLI adapter (wait / reply / acknowledge)
-    <-> Durable session service
-        <-> Browser workspace (conversation + review)
-        <-> Interface bridge (structured submissions + state)
-            <-> Existing local application OR generated HTML/JS
+    <-> CLI adapter: wait, reply, acknowledge
+    <-> Persistent session service
+        <-> Browser workspace: conversation and review
+        <-> Surface bridge: submissions and working state
+            <-> Existing application or generated HTML/JS
 ```
 
-The service owns transport, session persistence, event validation, delivery receipts and interface identity. The browser workspace owns review drafts and explicit submission. The frame SDK owns target capture, local working-state integration and opt-in form bindings. The agent owns interpretation, source changes and tool permissions. The source application owns its rendering and domain state.
+The service owns transport, validation, identity, storage, and delivery receipts. The workspace owns review drafts and explicit submission. The frame SDK captures targets and manages optional form bindings.
 
-Use TypeScript for the Node service and CLI; ship browser-native JavaScript/CSS for the workspace and SDK. Node 22+ is the initial execution target. Keep external dependencies narrow; do not take Lavish or Human Review as runtime dependencies. Build only for release/development of Humagent, never because an agent produced a new HTML artifact.
+The agent interprets requests and changes source under its existing permissions. The source application owns rendering and domain state.
 
-## 5. Session and event contract
+Use TypeScript for the server and CLI. Use browser-native JavaScript and CSS for the workspace and SDK. Bun 1.4.4 is the supported minimum and the pinned CI runtime.
 
-Every session has an opaque ID, canonical target, kind, title, opened/ended lifecycle, revision, persistent transcript, persistent working state with a state version, and pending/delivered/completed events. The server owns identity and timestamps. UI-controlled data cannot overwrite these fields.
+Bun runs dependency installation, compilation, type checking, tests, browser checks, and packaging. Retain `bun.lock` as the dependency lockfile. Use frozen installation in CI.
 
-Protocol version: `1`. Reject incompatible versions rather than guessing. A human input contains a client-generated ID for retry deduplication, event kind, the viewed revision, and a bounded JSON payload. The server attaches session ID and creation time.
+The implementation can retain Bun-compatible `node:*` APIs. Those imports do not require Node.js execution. Run TypeScript with Bun explicitly so its Node shebang cannot select another runtime.
 
-Human kinds:
+Do not depend on Lavish or Human Review at runtime. Build Humagent when its own source changes, not when an agent creates an HTML artifact.
 
-- `message`: freeform text.
-- `annotation`: feedback plus an exact target description.
-- `edit`: target, exact before/after strings, and optional explanation. This is a proposed replacement, not a saved-file claim.
-- `submission`: intent, optional explanatory message, structured values, and optional target.
+## 6. Session and event contract
 
-Example, illustrative of the contract:
+Each session has an opaque ID, canonical target, kind, title, lifecycle, source revision, transcript, working state, and event history. Working state has a separate version. Events can be queued, delivered, or completed.
+
+The server assigns identity and timestamps. Page-controlled data cannot replace those fields.
+
+Protocol version is `1`. Reject incompatible versions. Human input includes a client ID, event kind, viewed revision, and bounded JSON payload. The client ID identifies retries.
+
+| Kind | Meaning |
+| --- | --- |
+| `message` | Freeform text for the agent. |
+| `annotation` | Feedback with a target description. |
+| `edit` | A target and exact before/after strings, with an optional explanation. |
+| `submission` | An intent, structured values, an optional message, and optional target evidence. |
+
+An edit proposes a replacement. It does not claim that Humagent saved the source.
+
+Example envelope:
 
 ```json
 {
@@ -79,110 +134,169 @@ Example, illustrative of the contract:
 }
 ```
 
-Task-specific intent strings are data. `revise_plan` does not register a server function. The agent receives the payload with the surrounding task context and determines permitted work.
+The agent interprets an intent using the task context. `revise_plan` does not register a server function or grant permission to execute the plan.
 
-Target evidence can include a stable `data-humagent-id`, CSS selector, element tag, visible text, URL, and a quote with prefix/suffix. Coordinates and a temporary DOM ID are not authoritative source locations. Text matches that are ambiguous or stale must not silently select another target.
+Targets can include a stable ID, CSS selector, element tag, visible text, URL, and quote context. Temporary DOM IDs and coordinates are not authoritative source locations. Do not silently resolve an ambiguous or stale match to another target.
 
-## 6. Durable delivery
+## 7. Durable delivery
 
-Inputs are committed before the browser receives success. Retrying the same client ID with the same content returns the same event; conflicting reuse is rejected. Failed sends remain visible and retryable.
+Persist input before reporting success to the browser. The same client ID and content must return the same event. Reject the same client ID with different content. Keep failed sends visible and available for retry.
 
-`wait` leases a batch to one consumer and returns a receipt. The batch remains durable until explicitly acknowledged with that receipt. Receipt acknowledgment applies only to its event IDs, never to newer submissions. A competing consumer receives a clear conflict while the lease is active. Expired leases become available again. Restarting the service does not delete unacknowledged work.
+`wait` leases a batch to one consumer and returns a receipt. The batch remains stored until acknowledgment. Acknowledgment completes only that receipt's events, not newer submissions.
 
-Delivery is at-least-once, not exactly-once execution. Agents must use event IDs to avoid repeating non-idempotent actions. Acknowledging receipt is not approval, publishing permission, or proof of correctness. Replies and completion are related explicitly through a receipt, not inferred merely from a file modification.
+Reject a competing consumer while the lease remains active. Permit delivery again after lease expiry. Retain unacknowledged events through a server restart.
 
-The browser distinguishes disconnected/idle, agent waiting, working, queued and completed. A waiting shell command can resume its calling agent only if the harness keeps the tool invocation active or implements a verified background completion callback. Never claim that a stopped agent will be awakened by HTTP polling.
+Delivery is at-least-once. It is not exactly-once execution. Agents must detect repeated event IDs before repeating consequential actions.
 
-## 7. Browser modes
+An acknowledgment is not approval, publication permission, or proof of correctness. A receipt explicitly connects completion to delivered work. A source-file change alone does not establish completion.
 
-### Interact (default)
+Show whether the agent is idle, waiting, or working. Show whether input is queued or complete. Distinguish a disconnected browser from a connected session.
 
-Native links, controls and application handlers continue working. Local sorting, sliders, calculators and navigation do not invoke the agent automatically. The workspace does not set the entire page to contenteditable.
+A wait can resume its caller only while the agent invocation remains active or the harness provides a verified completion callback. Do not claim that polling resumes an ended task.
+
+## 8. Browser modes
+
+### Interact
+
+Interact is the default mode. Preserve native links, controls, and application handlers. Do not automatically call the agent for sorting, sliders, calculators, or navigation. Do not make the entire page editable.
 
 ### Annotate
 
-Selecting text captures its quote and surrounding context. Clicking a non-shell element captures stable identity where available and a selector/text fallback. A reviewer enters a comment in the workspace and sends it to the agent.
+Capture the selected quote and surrounding text. For element selection, capture stable identity when available. Include selector and text evidence as fallbacks. Send the human's comment through the shared session.
 
 ### Propose edit
 
-A selection or element can be given an exact replacement. Keep original text and replacement separately; do not mutate or save application source. The agent re-reads source and reconciles newer changes before applying it. This release favors safe exact-text proposals over a general rich-text editor.
+Keep the original text and exact replacement separately. Do not write the source. The agent must read current source and reconcile newer changes before applying the proposal.
 
-Mode controls and the conversation remain outside the frame, cannot be annotated as artifact content, and are keyboard accessible. Escape leaves selection mode. The workspace must remain usable at narrow widths and with long feedback.
+Keep mode controls and conversation outside the surface frame. Do not treat workspace controls as artifact content. Provide keyboard access. Escape must leave selection mode.
 
-## 8. Generated interaction SDK
+The workspace must remain usable at narrow widths and with long feedback.
 
-Expose `window.humagent` when attached. Provide a ready promise, `submit`, `getState`, `setState` and a narrowly scoped event subscription for state/reply updates. Submission returns an acknowledgment or a visible error. Bound payload sizes, reject non-JSON values, and never execute an intent as code.
+## 9. Surface SDK
 
-Support ordinary forms marked with `data-humagent-intent`. Named enabled controls become values. Preserve repeated field names as arrays; explicitly define checkbox and multi-select behavior. File/password controls are excluded. Submit only when the user explicitly submits the form. Use stable form IDs for durable values, opt out of persistence for sensitive data, and never collect unrelated page fields.
+Expose `window.humagent` after attachment. Provide a ready promise, `submit`, `getState`, `setState`, and scoped notifications. The SDK guide defines available subscriptions.
 
-The browser shim and the server share the same envelope whether the surface was generated by an agent or existed before Humagent. A future json-render or MCP Apps adapter must reuse this contract.
+A submission must return a stored event or an explicit error. Limit payload size and depth. Reject non-JSON values. Never execute an intent as code.
 
-## 9. State and revisions
+Mark forms with `data-humagent-intent`. Collect only named, enabled controls. Preserve repeated field names as arrays. Define checkbox, radio, and multiple-selection values explicitly.
 
-Source revision and working-state version are separate. Reading or saving UI drafts must not change the source revision. State writes require the version read by the client; stale writes return 409 and preserve newer values. State is scoped to a session, not leaked across targets.
+Exclude file and password controls. Submit only after an explicit request. Use stable form IDs for persistence. Do not persist sensitive fields or collect unrelated page fields.
 
-The runtime preserves opt-in form state and workspace drafts. It cannot preserve an arbitrary application's JavaScript heap. Refreshing an existing application may reset app-owned state; the UI and docs must say so. On source changes, show an update notice and offer refresh rather than automatically destroying an active prototype interaction or unfinished draft.
+Existing and generated surfaces use the same envelope. Future renderers and MCP Apps adapters must reuse this contract.
 
-A stale event revision is rejected with a recoverable conflict. Do not relabel old feedback as applying to a new source. The human can refresh, verify the intended target, and resubmit. Comments remain associated with the version originally reviewed.
+## 10. State and revisions
 
-## 10. Target and source handling
+Keep source revisions separate from working-state versions. Saving a draft must not change the source revision.
 
-File targets are canonicalized with realpath. Serve only files within the explicitly shared artifact directory, deny dotfiles and path traversal, and reject symlinks escaping that directory. State the directory-sharing boundary in CLI output. Sources are read-only to Humagent in v0.1.
+Require the version that the client read for each state write. Reject stale writes with HTTP 409. Preserve newer values. Do not share state between unrelated sessions.
 
-URL targets must be explicit HTTP loopback addresses with fixed host/port. Reject credentials, remote hosts, redirects escaping the configured origin, and attempts to turn the proxy into an arbitrary URL fetcher. Do not follow links by opening new server targets implicitly. Provide an explicit re-open command for a different target.
+Preserve form state only when persistence is enabled. Preserve workspace drafts. Do not claim to preserve an arbitrary application's JavaScript heap.
 
-The proxy is a trusted-development convenience, not a privacy sandbox for malicious apps. It must not expose Humagent's control API to the upstream application. Some sites and development frameworks may require same-origin cookies, CSP, service workers, or websocket settings that do not work transparently; report those limits and test supported behavior.
+Refresh can reset application-owned state. State this limit in the interface and documentation. Show a notice when source changes. Do not automatically replace an active interface or unfinished draft.
 
-## 11. Security and privacy
+Reject stale submissions with a recoverable conflict. Keep comments associated with the reviewed version. Do not relabel old feedback as current input.
 
-- Bind all services to loopback by default. No automatic tailnet/LAN exposure.
-- A random per-run control token authenticates every privileged endpoint. Store discovery credentials with owner-only filesystem permissions. Do not put the control token in a frame URL or generated document.
-- Bootstrap the browser with a separate session capability. Privileges must be limited to that session; a frame must never open arbitrary local files or other sessions.
-- Validate Host and Origin, reject cross-origin privileged requests, cap request bodies, and use explicit postMessage origin/source/channel checks.
-- Separate workspace and surface origins. The surface gets only the SDK communication capability, not the control token. Use a sandboxed iframe. Untrusted HTML does not gain filesystem or shell access through Humagent.
-- Serve the workspace with restrictive CSP and escaped text. Do not render transcript messages as unsanitized HTML.
-- Network restrictions should have safe defaults. Trusted localhost application mode may explicitly enable the networking needed by the app; document the difference from offline generated artifacts.
-- No telemetry, automatic cloud upload, or provider credentials in the core.
-- Ended sessions reject new events. Deleting a session is explicit. All persistent files are local and may contain sensitive human input; document their location.
+The human can refresh, check the target, and submit a new request. Each step must remain explicit.
 
-## 12. CLI and distribution
+## 11. Targets and source files
 
-Expected commands:
+Resolve file targets through canonical paths. Serve only supported files inside the selected artifact directory. Reject hidden paths, traversal, and symlinks that escape the directory.
+
+State the shared directory in CLI output. Keep sources read-only to Humagent in v0.1.
+
+URL targets must use explicit HTTP loopback addresses with a fixed host and port. Reject URL credentials and remote hosts. Reject redirects outside the selected origin.
+
+Do not accept arbitrary proxy destinations from page requests. Do not create a new server target merely because the human follows a link. Require an explicit open operation for another target.
+
+The application proxy is for trusted development work. It does not provide privacy or network isolation for malicious applications. Never expose the control API to the source application.
+
+Cookies, CSP, service workers, and WebSocket settings can prevent compatibility. Document these limits. Test the intended application.
+
+## 12. Security and privacy
+
+- Bind services to loopback. Do not automatically expose them to a LAN or tailnet.
+- Use a random control token for privileged endpoints.
+- Store credentials with owner-only permissions where the platform supports them.
+- Keep control tokens outside frame URLs and generated documents.
+- Give the browser a separate credential limited to its session.
+- Validate Host and Origin headers.
+- Reject cross-origin privileged requests.
+- Limit request bodies.
+- Check each frame message's source, origin, and channel.
+- Use separate origins for the workspace and surface.
+- Give the surface only its SDK connection.
+- Use a sandboxed iframe.
+- Do not expose shell or filesystem operations to page scripts.
+- Apply a restrictive workspace CSP.
+- Render transcript text without executing HTML.
+- Block external access by default for file surfaces.
+- Explain the different network behavior of trusted application mode.
+- Do not add telemetry, automatic uploads, or provider credentials to the core.
+- Reject new input after the session ends.
+
+Persistent files remain local and can contain sensitive input. Document their location. Delete session data only through an explicit operation.
+
+## 13. CLI and distribution
 
 ```sh
 humagent open ./plan.html
 humagent open http://127.0.0.1:3000
-humagent wait <session-id> --consumer my-agent
-humagent reply <session-id> --receipt <receipt-id> --message "Updated the plan."
-humagent ack <session-id> --receipt <receipt-id>
-humagent status <session-id>
-humagent end <session-id>
+humagent wait SESSION --consumer my-agent
+humagent reply SESSION --receipt RECEIPT --message "Updated the plan."
+humagent ack SESSION --receipt RECEIPT
+humagent renew SESSION --receipt RECEIPT --lease 600
+humagent status SESSION
+humagent end SESSION
 humagent server
+humagent stop
+humagent setup
 ```
 
-Commands used by an agent emit machine-readable JSON on stdout and diagnostics on stderr. `open` may start/reuse a detached local service, but `wait` is attached to the agent invocation. An explicit timeout returns a typed timeout result. Browser launch failure still returns a usable local URL. No npm publication or external deployment is implied by committing the repository.
+Agent-facing commands return JSON on stdout and diagnostics on stderr. CLI help returns readable text. `open` can start a detached server. `wait` stays attached to the agent invocation.
 
-Ship a skill explaining the review loop, exact-edit semantics, source ownership, safe SDK generation, event acknowledgment, and harness wake-up limitations. Install only when explicitly requested; do not modify the user's global configuration automatically.
+A timeout returns a typed result. Failed browser launch must still return the local URL.
 
-## 13. Reuse and provenance
+Use these development commands:
 
-Lavish AXI is the primary behavioral and browser-code donor: ordinary interaction versus annotation, target context, SDK messaging, conversation/wait/reply pattern. Human Review supplies quote-with-context anchoring and exact-edit/source-preservation behavior. Pin borrowed source revisions, retain MIT notices, identify modified functions and retain relevant regression tests. Neither upstream application is a runtime dependency.
+```sh
+bun install --frozen-lockfile
+bun run check
+bunx --bun playwright-core install chromium
+bun run test:browser
+bun pm pack
+bun run test:package
+```
 
-Reimplement the small typed session core where preserving the upstream prompt-only or consume-on-read model would violate the durable event contract. This is not a claim to be a byte-for-byte fork or fully compatible replacement for either donor.
+The executable must use the Bun shebang. Child servers must use the same Bun executable as the CLI. Package checks must run without installed runtime dependencies.
 
-Sources inspected: `kunchenguid/lavish-axi` (notably `src/artifact-sdk.js`, CLI, session store and README); `petergyang/human-review` (`src/anchor-text.js`, SDK, CLI and skill). The implementation's THIRD-PARTY-NOTICES records exact revisions and copied/adapted pieces.
+Ship a skill that explains review, exact edits, source ownership, submissions, acknowledgments, and agent-resumption limits. Install it only when requested. Do not automatically change global agent settings.
 
-## 14. Acceptance and release evidence
+A repository commit does not authorize publication, deployment, or merging.
 
-The release must demonstrate:
+## 14. Reuse and provenance
 
-- Generated planning form: values survive a workspace reload; submission reaches a waiting consumer as structured JSON.
-- Generated mini-app: local interactions work without an agent; later submission needs no new runtime handler.
-- Existing application: normal HTTP interaction and asset loading work through the supported attachment path; annotations and exact-edit proposals target it without changing its source.
-- Agent round trip: wait, delivery receipt, reply, explicit completion, transcript update and source refresh.
-- Persistence/recovery: restart, duplicate submission, interrupted wait, expired lease, competing consumer and stale acknowledgment.
-- Revision/state conflict: a stale save or submission never overwrites or silently replaces newer work.
-- Security: unauthorized API access, hostile origins/hosts, path traversal, escaped symlinks, remote proxy targets, excessive input and ended-session writes are refused.
-- Packaging: build, unit/integration tests, CLI smoke checks, package dry run and actual browser checks.
+Lavish supplies interaction and annotation patterns, target helpers, SDK messaging, and conversation behavior. Human Review supplies quote anchors and exact-edit semantics.
 
-Record exact commands and results in `docs/VERIFICATION.md`. Distinguish implemented and tested behavior from future design, and distinguish automated browser tests from a real Codex/Claude user session. Release notes must name untested operating systems and app frameworks. Do not describe the tool as a universal website editor or production-hardened security boundary before evidence supports it.
+Record the exact source revisions for borrowed code. Preserve MIT notices. Identify adapted functions. Retain relevant regression tests. Neither donor application becomes a runtime dependency.
+
+Humagent owns the typed session core where donor behavior conflicts with durable acknowledgment. This is not a complete fork or a compatible replacement for either donor.
+
+[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) lists inspected sources, copied helpers, and licenses.
+
+## 15. Acceptance and evidence
+
+| Scenario | Required evidence |
+| --- | --- |
+| Planning form | Values survive refresh. Explicit submission reaches a waiting agent as JSON. |
+| Generated mini-app | Local behavior works without model calls. Submission requires no new runtime handler. |
+| Existing application | Normal requests and assets work through the supported proxy. Review does not mutate source. |
+| Agent exchange | Wait, receipt, reply, acknowledgment, transcript update, and refresh work together. |
+| Recovery | Tests cover restart, retries, interrupted waits, lease expiry, competing consumers, and stale receipts. |
+| Conflicts | Stale source revisions and state versions cannot silently replace newer work. |
+| Security | Tests reject unauthorized access, hostile headers, unsafe paths, remote targets, excessive input, and ended-session writes. |
+| Bun execution | CLI tests prove that the server uses Bun. Package checks exercise the Bun shebang. |
+| Packaging | Frozen install, build, typecheck, tests, browser checks, and package creation succeed. |
+
+Record commands and results in [VERIFICATION.md](VERIFICATION.md). Distinguish requirements from implemented behavior. Distinguish automated browser tests from real user sessions in an agent harness.
+
+Name untested operating systems and frameworks. Do not claim universal website compatibility or production security without supporting evidence.
