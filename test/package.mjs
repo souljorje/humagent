@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
+import {assertReadmeAttribution} from './attribution.mjs';
 
 const manifest=JSON.parse(fs.readFileSync('package.json','utf8'));
 const archive=path.resolve(`${manifest.name}-${manifest.version}.tgz`);
@@ -19,7 +20,8 @@ try {
   assert.equal(fs.existsSync(path.join(root,'.local')),false);
   for(const script of ['prepare','preinstall','install','postinstall'])assert.equal(packaged.scripts?.[script],undefined,`Unexpected install hook: ${script}`);
   assert.deepEqual(packaged.dependencies??{},{});
-  for(const file of ['web/index.html','web/sdk.js','examples/plan.html','skills/humagent/SKILL.md','docs/CLI.md','LICENSE','THIRD-PARTY-NOTICES.md'])assert.ok(fs.existsSync(path.join(root,file)),file);
+  for(const file of ['web/index.html','web/sdk.js','examples/plan.html','skills/humagent/SKILL.md','docs/CLI.md','LICENSE','README.md'])assert.ok(fs.existsSync(path.join(root,file)),file);
+  assertReadmeAttribution(root);
   assert.ok(fs.readFileSync(cli,'utf8').startsWith('#!/usr/bin/env node\n'));
   const help=execFileSync(process.execPath,[cli,'--help'],{cwd:directory,encoding:'utf8',timeout:10000});
   assert.match(help,/humagent demo/);

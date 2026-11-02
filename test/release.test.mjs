@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {execFileSync} from 'node:child_process';
+import {assertReadmeAttribution} from './attribution.mjs';
 const root=path.resolve(import.meta.dir,'..');
 const cli=path.join(root,'dist/cli.js');
 const pkg=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
@@ -37,17 +38,29 @@ test('package metadata has no installation build hooks',()=>{
   assert.equal(pkg.bin.humagent,'dist/cli.js');
   assert.equal(pkg.packageManager,'bun@1.4.4');
 });
-test('project credits stay in README while legal notices remain',()=>{
-  const banned=new RegExp(['good'+'[ -]?place','lav'+'ish','human'+'[- ]?review'].join('|'),'i');
-  const skip=new Set(['.git','.local','node_modules','dist']);
-  function scan(directory){for(const entry of fs.readdirSync(directory,{withFileTypes:true})){
-    if(skip.has(entry.name))continue;
-    const file=path.join(directory,entry.name);
-    if(entry.isDirectory())scan(file);
-    else if(entry.name!=='README.md'&&/\.(md|ts|js|mjs|html|json|ya?ml)$/.test(entry.name))assert.ok(!banned.test(fs.readFileSync(file,'utf8')),file);
-  }}
-  scan(root);
-  const notices=fs.readFileSync(path.join(root,'THIRD-PARTY-NOTICES.md'),'utf8');
-  for(const author of ['Kun Chen','Peter Yang'])assert.ok(notices.includes(`Copyright (c) 2026 ${author}`));
-  assert.equal((notices.match(/Permission is hereby granted/g)||[]).length,2);
+test('upstream names and full license notices stay only in the root README',()=>{
+  assertReadmeAttribution(root);
+});
+test('attribution checks catch names in source, build output, and nested READMEs',()=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'humagent-attribution-'));
+  try {
+    for(const file of ['README.md','LICENSE','web/vendor/targets.js','web/vendor/anchors.js']) {
+      const destination=path.join(directory,file);
+      fs.mkdirSync(path.dirname(destination),{recursive:true});
+      fs.copyFileSync(path.join(root,file),destination);
+    }
+    const identifiers=assertReadmeAttribution(directory);
+    for(const relative of ['source.js','dist/source.js','nested/README.md']) {
+      const file=path.join(directory,relative);
+      fs.mkdirSync(path.dirname(file),{recursive:true});
+      for(const identifier of identifiers) {
+        fs.writeFileSync(file,identifier);
+        assert.throws(()=>assertReadmeAttribution(directory),/Credit outside README/);
+      }
+      fs.rmSync(file);
+    }
+    const readme=path.join(directory,'README.md');
+    fs.writeFileSync(readme,fs.readFileSync(readme,'utf8').replace('Permission is hereby granted','Notice removed'));
+    assert.throws(()=>assertReadmeAttribution(directory),/Full MIT notice missing/);
+  } finally {fs.rmSync(directory,{recursive:true,force:true});}
 });

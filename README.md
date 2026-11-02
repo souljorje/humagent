@@ -192,4 +192,73 @@ Some targeting and text-anchoring helpers adapt their MIT-licensed code. Neither
 Targeting helpers derive from revision `69bf3090b24a04773ffd05d2e0b23d91ca41923b`, file `src/artifact-sdk.js`.
 Text anchors derive from revision `dbcb7a69fa4739c4245ee178468f2bc2d6fb2991`, file `src/anchor-text.js`.
 
-Humagent uses the [MIT License](LICENSE). [Third-party notices](THIRD-PARTY-NOTICES.md) preserve the original copyright and license text.
+Humagent uses the [MIT License](LICENSE). The notices below apply to the adapted helpers.
+
+### Source credits
+
+| Helper | Project | Author |
+| --- | --- | --- |
+| `web/vendor/targets.js` | [Lavish](https://github.com/kunchenguid/lavish-axi) | Kun Chen |
+| `web/vendor/anchors.js` | [Human Review](https://github.com/petergyang/human-review) | Peter Yang |
+
+### Third-party notices
+
+Keep these notices with copies of the adapted helpers. The npm package includes this README.
+
+<details>
+<summary>Element targeting helpers: copyright and MIT license</summary>
+
+```text
+MIT License
+
+Copyright (c) 2026 Kun Chen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+</details>
+
+<details>
+<summary>Text anchoring helpers: copyright and MIT license</summary>
+
+```text
+MIT License
+
+Copyright (c) 2026 Peter Yang
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+</details>

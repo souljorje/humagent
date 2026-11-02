@@ -281,9 +281,11 @@ A repository commit does not authorize publication, deployment, or merging.
 
 ## 14. Attribution
 
-Keep project credits and source revisions in the README. Preserve copyright and license notices for adapted helpers.
+Keep upstream project names, author names, and source revisions only in the root README.
 
-[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) identifies the files and their license terms. These helpers do not introduce runtime package dependencies.
+The [README notices](../README.md#third-party-notices) retain the full copyright and license text for each adapted helper. Include the README in every package. Use links to these notices elsewhere.
+
+Check source files and package contents for names outside the README. These helpers do not introduce runtime package dependencies.
 
 ## 15. Acceptance and evidence
 

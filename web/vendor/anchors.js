@@ -1,5 +1,4 @@
-/* Copyright (c) 2026 Peter Yang. Adapted under the MIT License.
- * See THIRD-PARTY-NOTICES.md and the README credits. */
+/* Adapted helper. See README.md#third-party-notices for copyright and license terms. */
 export const CONTEXT_PAD = 32;
 export function buildContext(text,start,end,pad=CONTEXT_PAD) {
   return {prefix:text.slice(Math.max(0,start-pad),start),quote:text.slice(start,end),suffix:text.slice(end,Math.min(text.length,end+pad))};

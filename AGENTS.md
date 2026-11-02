@@ -32,7 +32,9 @@ Keep control credentials outside frames. Apply the existing agent's permission r
 
 Keep dependencies limited. Preserve copyright and license notices for copied or adapted code.
 
-Keep project inspiration and historical source references in the README. Keep legal notices in `THIRD-PARTY-NOTICES.md`.
+Keep upstream project names, author names, source references, and full license notices only in the root README.
+
+Include that README in every package. Use a README link in helper headers. Check both source files and the package.
 
 ## Documentation
 

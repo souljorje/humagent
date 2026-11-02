@@ -1,5 +1,4 @@
-/* Copyright (c) 2026 Kun Chen. Adapted under the MIT License.
- * See THIRD-PARTY-NOTICES.md and the README credits. */
+/* Adapted helper. See README.md#third-party-notices for copyright and license terms. */
 export function selector(el) {
   if (!el || !el.tagName) return '';
   const parts = [];
