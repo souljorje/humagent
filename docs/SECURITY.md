@@ -1,6 +1,6 @@
 # Security model and limits
 
-Humagent v0.1 is a local development preview. It is not a hardened multi-user service. Do not use it to execute malicious websites.
+Humagent is a local collaboration tool. It is not a multi-user hosting service. Do not use it to execute malicious websites.
 
 ## Browser isolation
 

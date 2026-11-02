@@ -7,10 +7,12 @@ const storageKey=`humagent:draft:${id}`,outboxKey=`humagent:outbox:${id}`;
 function read(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
 const draft=read(storageKey,{});let mode=draft.mode||'interact',selection=draft.selection||null;
 let session=null,loadedRevision=null,bridgeReady=false,syncing=null,signature='',replySeen=new Set(),pending=read(outboxKey,[]);
+$('wait-command').textContent=id?`humagent wait ${id} --timeout 50 --lease 600`:'Open a session with humagent open.';
+$('copy-command').onclick=async()=>{try{await navigator.clipboard.writeText($('wait-command').textContent);$('copy-command').textContent='Copied';setTimeout(()=>$('copy-command').textContent='Copy command',2000);}catch{error('Select and copy the command manually.');}};
 $('message').value=draft.text||'';$('replacement').value=draft.replacement||'';
 function error(message){$('error').textContent=message;$('error').hidden=!message;}
 function saveDraft(){try{localStorage.setItem(storageKey,JSON.stringify({text:$('message').value,replacement:$('replacement').value,selection,mode}));}catch{error('Browser storage is full; keep this tab open until you send your draft.');}}
-function saveOutbox(){localStorage.setItem(outboxKey,JSON.stringify(pending));$('outbox').hidden=!pending.length;$('outbox-count').textContent=`${pending.length} input${pending.length===1?'':'s'} awaiting confirmation`;}
+function saveOutbox(){try{localStorage.setItem(outboxKey,JSON.stringify(pending));}catch{error('Browser storage is unavailable. Keep this tab open until delivery succeeds.');}$('outbox').hidden=!pending.length;$('outbox-count').textContent=`${pending.length} input${pending.length===1?'':'s'} awaiting confirmation`;}
 async function api(action='',method='GET',data) {
   if(!capability)throw new Error('Open this session through the Humagent CLI to obtain its browser capability.');
   const response=await fetch(`/api/sessions/${id}${action?'/'+action:''}`,{method,headers:{'x-humagent-session':capability,'content-type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});
@@ -47,24 +49,26 @@ async function sync(){
   if(syncing)return syncing;
   syncing=(async()=>{const updated=await api();const first=!session;const reconnected=!!session&&session.surface.origin!==updated.surface.origin;if(reconnected){bridgeReady=false;error('The service restarted. Refresh the interface to reconnect.');}session=updated;$('title').textContent=session.title;document.title=`${session.title} · Humagent`;
     $('presence').textContent=session.ended?'Ended':session.agent==='waiting'?'Agent listening':session.agent==='working'?'Agent working':'No agent listening';$('presence').dataset.state=session.agent;
-    $('send').disabled=session.ended;$('end').disabled=session.ended;
+    $('send').disabled=session.ended;$('end').disabled=session.ended;$('agent-help').hidden=session.ended||session.agent!=='idle';
     if(first){$('frame').src=session.surface.frameUrl;loadedRevision=session.revision;replySeen=new Set(session.replies.map(r=>r.id));}
     $('update').hidden=!reconnected&&(!loadedRevision||loadedRevision===session.revision);
     for(const reply of session.replies)if(!replySeen.has(reply.id)){post('reply',reply);replySeen.add(reply.id);}
     if(session.ended)post('ended');renderConversation();
-  })().catch(e=>{error(e.message);$('presence').textContent='Disconnected';}).finally(()=>{syncing=null;});return syncing;
+  })().catch(e=>{error(e.message);$('presence').textContent='Disconnected';$('send').disabled=true;$('connecting').hidden=true;}).finally(()=>{syncing=null;});return syncing;
 }
 async function transmit(event){
   if(!pending.some(e=>e.clientId===event.clientId)){pending.push(event);saveOutbox();}
   const result=await api('events','POST',event);pending=pending.filter(e=>e.clientId!==event.clientId);saveOutbox();await sync();return result;
 }
+$('message').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.metaKey||event.ctrlKey)&&!$('send').disabled){event.preventDefault();$('composer').requestSubmit();}});
 $('composer').addEventListener('submit',async event=>{
   event.preventDefault();const text=$('message').value.trim();if(!text&&!(selection&&mode==='edit'))return;
   const value={protocol:1,clientId:crypto.randomUUID(),revision:selection?.revision||loadedRevision,kind:'message',payload:{text}};
   if(selection&&mode==='annotate'){value.kind='annotation';value.payload={target:selection.target,text};}
   if(selection&&mode==='edit'){value.kind='edit';value.payload={target:selection.target,before:selection.before,after:$('replacement').value,explanation:text};}
   const previous=$('message').value;$('send').disabled=true;
-  try{error('');await transmit(value);if($('message').value===previous)$('message').value='';selection=null;$('replacement').value='';renderTarget();saveDraft();}
+  const existing=pending.find(e=>e.revision===value.revision&&e.kind===value.kind&&JSON.stringify(e.payload)===JSON.stringify(value.payload));
+  try{error('');await transmit(existing||value);if($('message').value===previous)$('message').value='';selection=null;$('replacement').value='';renderTarget();saveDraft();}
   catch(e){error(e.message);}finally{$('send').disabled=!!session?.ended;}
 });
 for(const name of ['message','replacement'])$(name).addEventListener('input',saveDraft);
@@ -97,4 +101,4 @@ window.addEventListener('message',async event=>{
   }catch(e){error(e.message);$('frame').contentWindow.postMessage({humagent:1,channel:session.surface.channel,method:'result',id:msg.id,error:e.message},session.surface.origin);}
 });
 async function listen(){while(true){try{const response=await fetch(`/api/sessions/${id}/stream`,{headers:{'x-humagent-session':capability}});if(!response.ok)throw new Error('Connection lost');const reader=response.body.getReader();while(true){const {done}=await reader.read();if(done)break;await sync();}}catch{}$('presence').textContent='Reconnecting';await new Promise(r=>setTimeout(r,2000));}}
-setMode(mode);saveOutbox();await sync();if(session){void listen();setInterval(sync,3000);setTimeout(()=>{if(!bridgeReady)error('The interface has not connected. Its CSP or framework may block injection; see attachment limitations in the README.');},8000);}
+setMode(mode);saveOutbox();await sync();if(session){void listen();setInterval(sync,3000);setTimeout(()=>{if(!bridgeReady){$('connecting').hidden=true;error('The interface did not connect. Check the local server and its security policy. Your page remains visible.');}},8000);}

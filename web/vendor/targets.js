@@ -1,5 +1,5 @@
-/* Adapted from lavish-axi/src/artifact-sdk.js, MIT, Kun Chen.
- * See THIRD-PARTY-NOTICES.md. Diagram/layout logic intentionally omitted. */
+/* Copyright (c) 2026 Kun Chen. Adapted under the MIT License.
+ * See THIRD-PARTY-NOTICES.md and the README credits. */
 export function selector(el) {
   if (!el || !el.tagName) return '';
   const parts = [];

@@ -1,93 +1,41 @@
-# v0.1 verification record
+# Verification
 
-Date: 2026-11-02. Status: local development preview.
+## Release candidate
 
-The implementation is on `feat/initial-runtime` in [PR #1](https://github.com/souljorje/humagent/pull/1). This work does not merge, publish, or deploy the project.
+The check workflow builds the archive with Bun 1.4.4. It tests the browser and agent loop on Ubuntu 24.04.
 
-## Bun migration
+A separate matrix installs that same archive with npm. The matrix covers Node.js 24 on Linux and Node.js 22 on macOS and Windows.
 
-The user selected Bun after the initial Node.js implementation. Bun now runs the CLI, server, TypeScript compiler, tests, browser driver, and packaging.
+A runner job checks Bun execution, pnpm execution, and npx installation from a fresh cache. These jobs do not publish a package.
 
-Tested runtime: **Bun 1.4.4 on Ubuntu 24.04**. TypeScript remains at 5.8.3. Playwright remains at 1.56.1 with its Chromium 141 browser.
+See [Check runs](https://github.com/souljorje/humagent/actions/workflows/check.yml) for the result of a specific commit. Do not infer success from this document alone.
 
-Verified runtime commit: `1b2857715da9669dea8949232ad0f8ae562f632b`.
+## Checks
 
-The [first complete Bun CI run](https://github.com/souljorje/humagent/actions/runs/41460266495) passed these checks:
+- Protocol tests check bounded input, exact edit values, and structured submissions.
+- Store tests check retries, leases, acknowledgments, restart, and conflicting revisions.
+- HTTP tests check credentials, origin separation, paths, proxy requests, and WebSocket upgrades.
+- CLI tests check Bun execution, help, versions, arguments, and skill installation.
+- Browser tests check forms, annotations, replies, refresh, restart, and narrow layouts.
+- Package tests check files, license notices, executable behavior, and the absence of installation build hooks.
+- Installation tests exercise the packaged server through npm and npx without requiring Bun.
 
-| Command or check | Observed result |
-| --- | --- |
-| `bun install` | Installation and the prepare build passed. Bun generated the new lockfile. |
-| `bun run typecheck` | Type checking passed under Bun. |
-| `bun run test` | Core, HTTP, and CLI tests passed with `bun:test`. |
-| CLI subprocess test | The CLI started a Bun server and completed wait, delivery, renewal, reply, end, setup, and stop. |
-| `bunx --bun playwright-core install --with-deps chromium` | Browser installation passed. |
-| `bun run test:browser` | All existing browser scenarios passed under Bun. |
-| `bun pm pack` | Bun created the package archive. |
-| `bun run test:package` | The extracted executable used its Bun shebang without a `node_modules` directory. |
+## Local checks for this change
 
-The committed `bun.lock` comes from this run. The delivery workflow uses `bun install --frozen-lockfile` and no npm lockfile. Use the current PR's Check run for the frozen-install result after these documentation changes.
+Node.js 22.16.0 executed the compiled archive after a clean npm installation. The test exercised the session loop and localhost proxy.
 
-No Node.js process runs the project scripts. GitHub's own actions can use their internal JavaScript runtime. That action implementation is not a Humagent runtime dependency.
-
-## Browser coverage
-
-The browser suite checks these behaviors:
-
-- Form values survive workspace reload. Coverage includes radio, text, textarea, select, and checkbox controls.
-- Form submission reaches a waiting agent as structured JSON. A receipt-specific reply appears in conversation and completes the batch.
-- A new intent with nested values needs no runtime handler.
-- Element annotations and exact replacements reach the session without browser writes to source.
-- A selected range retains quote, prefix, and suffix evidence.
-- A stale source revision returns `STALE_REVISION`.
-- Explicit refresh loads changed source and preserves the workspace draft and persisted form values.
-- Server restart retains session data. Explicit refresh reconnects the frame to its new origin.
-- The calculator changes locally without creating agent events. Explicit submission creates an event.
-- An existing localhost application retains buttons, assets, CSS, and JSON API requests through the proxy.
-- An application frame cannot read the control API without credentials.
-- Desktop and 390 px layouts remain within the viewport.
-
-These tests use a simulated agent consumer. They are not real user sessions in Claude Code or Codex.
-
-## Core and HTTP coverage
-
-The core tests cover protocol validation, payload limits, reserved keys, persistence, input retries, reply retries, and source revisions.
-
-They also cover state versions, receipt-specific completion, competing consumers, lease expiry, renewal, restart, ended sessions, corrupt state, and quote anchors.
-
-HTTP tests cover separate origins, SDK injection, session permissions, hostile headers, and the single-writer lock.
-
-They reject unsafe paths, escaped symlinks, remote targets, and credential-bearing URLs. They check wait results, HTTP proxy behavior, external redirect refusal, and WebSocket upgrades.
-
-## Earlier evidence
-
-The original specification preceded implementation in commit `9ac726ec0d20cacb51e583e307300441fdd81db2`.
-
-[Original Node.js CI](https://github.com/souljorje/humagent/actions/runs/41458116439) passed before this migration. Its runtime was Node.js 22 on Ubuntu 24.04. It checked 22 core/HTTP tests, browser behavior, and package creation.
-
-The earlier authoring session also checked CLI processes and an extracted package locally with Node.js. These results are historical evidence, not the Bun requirement.
-
-The earlier session inspected desktop and mobile CI screenshots. It corrected refresh after server restart and a browser assertion that read the previous document too early.
-
-The earlier container blocked localhost browser navigation. This migration environment has no Bun binary and cannot resolve GitHub through its shell. This migration therefore uses GitHub Actions for Bun execution and browser evidence. No local Bun test result is claimed.
-
-## Documentation
-
-The README, specification, SDK guide, security guide, and agent skill use the selected writing guide. Engineering instructions link to the [ASD-STE100 skill](https://github.com/danyuchn/asd-ste100-skill/blob/master/SKILL.md).
-
-The rewrite preserves commands, conditions, permissions, and uncertainty. It does not claim certification against ASD's official dictionary. License notices remain unchanged.
+The local npx test passed. The authoring environment cannot install Bun through its shell. CI supplies the pinned Bun and browser checks.
 
 ## Remaining limits
 
-Real agent sessions, macOS, Windows, Safari, Firefox, assistive technology, and teammate onboarding remain untested.
+The suite uses representative local pages and a small HTTP application. It does not prove compatibility with every application framework.
 
-Existing-app tests use a small HTTP application and a WebSocket fixture. They do not establish general Vite, Next.js, or SvelteKit compatibility.
+Real agent-provider sessions, assistive technology, Safari, and Firefox require separate checks. The tests are not an independent security audit.
 
-Cookie authentication and transparent service-worker behavior are unsupported. The proxy accepts explicit HTTP loopback targets only.
+Cookie authentication, remote websites, and transparent service-worker behavior are unsupported.
 
-A source revision hashes entry HTML, not every dependency. Dynamic nonces, timestamps, and client-only changes need additional care.
+A source revision hashes entry HTML rather than every dependency. Dynamic HTML can invalidate a revision without an apparent content change.
 
-Form persistence is explicit. Humagent does not preserve the full application heap, scroll position, or every framework state value.
+Humagent preserves explicit form state and its own drafts. It does not preserve an arbitrary application's memory.
 
-Exact edits remain proposals. Markdown rendering, rich-text editing, automatic source patches, MCP Apps, schema renderers, React compilation, and multi-user hosting remain outside v0.1.
-
-The tests are not a security audit. Use trusted development artifacts and dedicated directories. Do not treat generated pages as safe merely because they run inside a frame.
+Registry publication, trusted-publisher configuration, and post-publication checks require maintainer action.

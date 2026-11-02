@@ -1,5 +1,5 @@
-/* Adapted from human-review/src/anchor-text.js, MIT, Peter Yang.
- * Changes: ambiguous equally scored matches fail closed. See notices. */
+/* Copyright (c) 2026 Peter Yang. Adapted under the MIT License.
+ * See THIRD-PARTY-NOTICES.md and the README credits. */
 export const CONTEXT_PAD = 32;
 export function buildContext(text,start,end,pad=CONTEXT_PAD) {
   return {prefix:text.slice(Math.max(0,start-pad),start),quote:text.slice(start,end),suffix:text.slice(end,Math.min(text.length,end+pad))};

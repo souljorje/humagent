@@ -1,41 +1,53 @@
 # Humagent engineering
 
-Read [docs/SPEC.md](docs/SPEC.md) before changing behavior. Humagent connects an existing agent to an interface. It is not a business renderer or an agent runner.
+Read [docs/SPEC.md](docs/SPEC.md) before changing behavior. Humagent connects an existing agent to an interface.
 
 Preserve application behavior by default. Do not add task-specific backend handlers.
 
 ## Runtime and checks
 
-Use Bun 1.4.4 for runtime, dependencies, tests, and packaging. Keep the supported minimum in `package.json`. Keep the CI version consistent with that requirement.
+Use Bun 1.4.4 for development, dependencies, tests, and builds. Keep `bun.lock`. Use frozen installation in CI.
 
-Use TypeScript for the server and CLI. Use browser-native modules for the workspace. Bun can use the existing `node:*` APIs. Do not introduce a Node.js subprocess.
+Use TypeScript for the server and CLI. Use browser-native modules for the workspace.
 
-Use `bun.lock` as the dependency lockfile. Run `bun install --frozen-lockfile` for reproducible installation. Do not restore `package-lock.json`.
+The published JavaScript must run on Node.js 22+ and Bun 1.4.4+. Keep the Node shebang for npm and npx compatibility.
 
-Run `bun run check` after code changes. Run `bun run test:browser` when a browser is available. Run `bun pm pack` before `bun run test:package`. Record any check that cannot run.
+The CLI starts its server with the same runtime executable. Do not require Bun for an npm user's installation.
 
-Test an existing application and a generated mini-app. Neither test should need platform changes. Keep screenshots, state, and logs in `.local/`.
+Run `bun run check` after code changes. Run `bun run test:browser` after browser changes.
+
+Run `bun pm pack` before package checks. Run `bun run test:package` and `bun run test:install`.
+
+Record checks that cannot run. Test an existing application and a generated mini-app. Keep temporary output in `.local/`.
 
 ## Data and permissions
 
-Give each interaction an explicit target, revision, and delivery receipt. Do not remove feedback when an agent reads it. Do not silently attach stale feedback to a new target.
+Give each interaction an explicit target and revision. Preserve input until receipt-specific acknowledgment.
 
-Do not serialize a running application's DOM into its source. Keep control credentials outside frames and artifacts. Apply the existing agent's permission rules to source changes and external actions.
+Do not silently attach stale input to another target. Never serialize an application's DOM into its source.
 
-## Reuse
+Keep control credentials outside frames. Apply the existing agent's permission rules to consequential actions.
 
-Keep dependencies limited. Preserve attribution for copied or adapted code. Do not depend on Lavish or Human Review to reuse an isolated helper. Do not rewrite their license notices.
+## Attribution
+
+Keep dependencies limited. Preserve copyright and license notices for copied or adapted code.
+
+Keep project inspiration and historical source references in the README. Keep legal notices in `THIRD-PARTY-NOTICES.md`.
 
 ## Documentation
 
 Use the [ASD-STE100 writing skill](https://github.com/danyuchn/asd-ste100-skill/blob/master/SKILL.md) for English documentation.
 
-Use its strict rules for procedures, safety text, and agent instructions. Use its prose rules for READMEs, explanations, and PR descriptions.
+Use its strict rules for procedures and agent instructions. Use its prose rules for explanations and READMEs.
 
-Keep instructions within 20 words per sentence. Keep descriptions within 25 words per sentence. Use one instruction per sentence. Use active voice and consistent terms. Define necessary technical terms. Do not use semicolons in prose.
+Keep instructions within 20 words per sentence. Keep descriptions within 25 words per sentence.
 
-Preserve scope, conditions, numbers, and uncertainty. Do not convert an untested capability into a verified claim. Do not claim official dictionary compliance without the official dictionary.
+Use one instruction per sentence. Use active voice and consistent terms. Define necessary technical terms. Do not use semicolons in prose.
 
-## Delivery
+Preserve scope, conditions, numbers, and uncertainty. Do not claim official dictionary compliance or unsupported compatibility.
 
-Do not publish packages without authorization. Do not expose local servers, merge branches, or deploy without authorization.
+## Release
+
+Ship compiled JavaScript, browser assets, examples, and the skill. Installation must not execute build or download scripts.
+
+Do not publish, merge, deploy, or expose local ports without authorization. Preparing a release is not permission to publish it.

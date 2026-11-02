@@ -1,34 +1,82 @@
 name: Check
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_call:
 permissions:
   contents: read
+concurrency:
+  group: check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.4'
       - run: bun install --frozen-lockfile
-      - run: git archive --format=tar.gz --output=humagent-source.tar.gz HEAD
-      - uses: actions/upload-artifact@v4
-        with:
-          name: source-snapshot
-          path: humagent-source.tar.gz
       - run: bun run check
       - run: bunx --bun playwright-core install --with-deps chromium
       - run: bun run test:browser
       - run: bun pm pack
       - run: bun run test:package
+      - run: bun run test:install
+      - name: Create source archive
+        run: git archive --format=tar.gz --output=humagent-source.tar.gz HEAD
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bun-verification
+          name: release-candidate
           path: |
             .local/*.png
-            bun.lock
-            humagent-0.*.tgz
+            humagent-*.tgz
+            humagent-source.tar.gz
           include-hidden-files: true
           if-no-files-found: ignore
+  install:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            node: '24'
+          - os: macos-14
+            node: '22'
+          - os: windows-latest
+            node: '22'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+      - run: node test/package.mjs
+      - run: node test/install.mjs
+  runners:
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+      - run: npm install --global pnpm@10.11.0
+      - run: node test/runners.mjs

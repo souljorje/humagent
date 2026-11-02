@@ -4,6 +4,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomBytes, timingSafeEqual} from 'node:crypto';
 import {Store} from './store.js';
+import {version} from './version.js';
 import {ensure, Failure, MAX_BYTES, object} from './protocol.js';
 import {targetOf, sourceRevision, startSurface, type Surface} from './surfaces.js';
 
@@ -58,7 +59,7 @@ export async function createRuntime(options: RuntimeOptions) {
       const from = req.headers.origin;
       ensure(!from || from === origin, 'Cross-origin control requests are forbidden', 'FORBIDDEN', 403);
       const url = new URL(req.url ?? '/', origin);
-      if (url.pathname === '/health') return json(res,200,{app:'humagent',protocol:1,pid:process.pid});
+      if (url.pathname === '/health') return json(res,200,{app:'humagent',protocol:1,pid:process.pid,version});
       if (url.pathname === '/workspace' || ['/app.js','/app.css'].includes(url.pathname)) {
         ensure(req.method === 'GET', 'Method not allowed','METHOD',405);
         const name = url.pathname === '/workspace' ? 'index.html' : url.pathname.slice(1);
@@ -134,7 +135,7 @@ export async function createRuntime(options: RuntimeOptions) {
   try {await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(options.port??0,'127.0.0.1',resolve);});}
   catch(e){fs.unlinkSync(lock);throw e;}
   origin=`http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`;
-  fs.writeFileSync(path.join(directory,'server.json'),JSON.stringify({protocol:1,pid:process.pid,origin,token}),{mode:0o600});
+  fs.writeFileSync(path.join(directory,'server.json'),JSON.stringify({protocol:1,pid:process.pid,origin,token,version}),{mode:0o600});
   const close = async () => {if(closing)return;closing=true;for(const cancel of cancels)cancel();for(const stream of streams)stream.end();
       await Promise.all([...surfaces.values()].map(async p=>(await p).close()));
       server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));

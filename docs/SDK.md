@@ -44,7 +44,7 @@ The agent interprets number strings and units. A local field change does not cre
 
 The server validates `protocol`, `clientId`, `kind`, `revision`, and `payload` before storage. It adds `id`, `createdAt`, `status`, and `deliveries`.
 
-Payloads have a 256 KiB size limit and a 23-level depth limit. [src/protocol.ts](../src/protocol.ts) defines individual text limits.
+Payloads have a 256 KiB size limit and a 23-level depth limit. [The protocol source](https://github.com/souljorje/humagent/blob/feat/initial-runtime/src/protocol.ts) defines individual text limits.
 
 | Kind | Required payload | Optional payload |
 | --- | --- | --- |
@@ -98,4 +98,4 @@ The frame uses `postMessage`. The workspace checks its source, origin, and chann
 
 The CLI uses a separate control token. API requests contain JSON. Server-Sent Events (SSE) notify the workspace about changes through an authenticated fetch connection.
 
-Bun runs the CLI and server. v0.1 does not include an MCP server or an MCP Apps adapter.
+Node.js or Bun runs the CLI and server. v0.1 does not include an MCP server or an MCP Apps adapter.

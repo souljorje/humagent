@@ -2,13 +2,13 @@
 
 Status: implementation contract for v0.1.0. Updated: 2026-11-02.
 
-The user selected Bun for the runtime and development tools. The user also selected the ASD-STE100 skill for documentation. These changes do not expand the product scope.
+Bun runs development tools and builds. The distributed CLI supports Node.js and Bun. Users install compiled files without a build step.
 
 ## 1. Product
 
 Humagent connects a human and an existing agent through a local visual interface. That interface can already exist or an agent can generate it.
 
-Humagent is not an agent, model service, workflow engine, or mandatory UI framework. Good Place OS is a test consumer. It is not a dependency or privileged integration.
+Humagent is not an agent, model service, workflow engine, or mandatory UI framework.
 
 An agent can open an interface, receive input, revise source, and reply. Each task uses the same interaction contract. A new task must not require a new backend handler.
 
@@ -93,13 +93,13 @@ The service owns transport, validation, identity, storage, and delivery receipts
 
 The agent interprets requests and changes source under its existing permissions. The source application owns rendering and domain state.
 
-Use TypeScript for the server and CLI. Use browser-native JavaScript and CSS for the workspace and SDK. Bun 1.4.4 is the supported minimum and the pinned CI runtime.
+Use TypeScript for the server and CLI. Use browser-native JavaScript and CSS for the workspace and SDK. Bun 1.4.4 is the development runtime. Published JavaScript also supports Node.js 22 and later.
 
 Bun runs dependency installation, compilation, type checking, tests, browser checks, and packaging. Retain `bun.lock` as the dependency lockfile. Use frozen installation in CI.
 
-The implementation can retain Bun-compatible `node:*` APIs. Those imports do not require Node.js execution. Run TypeScript with Bun explicitly so its Node shebang cannot select another runtime.
+The implementation can retain Bun-compatible `node:*` APIs. Both supported runtimes implement these imports. Run TypeScript with Bun explicitly so its Node shebang cannot select another runtime.
 
-Do not depend on Lavish or Human Review at runtime. Build Humagent when its own source changes, not when an agent creates an HTML artifact.
+Do not depend on another review application at runtime. Build Humagent when its own source changes, not when an agent creates an HTML artifact.
 
 ## 6. Session and event contract
 
@@ -252,7 +252,9 @@ humagent stop
 humagent setup
 ```
 
-Agent-facing commands return JSON on stdout and diagnostics on stderr. CLI help returns readable text. `open` can start a detached server. `wait` stays attached to the agent invocation.
+Agent commands return JSON on stdout and diagnostics on stderr. Use `--json` to request machine-readable output explicitly.
+
+Interactive open commands show the URL and next command. CLI help returns readable text. `open` can start a detached server. `wait` stays attached to the agent invocation.
 
 A timeout returns a typed result. Failed browser launch must still return the local URL.
 
@@ -267,21 +269,21 @@ bun pm pack
 bun run test:package
 ```
 
-The executable must use the Bun shebang. Child servers must use the same Bun executable as the CLI. Package checks must run without installed runtime dependencies.
+The executable uses a Node shebang for npm and npx. Bun users can select Bun with `bunx --bun`.
+
+Child servers use the same runtime executable as the CLI. Package checks must run without installed development dependencies.
+
+Compile before packaging. Do not add install-time build scripts. Ship all browser assets, examples, documentation, and the agent skill.
 
 Ship a skill that explains review, exact edits, source ownership, submissions, acknowledgments, and agent-resumption limits. Install it only when requested. Do not automatically change global agent settings.
 
 A repository commit does not authorize publication, deployment, or merging.
 
-## 14. Reuse and provenance
+## 14. Attribution
 
-Lavish supplies interaction and annotation patterns, target helpers, SDK messaging, and conversation behavior. Human Review supplies quote anchors and exact-edit semantics.
+Keep project credits and source revisions in the README. Preserve copyright and license notices for adapted helpers.
 
-Record the exact source revisions for borrowed code. Preserve MIT notices. Identify adapted functions. Retain relevant regression tests. Neither donor application becomes a runtime dependency.
-
-Humagent owns the typed session core where donor behavior conflicts with durable acknowledgment. This is not a complete fork or a compatible replacement for either donor.
-
-[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) lists inspected sources, copied helpers, and licenses.
+[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) identifies the files and their license terms. These helpers do not introduce runtime package dependencies.
 
 ## 15. Acceptance and evidence
 
@@ -294,9 +296,17 @@ Humagent owns the typed session core where donor behavior conflicts with durable
 | Recovery | Tests cover restart, retries, interrupted waits, lease expiry, competing consumers, and stale receipts. |
 | Conflicts | Stale source revisions and state versions cannot silently replace newer work. |
 | Security | Tests reject unauthorized access, hostile headers, unsafe paths, remote targets, excessive input, and ended-session writes. |
-| Bun execution | CLI tests prove that the server uses Bun. Package checks exercise the Bun shebang. |
+| Runtime execution | Tests check Bun development and packaged execution on Node.js and Bun. |
 | Packaging | Frozen install, build, typecheck, tests, browser checks, and package creation succeed. |
 
 Record commands and results in [VERIFICATION.md](VERIFICATION.md). Distinguish requirements from implemented behavior. Distinguish automated browser tests from real user sessions in an agent harness.
 
 Name untested operating systems and frameworks. Do not claim universal website compatibility or production security without supporting evidence.
+
+## 16. Release usability
+
+Include `demo`, `doctor`, `--version`, and actionable errors. Reject invalid commands before starting a server.
+
+Skill installation must preserve modified instructions unless the user requests replacement. Demos must not overwrite user changes.
+
+Test installation from the exact archive through npm and command runners. Publication requires explicit maintainer authorization.

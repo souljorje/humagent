@@ -1,23 +1,74 @@
 {
   "name": "humagent",
   "version": "0.1.0",
-  "description": "A local visual collaboration layer for humans and existing agents.",
+  "description": "Work with your AI agent through pages, prototypes, and local apps.",
   "type": "module",
   "license": "MIT",
   "packageManager": "bun@1.4.4",
-  "engines": {"bun": ">=1.4.4"},
-  "bin": {"humagent": "dist/cli.js"},
-  "exports": {".": {"types": "./dist/server.d.ts", "import": "./dist/server.js"}, "./protocol": {"types": "./dist/protocol.d.ts", "import": "./dist/protocol.js"}},
-  "files": ["dist", "web", "skills", "examples", "docs", "README.md", "LICENSE", "THIRD-PARTY-NOTICES.md"],
-  "repository": {"type": "git", "url": "https://github.com/souljorje/humagent.git"},
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "humagent": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js"
+    }
+  },
+  "files": [
+    "dist",
+    "web",
+    "skills",
+    "examples",
+    "docs/CLI.md",
+    "docs/SDK.md",
+    "docs/SECURITY.md",
+    "README.md",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.md",
+    "CHANGELOG.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/souljorje/humagent.git"
+  },
   "scripts": {
-    "build": "bun ./node_modules/typescript/bin/tsc -p tsconfig.json",
+    "build": "bun scripts/build.mjs",
     "typecheck": "bun ./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
     "test": "bun run build && bun test ./test/*.test.mjs --timeout 15000",
     "test:browser": "bun run build && bun test/browser.mjs",
     "test:package": "bun test/package.mjs",
     "check": "bun run typecheck && bun run test",
-    "prepare": "bun run build"
+    "prepack": "bun run build",
+    "test:install": "node test/install.mjs",
+    "check:release": "bun run check && bun run test:browser && bun pm pack && bun run test:package && bun run test:install"
   },
-  "devDependencies": {"@types/node": "25.1.0", "typescript": "5.8.3", "playwright-core": "1.56.1"}
+  "devDependencies": {
+    "@types/node": "25.1.0",
+    "typescript": "5.8.3",
+    "playwright-core": "1.56.1"
+  },
+  "homepage": "https://github.com/souljorje/humagent#readme",
+  "bugs": {
+    "url": "https://github.com/souljorje/humagent/issues"
+  },
+  "author": "Georgii Bukharov",
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "generative-ui",
+    "annotations",
+    "prototypes",
+    "human-in-the-loop"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

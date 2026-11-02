@@ -5,9 +5,11 @@ description: Collaborate with a human through local HTML, an existing localhost 
 
 # Humagent
 
-Use the installed `humagent` command or `bun /path/to/humagent/dist/cli.js`. Humagent requires Bun 1.4.4 or later.
+Use the installed `humagent` command. After registry publication, you can use `npx humagent@latest` or `bunx --bun humagent@latest`.
 
-Read `humagent --help` for the installed CLI contract. Do not assume that a package named `humagent` contains this repository. Use the user's selected installation.
+Node.js 22+ or Bun 1.4.4+ is required. You do not need both runtimes. Use the user's selected installation.
+
+Read `humagent --help` for the installed CLI contract. Use `--json` for command results.
 
 ## Prepare the interface
 
@@ -21,11 +23,11 @@ Read `humagent --help` for the installed CLI contract. Do not assume that a pack
 
 Use named form controls with `data-humagent-intent`. Add a stable form ID for persistent values. Add `data-humagent-persist` only for nonsensitive data.
 
-Keep local interactions independent of model calls. Use `window.humagent.submit()` for explicit user requests in custom mini-apps. Read `docs/SDK.md` for the contract.
+Keep local interactions independent of model calls. Use `window.humagent.submit()` for explicit user requests in custom mini-apps. Read the installed `docs/SDK.md` for the contract.
 
 ## Open the session
 
-Run `humagent open TARGET`. Retain the returned session ID. The command returns a URL even when the browser opener fails.
+Run `humagent open TARGET --json`. Retain the returned session ID. The command returns a URL even when the browser opener fails.
 
 Do not share the URL publicly. It contains a session credential.
 

@@ -21,18 +21,18 @@ try{
   await frame().locator('input[value="platform-first"]').check();
   await frame().locator('input[name="outcome"]').fill('A preserved human outcome.');
   await frame().locator('textarea[name="notes"]').fill('Keep this exact note.');
-  await frame().locator('input[name="humanReview"]').uncheck();
-  await until(()=>runtime.store.get(s.session).state.forms?.launch?.notes==='Keep this exact note.'&&runtime.store.get(s.session).state.forms?.launch?.humanReview===false);
+  await frame().locator('input[name="confirmBeforeAction"]').uncheck();
+  await until(()=>runtime.store.get(s.session).state.forms?.launch?.notes==='Keep this exact note.'&&runtime.store.get(s.session).state.forms?.launch?.confirmBeforeAction===false);
   await page.reload();await page.waitForFunction(()=>document.getElementById('bridge-status').textContent==='Interface connected');
   assert.equal(await frame().locator('input[name="outcome"]').inputValue(),'A preserved human outcome.');
   assert.equal(await frame().locator('input[value="platform-first"]').isChecked(),true);
-  assert.equal(await frame().locator('input[name="humanReview"]').isChecked(),false);
+  assert.equal(await frame().locator('input[name="confirmBeforeAction"]').isChecked(),false);
   console.log('PASS persisted form state and workspace reload');
 
   const waiting=api(`/api/sessions/${s.session}/wait`,'POST',{consumer:'browser-test',timeoutMs:10000});
   await frame().locator('button[type="submit"]').click();const batch=await waiting;
   assert.equal(batch.status,'feedback');assert.equal(batch.events[0].kind,'submission');
-  assert.deepEqual(batch.events[0].payload.values,{approach:'platform-first',outcome:'A preserved human outcome.',defer:'automation',notes:'Keep this exact note.',humanReview:false});
+  assert.deepEqual(batch.events[0].payload.values,{approach:'platform-first',outcome:'A preserved human outcome.',defer:'automation',notes:'Keep this exact note.',confirmBeforeAction:false});
   await api(`/api/sessions/${s.session}/reply`,'POST',{receipt:batch.receipt,message:'Updated the plan using your choices. Nothing has been executed.'});
   await page.locator('.entry.agent').waitFor();assert.match(await page.locator('.entry.agent').textContent(),/Nothing has been executed/);
   console.log('PASS form → wait → receipt → agent reply → visible transcript');

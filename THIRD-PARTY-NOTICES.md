@@ -1,23 +1,11 @@
-# Third-party notices and extraction record
+# Third-party license notices
 
-Humagent does not depend on the Lavish or Human Review packages. It selectively
-adapts small MIT-licensed helpers and uses their behavior as design references.
-The typed durable protocol, receipt store and isolated localhost proxy are new,
-not a copied or upstream-compatible server.
+These notices apply to the adapted helpers in this package.
+See the README for project credits and source references.
 
-## Lavish AXI
+## Element targeting helpers
 
-Source: https://github.com/kunchenguid/lavish-axi
-Pinned revision: `69bf3090b24a04773ffd05d2e0b23d91ca41923b` (0.1.96).
-Source file: `src/artifact-sdk.js`, blob `fe285b0503434be1f2dcd221e2f2830cb7a52dcd`.
-Adapted destination: `web/vendor/targets.js`.
-
-Retained/adapted: selector path construction, native/ARIA interactive-control
-classification, rendered element context. Removed: layout diagnostics,
-Mermaid/Excalidraw integration, attachments and donor UI. Humagent adds stable
-`data-humagent-id` targets and keeps highlights outside application elements.
-The browser-shell/SDK/wait/reply architecture and default-interaction separation
-are design references, not copied server implementations.
+Files: `web/vendor/targets.js`.
 
 MIT License
 
@@ -41,18 +29,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-## Human Review
+## Text anchoring helpers
 
-Source: https://github.com/petergyang/human-review
-Source revision: `dbcb7a69fa4739c4245ee178468f2bc2d6fb2991`.
-Source file: `src/anchor-text.js`, blob `c264c21e4d4509916e2a7f333b5dbdefbb0d2b8f`.
-Adapted destination: `web/vendor/anchors.js`.
-
-Retained/adapted: quote/prefix/suffix context, occurrence scoring and whitespace
-normalization with offset mapping. Changes: equally scored ambiguous matches
-return null instead of selecting the first occurrence. Core tests cover the
-adapted contract. Exact-edit versus comment semantics and source-preservation
-rules are behavioral references; the global contenteditable editor is not copied.
+Files: `web/vendor/anchors.js`.
 
 MIT License
 
