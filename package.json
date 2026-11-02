@@ -6,7 +6,7 @@
   "license": "MIT",
   "packageManager": "bun@1.4.4",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "bin": {
     "humagent": "dist/cli.js"
@@ -30,8 +30,7 @@
     "docs/SDK.md",
     "docs/SECURITY.md",
     "README.md",
-    "LICENSE",
-    "CHANGELOG.md"
+    "LICENSE"
   ],
   "repository": {
     "type": "git",
@@ -39,19 +38,25 @@
   },
   "scripts": {
     "build": "bun scripts/build.mjs",
+    "lint": "bunx --bun --no-install oxlint src web scripts test",
+    "format": "bunx --bun --no-install oxfmt src web test scripts tsconfig.json package.json",
+    "format:check": "bunx --bun --no-install oxfmt --check src web test scripts tsconfig.json package.json",
     "typecheck": "bun ./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
     "test": "bun run build && bun test ./test/*.test.mjs --timeout 15000",
-    "test:browser": "bun run build && bun test/browser.mjs",
+    "test:browser": "bun run build && playwright test --config test/playwright.config.mjs",
     "test:package": "bun test/package.mjs",
-    "check": "bun run typecheck && bun run test",
+    "check": "bun run format:check && bun run typecheck && bun run test",
     "prepack": "bun run build",
     "test:install": "node test/install.mjs",
-    "check:release": "bun run check && bun run test:browser && bun pm pack && bun run test:package && bun run test:install"
+    "test:runners": "bun test/runners.mjs",
+    "check:release": "bun run check && bun run test:browser && bun pm pack && bun run test:package && bun run test:install && bun run test:runners"
   },
   "devDependencies": {
+    "@playwright/test": "1.56.1",
     "@types/node": "25.1.0",
-    "typescript": "5.8.3",
-    "playwright-core": "1.56.1"
+    "oxfmt": "0.75.0",
+    "oxlint": "1.90.0",
+    "typescript": "5.8.3"
   },
   "homepage": "https://github.com/souljorje/humagent#readme",
   "bugs": {
@@ -69,5 +74,9 @@
   ],
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.6",
+    "hono": "4.13.16"
   }
 }

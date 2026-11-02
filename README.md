@@ -1,155 +1,147 @@
 # Humagent
 
-**Review pages and work through decisions with your AI agent.**
+Review local pages and apps with your AI agent. Leave comments, propose text changes, or send form values. Your agent edits the source and replies.
 
-Open local HTML, a prototype, or a development app. Leave comments, propose text changes, or submit choices to your existing agent.
+Humagent runs locally without a model service, API key, or telemetry.
 
-## How it works
+## Use
 
-```mermaid
-flowchart LR
-    Page["You + existing or generated page"] -->|Feedback and choices| Humagent
-    Humagent -->|wait| Agent["Your agent"]
-    Agent -->|reply| Humagent
-    Humagent -->|Show reply| Page
-    Agent -->|Edit| Source["Source files"]
-    Source -->|Refresh| Page
-```
+Requires Node.js 24+ or Bun 1.4.4+.
 
-Humagent runs locally without a model service or API key. It collects no telemetry. Your agent applies source edits.
-
-## Start
-
-Requires **Node.js 22+** or **Bun 1.4.4+**.
-
-**Before npm publication:** download `humagent-0.1.0.tgz` from a successful [CI run](https://github.com/souljorje/humagent/actions).
+After npm publication:
 
 ```sh
-npm install --global ./humagent-0.1.0.tgz
+npm install --global humagent
+humagent setup
 humagent demo
 ```
 
-**After publication:**
+For one-off use, replace `humagent` with `npx humagent@latest`, `bunx --bun humagent@latest`, or `pnpm dlx humagent@latest`.
 
-```sh
-npx humagent@latest demo
-# Alternatives
-bunx --bun humagent@latest demo
-pnpm dlx humagent@latest demo
-```
+Ask your agent:
 
-For global installation, use `npm install --global humagent`. The package needs no build step.
+> Read `.agents/skills/humagent/SKILL.md`. Open my page and wait for feedback.
 
-## Connect your agent
-
-```sh
-humagent setup
-```
-
-Then ask your agent:
-
-> Read `.agents/skills/humagent/SKILL.md`. Open my page in Humagent and wait for feedback.
-
-Or ask it to create a page:
-
-> Read the Humagent skill. Create an interactive plan for this task and wait for my choices.
-
-Use `setup --directory PATH` for another skill directory. Setup preserves modified instructions unless you pass `--force`.
-
-Opening a page does not start an agent. Input stays queued until your agent runs `wait` in an active turn.
-
-## Open your work
+Opening a page does not start an agent. Input stays queued until your agent runs `wait` during an active turn.
 
 ```sh
 humagent open ./proposal.html
 humagent open http://127.0.0.1:3000
 ```
 
-Humagent opens a browser workspace and prints a private URL and session ID. Use `--no-open` to open the URL yourself.
+Use **Interact** for normal controls, **Annotate** for comments, and **Propose edit** for exact replacements. Humagent does not edit source files.
 
-| Mode | Use |
-| --- | --- |
-| **Interact** | Use the page normally. |
-| **Annotate** | Select text or an element and leave a comment. |
-| **Propose edit** | Enter an exact replacement for your agent to apply. |
+[Commands](docs/CLI.md) · [Forms and SDK](docs/SDK.md) · [Security and limits](docs/SECURITY.md)
 
-Use the conversation panel for other requests. Press Escape inside the page to return to Interact mode.
+## Build and publish
 
-When source changes, use the refresh notice. Humagent keeps drafts and opted-in form values, but application state can reset.
+Use Bun 1.4.4, Node.js 24+, and pnpm.
 
-Other examples: `humagent demo calculator` and `humagent demo existing`. Demos use editable copies and preserve your changes.
-
-## Add choices to a page
-
-Mark a form to send its named values to the agent:
-
-```html
-<form
-  id="plan"
-  data-humagent-intent="revise_plan"
-  data-humagent-message="Revise the plan. Do not execute it."
-  data-humagent-persist
->
-  <label>
-    Approach
-    <select name="approach">
-      <option value="pilot-first">Pilot first</option>
-      <option value="platform-first">Platform first</option>
-    </select>
-  </label>
-  <button type="submit">Revise plan</button>
-</form>
-```
-
-`revise_plan` describes a request. It needs no server handler and grants no permission to execute the plan.
-
-Custom interfaces can use `window.humagent.submit()`. See the [SDK guide](docs/SDK.md) for forms, saved state, and replies.
-
-## Limits and privacy
-
-Supports local HTML and supported HTTP localhost apps. Remote sites, cookie authentication, Markdown rendering, and MCP Apps are not included.
-
-Use trusted pages. Keep session URLs private. Do not expose the server publicly. Session data stays under `~/.humagent` unless you set `--home` or `HUMAGENT_HOME`.
-
-Local HTML blocks external resources unless you pass `--network`. App security policies, service workers, and server settings can prevent proxy attachment.
-
-[Commands and troubleshooting](docs/CLI.md) · [Security](docs/SECURITY.md)
-
-## Development
-
-Before PR #1 merges, clone the implementation branch:
+Server and CLI: `src/`. Browser modules: `web/`. Tests: `test/`.
 
 ```sh
-git clone --branch feat/initial-runtime https://github.com/souljorje/humagent.git
-cd humagent
 bun install --frozen-lockfile
 bun run build
 bun dist/cli.js demo
 ```
 
-[Contribute](https://github.com/souljorje/humagent/blob/feat/initial-runtime/CONTRIBUTING.md) · [Build and publish](https://github.com/souljorje/humagent/blob/feat/initial-runtime/docs/RELEASE.md)
+For local release checks, install Chromium or set `HUMAGENT_BROWSER_PATH`:
+
+```sh
+bunx --no-install playwright install chromium
+bun run check:release
+```
+
+`bun run test:browser` runs independent browser cases. Failure screenshots, traces, and the HTML report stay under `.local/`.
+
+Run the GitHub **Release** workflow on `main` with the package version. It checks the build first. Set `publish: true` to publish to npm and GitHub.
+
+GitHub releases include the source ZIP.
+
+Configure [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) for `release.yml` and the `npm` environment.
+For the first release, set the `NPM_TOKEN` repository secret if trusted publishing is unavailable.
 
 ## Inspiration and license
 
 Humagent is inspired by [Lavish AXI](https://github.com/kunchenguid/lavish-axi) and [Human Review](https://github.com/petergyang/human-review).
 
-Some targeting and text-anchoring helpers adapt their MIT-licensed code. Neither project is a runtime dependency.
-
-Targeting helpers derive from revision `69bf3090b24a04773ffd05d2e0b23d91ca41923b`, file `src/artifact-sdk.js`.
-Text anchors derive from revision `dbcb7a69fa4739c4245ee178468f2bc2d6fb2991`, file `src/anchor-text.js`.
-
-Humagent uses the [MIT License](LICENSE). The notices below apply to the adapted helpers.
+Humagent uses the [MIT License](LICENSE). Third-party code has the notices below.
 
 ### Source credits
 
-| Helper | Project | Author |
+| Helper | Source | License |
 | --- | --- | --- |
-| `web/vendor/targets.js` | [Lavish](https://github.com/kunchenguid/lavish-axi) | Kun Chen |
-| `web/vendor/anchors.js` | [Human Review](https://github.com/petergyang/human-review) | Peter Yang |
+| `web/selection/targets.js` | [source](https://github.com/kunchenguid/lavish-axi/blob/69bf3090b24a04773ffd05d2e0b23d91ca41923b/src/artifact-sdk.js) | [notice](#third-party-notices) |
+| `web/selection/targets.js` | [source](https://github.com/petergyang/human-review/blob/dbcb7a69fa4739c4245ee178468f2bc2d6fb2991/src/anchor-text.js) | [notice](#third-party-notices) |
+
+### Runtime dependencies
+
+| Package | Source | License |
+| --- | --- | --- |
+| `hono` | [source](https://github.com/honojs/hono) | [notice](#third-party-notices) |
+| `@hono/node-server` | [source](https://github.com/honojs/node-server) | [notice](#third-party-notices) |
 
 ### Third-party notices
 
-Keep these notices with copies of the adapted helpers. The npm package includes this README.
+Keep these notices with copies of the third-party code. Every release archive includes this README.
+
+<details>
+<summary><code>hono</code>: copyright and MIT license</summary>
+
+```text
+MIT License
+
+Copyright (c) 2021 - present, Yusuke Wada and Hono contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+</details>
+
+<details>
+<summary><code>@hono/node-server</code>: copyright and MIT license</summary>
+
+```text
+MIT License
+
+Copyright (c) 2022 - present, Yusuke Wada and Hono contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+</details>
 
 <details>
 <summary>Element targeting helpers: copyright and MIT license</summary>

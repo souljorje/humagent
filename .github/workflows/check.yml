@@ -16,27 +16,33 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.4'
       - run: bun install --frozen-lockfile
+      - run: bun run lint
       - run: bun run check
-      - run: bunx --bun playwright-core install --with-deps chromium
+      - run: bunx --no-install playwright install --with-deps chromium
       - run: bun run test:browser
       - run: bun pm pack
       - run: bun run test:package
       - run: bun run test:install
-      - name: Create source archive
-        run: git archive --format=tar.gz --output=humagent-source.tar.gz HEAD
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: release-candidate
           path: |
-            .local/*.png
             humagent-*.tgz
-            humagent-source.tar.gz
+          include-hidden-files: true
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-results
+          path: |
+            .local/playwright-results/
+            .local/playwright-report/
           include-hidden-files: true
           if-no-files-found: ignore
   install:
@@ -48,9 +54,9 @@ jobs:
           - os: ubuntu-24.04
             node: '24'
           - os: macos-14
-            node: '22'
+            node: '24'
           - os: windows-latest
-            node: '22'
+            node: '24'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
@@ -71,7 +77,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.4'
@@ -79,4 +85,4 @@ jobs:
         with:
           name: release-candidate
       - run: npm install --global pnpm@10.11.0
-      - run: node test/runners.mjs
+      - run: bun run test:runners
