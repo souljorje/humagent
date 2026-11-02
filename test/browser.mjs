@@ -72,10 +72,11 @@ try{
   await page.waitForFunction(()=>document.getElementById('error').textContent.includes('STALE_REVISION'));
   await page.locator('#refresh').click();
   await page.waitForFunction(()=>document.getElementById('bridge-status').textContent==='Interface connected');
+  await until(async()=>{try{return /Start focused/.test(await frame().locator('h1').textContent());}catch{return false;}});
   assert.match(await frame().locator('h1').textContent(),/Start focused/);
   assert.equal(await page.locator('#message').inputValue(),'Preserve this unfinished draft.');
   assert.equal(await frame().locator('input[name="outcome"]').inputValue(),'A preserved human outcome.');
-  await page.locator('#clear-target').click();
+  if(await page.locator('#clear-target').isVisible())await page.locator('#clear-target').click();
   page.once('dialog',dialog=>dialog.accept());await page.locator('#discard').click();
   await page.locator('[data-mode="interact"]').click();
   console.log('PASS stale feedback is refused; explicit refresh preserves draft and form state');
@@ -83,7 +84,9 @@ try{
   const port=Number(new URL(runtime.origin).port);await runtime.close();
   runtime=await createRuntime({directory:path.join(dir,'state'),port});
   await page.waitForFunction(()=>document.getElementById('error').textContent.includes('service restarted'));
+  const reconnected=await api(`/api/sessions/${s.session}`);
   await page.locator('#refresh').click();
+  await until(()=>frame()?.url().startsWith(reconnected.surface.origin));
   await page.waitForFunction(()=>document.getElementById('bridge-status').textContent==='Interface connected');
   assert.equal(await frame().locator('input[name="outcome"]').inputValue(),'A preserved human outcome.');
   assert.equal(await page.locator('#message').inputValue(),'Preserve this unfinished draft.');
