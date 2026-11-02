@@ -36,7 +36,7 @@ try {
     'web/index.html',
     'web/sdk.js',
     'web/json.js',
-    'web/selection/targets.js',
+    'web/targets.js',
     'examples/plan.html',
     'skills/humagent/SKILL.md',
     'docs/CLI.md',

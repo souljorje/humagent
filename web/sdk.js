@@ -2,7 +2,7 @@ import {
   buildContext,
   context,
   isNativeInteractiveControl,
-} from './selection/targets.js';
+} from './targets.js';
 import { cloneJson } from './json.js';
 
 const boot = window.__HUMAGENT__;

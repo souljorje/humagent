@@ -71,8 +71,8 @@ Humagent uses the [MIT License](LICENSE). Third-party code has the notices below
 
 | Helper | Source | License |
 | --- | --- | --- |
-| `web/selection/targets.js` | [source](https://github.com/kunchenguid/lavish-axi/blob/69bf3090b24a04773ffd05d2e0b23d91ca41923b/src/artifact-sdk.js) | [notice](#third-party-notices) |
-| `web/selection/targets.js` | [source](https://github.com/petergyang/human-review/blob/dbcb7a69fa4739c4245ee178468f2bc2d6fb2991/src/anchor-text.js) | [notice](#third-party-notices) |
+| `web/targets.js` | [source](https://github.com/kunchenguid/lavish-axi/blob/69bf3090b24a04773ffd05d2e0b23d91ca41923b/src/artifact-sdk.js) | [notice](#third-party-notices) |
+| `web/targets.js` | [source](https://github.com/petergyang/human-review/blob/dbcb7a69fa4739c4245ee178468f2bc2d6fb2991/src/anchor-text.js) | [notice](#third-party-notices) |
 
 ### Runtime dependencies
 

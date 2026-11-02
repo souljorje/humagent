@@ -5,7 +5,7 @@ import { fixture } from './fixtures.mjs';
 import path from 'node:path';
 import { Store } from '../dist/store.js';
 import { input, jsonValue } from '../dist/protocol.js';
-import { buildContext } from '../web/selection/targets.js';
+import { buildContext } from '../web/targets.js';
 import { cloneJson } from '../web/json.js';
 const directories = [];
 afterAll(() =>

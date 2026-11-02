@@ -106,7 +106,7 @@ test('attribution checks catch names in source, build output, and nested READMEs
       'README.md',
       'LICENSE',
       'package.json',
-      'web/selection/targets.js',
+      'web/targets.js',
     ]) {
       const destination = path.join(directory, file);
       fs.mkdirSync(path.dirname(destination), { recursive: true });

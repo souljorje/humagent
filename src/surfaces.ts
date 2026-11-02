@@ -239,7 +239,7 @@ export async function startSurface(
           [
             'sdk.js',
             'json.js',
-            'selection/targets.js',
+            'targets.js',
             'selection/anchors.js',
           ].includes(name),
           'Not found',
