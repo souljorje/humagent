@@ -1,61 +1,58 @@
-# Security model and limits
+# Security
 
-Humagent is a local collaboration tool. It is not a multi-user hosting service. Do not use it to execute malicious websites.
+Use Humagent only with trusted local pages and development apps. It is not a multi-user host or a sandbox for malicious websites.
 
-## Browser isolation
+## Isolation
 
-The workspace and each interface use separate loopback origins. The frame permits scripts and forms. It does not permit top navigation, popups, or unrestricted access to its parent.
+Each page uses a loopback origin separate from the workspace. Its iframe permits scripts and forms, but not top navigation or popups.
 
-Origin separation protects the workspace. The iframe sandbox is not sufficient by itself. The injected channel accepts human input and working-state operations only. The agent's tool permissions remain authoritative.
+The SDK channel accepts human input and working-state operations. Origin separation protects the workspace. The iframe sandbox alone is insufficient.
 
-## Credentials
+The application proxy can still reach the application's normal APIs. Do not attach to administrative or privileged internal services.
 
-Privileged API operations require a random control token. The browser receives a separate credential limited to one session. The initial URL carries this credential in its fragment. The workspace stores it in session storage and removes the fragment from the address.
+## Credentials and storage
 
-The browser credential permits input, working-state changes, transcript access, and ending that session. It cannot open targets, wait as an agent, acknowledge events, or send agent replies.
+Privileged API operations require a random control token. The browser receives a separate credential for one session.
 
-Treat session URLs as private credentials. Do not share them publicly. Do not place control credentials in an application frame.
+The initial URL carries this credential in its fragment. The workspace moves it to session storage and removes the fragment.
 
-## Stored data
+The session credential permits input, state changes, transcript access, and session ending. It cannot open targets, wait, acknowledge events, or send agent replies.
 
-Control files and atomic session files use mode `0600`. The state directory uses mode `0700` where the platform supports these permissions. These files contain human input. Humagent does not encrypt them at rest.
+Keep session URLs private. Never give control credentials to page scripts.
 
-Browser drafts and unconfirmed sends use local storage. Do not use a shared browser profile for sensitive work.
+The data directory uses mode `0700`. Control and atomic session files use `0600`, where supported. Stored input is not encrypted.
 
-## Request and path checks
+Browser drafts and unconfirmed sends use local storage. Avoid shared browser profiles for sensitive work.
 
-Humagent validates Host and Origin headers. It limits payloads and rejects unsafe prototype keys. It checks canonical paths and loopback targets. Artifact roots cannot contain Humagent's state directory.
+## Files and requests
 
-The file server rejects hidden paths and symlinks that escape the artifact root. No HTTP endpoint executes shell commands or edits source files.
+Humagent checks Host and Origin headers, canonical paths, loopback targets, payload sizes, and unsafe prototype keys.
 
-## Local HTML
+Artifact directories cannot contain Humagent's state directory. The file server rejects hidden paths, traversal, and symlinks outside the artifact directory.
 
-The file server exposes supported sibling assets. A script in the artifact can read those assets. Keep secrets outside the shared directory.
+Supported sibling assets are readable by page scripts. Keep secrets outside that directory.
 
-The default Content Security Policy (CSP) blocks external connections and resources. This policy is not an operating-system sandbox. `--network` relaxes these restrictions for trusted files.
+No HTTP endpoint executes shell commands or edits source files.
 
-Do not expose local ports through a tunnel or proxy without authentication and a documented deployment threat model.
+## Network access
 
-## Application proxy
+Local HTML blocks external connections and resources through its Content Security Policy (CSP). `--network` relaxes this policy for trusted files.
 
-The proxy forwards requests to one selected HTTP loopback origin. It does not authenticate to that origin. It removes cookie headers and preserves upstream CSP and frame protections.
+The proxy forwards requests to one selected HTTP loopback origin. It strips cookies, provides no authentication, and retains upstream CSP and frame protections.
 
-The application can still use its normal local APIs. Review only trusted development applications. Do not attach to administrative or privileged internal services.
+It rejects external redirects. Remote sites are unsupported.
 
-The proxy refuses external redirects. Remote URL review is unsupported.
+Do not expose local ports without authentication and a documented threat model. Browser policies do not provide an operating-system sandbox.
 
-## Agent permissions
+## Agent actions
 
-Page scripts and forms can submit structured requests. Humagent cannot prove that each request resulted from a human gesture.
+Page scripts can submit requests without a human gesture. Treat page-controlled content as untrusted input, not proof of user authorization.
 
-Treat page-controlled content as untrusted input. Distinguish instructions from evidence. Request authorization before consequential external actions. Form values do not grant permissions.
+Keep the agent's existing permissions. Obtain authorization before consequential external actions.
 
-## Delivery retries
+An event can arrive again after lease expiry, even if an earlier consumer acted without acknowledging it.
+Use event IDs and the workflow's approval and retry safeguards before repeating actions. Humagent does not guarantee exactly-once execution.
 
-Delivery is at-least-once. An event can arrive again after lease expiry, including when an earlier consumer acted but did not acknowledge it.
+## Report a vulnerability
 
-Use event IDs to detect repeated delivery. Apply the normal approval and idempotency rules to consequential actions. Humagent does not guarantee exactly-once execution.
-
-## Reporting
-
-Report vulnerabilities privately to the repository owner. Do not include credentials or private artifacts in public issues.
+Contact the repository owner privately. Keep credentials and private artifacts out of public issues.

@@ -1,108 +1,87 @@
 # Humagent
 
-**Work with your AI agent through pages, prototypes, and local apps.**
+**Review pages and work through decisions with your AI agent.**
 
-Open an interface. Select text, leave a comment, or propose an exact edit. Your existing agent receives the request and replies in the same workspace.
+Open local HTML, a prototype, or a development app. Leave comments, propose text changes, or submit choices to your existing agent.
 
-Generated interfaces can submit forms and structured choices. New interactions do not require new server handlers.
+## How it works
 
-Humagent runs locally. It does not run a model, require an API key, collect telemetry, or change your source files.
+```mermaid
+flowchart LR
+    Page["You + existing or generated page"] -->|Feedback and choices| Humagent
+    Humagent -->|wait| Agent["Your agent"]
+    Agent -->|reply| Humagent
+    Humagent -->|Show reply| Page
+    Agent -->|Edit| Source["Source files"]
+    Source -->|Refresh| Page
+```
+
+Humagent runs locally. Your agent applies edits. It needs no model service or API key and collects no telemetry.
 
 ## Start
 
-Use **Node.js 22+** for npm, npx, and pnpm. Use **Bun 1.4.4+** for `bunx --bun`. You do not need both runtimes.
+Requires **Node.js 22+** or **Bun 1.4.4+**.
 
-> Registry publication is separate from this repository. Until the first npm release, install a package from the CI artifacts or build from source.
-
-After publication, try the included planning example:
-
-```sh
-npx humagent@latest demo
-```
-
-Equivalent commands:
-
-```sh
-bunx --bun humagent@latest demo
-pnpm dlx humagent@latest demo
-```
-
-Or install the command:
-
-```sh
-npm install --global humagent
-humagent demo
-```
-
-The package includes compiled JavaScript and browser files. Users do not compile the package or install development dependencies.
-
-### Before the first npm release
-
-Download `humagent-0.1.0.tgz` from a successful [CI run](https://github.com/souljorje/humagent/actions).
+**Before npm publication:** download `humagent-0.1.0.tgz` from a successful [CI run](https://github.com/souljorje/humagent/actions).
 
 ```sh
 npm install --global ./humagent-0.1.0.tgz
 humagent demo
 ```
 
-The local archive contains this repository's code. A repository commit does not publish the npm package.
+**After publication:**
+
+```sh
+npx humagent@latest demo
+# Alternatives
+bunx --bun humagent@latest demo
+pnpm dlx humagent@latest demo
+```
+
+For global installation, use `npm install --global humagent`. The package needs no build step.
 
 ## Connect your agent
 
-Humagent uses the coding agent you already run. Opening a page does not start an agent.
+```sh
+humagent setup
+```
 
-1. Install the skill in your project:
+Then ask your agent:
 
-   ```sh
-   npx humagent@latest setup
-   ```
+> Read `.agents/skills/humagent/SKILL.md`. Open my page in Humagent and wait for feedback.
 
-2. Ask your agent to read `.agents/skills/humagent/SKILL.md`.
-3. Ask your agent to open a page and continue the review through Humagent.
+Or ask it to create a page:
 
-For example:
+> Read the Humagent skill. Create an interactive plan for this task and wait for my choices.
 
-> Read the Humagent skill. Create an interactive plan for this task. Open the plan and wait for my choices.
+Use `setup --directory PATH` for another skill directory. Setup preserves modified instructions unless you pass `--force`.
 
-Use `setup --directory PATH` when your agent reads skills from another directory. The command preserves an existing modified skill unless you pass `--force`.
+Opening a page does not start an agent. Input stays queued until your agent runs `wait` in an active turn.
 
-The browser shows whether an agent is listening. Input remains queued when no agent is connected. Resume your agent to process queued input.
-
-## Open your own work
-
-Review a local HTML file:
+## Open your work
 
 ```sh
 humagent open ./proposal.html
-```
-
-Review a trusted development application:
-
-```sh
 humagent open http://127.0.0.1:3000
 ```
 
-The application keeps its own renderer and build process. Humagent adds review controls through a local proxy.
+Humagent opens a browser workspace and prints a private URL and session ID. Use `--no-open` to open the URL yourself.
 
-The command prints a private browser URL and session ID. Use `--no-open` to prevent automatic browser opening.
-
-## Work in the browser
-
-| Mode | What you can do |
+| Mode | Use |
 | --- | --- |
-| **Interact** | Use links, forms, and application controls normally. This is the default. |
-| **Annotate** | Select words or click an element. Send a comment with that context. |
-| **Propose edit** | Select text or an element. Enter its exact replacement. Your agent applies the change. |
+| **Interact** | Use the page normally. |
+| **Annotate** | Select text or an element and leave a comment. |
+| **Propose edit** | Enter an exact replacement for your agent to apply. |
 
-Press Escape inside the interface to return to Interact mode. Use the conversation panel for requests that do not need a selected target.
+Use the conversation panel for other requests. Press Escape inside the page to return to Interact mode.
 
-Source changes appear as a refresh notice. Refresh explicitly to load the new version. Humagent retains its drafts and opted-in form values.
+When source changes, use the refresh notice. Humagent keeps drafts and opted-in form values, but application state can reset.
 
-Application-owned state can reset during refresh. Humagent cannot preserve every application's memory.
+Other examples: `humagent demo calculator` and `humagent demo existing`. Demos use editable copies and preserve your changes.
 
-## Add structured choices
+## Add choices to a page
 
-Add attributes to an ordinary HTML form:
+Mark a form to send its named values to the agent:
 
 ```html
 <form
@@ -122,66 +101,33 @@ Add attributes to an ordinary HTML form:
 </form>
 ```
 
-Humagent sends the named values to the agent. `revise_plan` is a request description, not executable code or an authorization.
+`revise_plan` describes a request. It needs no server handler and grants no permission to execute the plan.
 
-Custom mini-apps can use `window.humagent.submit()`. The [SDK guide](docs/SDK.md) describes state, form bindings, replies, and delivery.
+Custom interfaces can use `window.humagent.submit()`. See the [SDK guide](docs/SDK.md) for forms, saved state, and replies.
 
-## Agent commands
+## Limits and privacy
 
-Use `--json` for explicit machine-readable output. Piped output also uses JSON.
+Supports local HTML and supported HTTP localhost apps. Remote sites, cookie authentication, Markdown rendering, and MCP Apps are not included.
 
-```sh
-humagent open ./proposal.html --json
-humagent wait SESSION --consumer my-agent --timeout 50 --lease 600
-humagent reply SESSION --receipt RECEIPT --message "Updated the proposal."
-humagent wait SESSION --consumer my-agent --timeout 50 --lease 600
-```
+Use trusted pages. Keep session URLs private. Do not expose the server publicly. Session data stays under `~/.humagent` unless you set `--home` or `HUMAGENT_HOME`.
 
-Replace `SESSION` and `RECEIPT` with the returned IDs. Keep `wait` attached to the active agent turn.
+Local HTML blocks external resources unless you pass `--network`. App security policies, service workers, and server settings can prevent proxy attachment.
 
-A reply with a receipt completes that batch only. New input remains queued. The [CLI guide](docs/CLI.md) includes all commands.
+[Commands and troubleshooting](docs/CLI.md) · [Security](docs/SECURITY.md)
 
-## Examples
+## Development
+
+Before PR #1 merges, clone the implementation branch:
 
 ```sh
-humagent demo plan
-humagent demo calculator
-humagent demo existing
-```
-
-The demos cover structured planning, local calculations, and review of an ordinary page. Humagent copies them into its data directory before opening them.
-
-You can edit those copies. A repeated demo command does not overwrite your changes.
-
-## Privacy and limits
-
-Humagent stores session data under `~/.humagent`. Use `--home PATH` or `HUMAGENT_HOME` to select another directory.
-
-Keep session URLs private. Use trusted local pages and development applications. Do not expose the server through a public tunnel.
-
-Local HTML blocks external resources by default. Add `--network` only for a trusted file that needs external resources.
-
-This release supports HTML files and HTTP localhost applications. It does not support remote sites, cookie authentication, Markdown rendering, or MCP Apps.
-
-Application security policies, service workers, and development-server settings can prevent attachment. Test your application before relying on the proxy.
-
-The [security guide](docs/SECURITY.md) describes the boundaries. The [troubleshooting guide](docs/CLI.md#troubleshooting) covers common failures.
-
-## Develop and release
-
-Use Bun for development:
-
-```sh
-git clone https://github.com/souljorje/humagent.git
+git clone --branch feat/initial-runtime https://github.com/souljorje/humagent.git
 cd humagent
 bun install --frozen-lockfile
 bun run build
 bun dist/cli.js demo
 ```
 
-Before the implementation PR merges, use its `feat/initial-runtime` branch.
-
-See [CONTRIBUTING.md](https://github.com/souljorje/humagent/blob/feat/initial-runtime/CONTRIBUTING.md) for checks. See [docs/RELEASE.md](https://github.com/souljorje/humagent/blob/feat/initial-runtime/docs/RELEASE.md) for packaging and publication.
+[Contribute](https://github.com/souljorje/humagent/blob/feat/initial-runtime/CONTRIBUTING.md) · [Build and publish](https://github.com/souljorje/humagent/blob/feat/initial-runtime/docs/RELEASE.md)
 
 ## Inspiration and license
 

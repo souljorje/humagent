@@ -1,24 +1,10 @@
-# Command guide
+# Commands
 
-Run `humagent --help` to see the installed commands. Run `humagent --version` to see the installed version.
+Requires Node.js 22+ or Bun 1.4.4+. See the [README](../README.md#start) for installation.
 
-Use Node.js 22+ or Bun 1.4.4+. The packaged command does not compile source during installation.
+`humagent --help` lists commands. `humagent --version` prints the installed version. Use `--json` for JSON output. Piped output also uses JSON.
 
-## Choose a command runner
-
-After npm publication, these commands run the same package:
-
-```sh
-npx humagent@latest demo
-bunx --bun humagent@latest demo
-pnpm dlx humagent@latest demo
-```
-
-`bunx --bun` runs the command with Bun. Plain `npx` runs it with Node.js.
-
-For a global installation, use `npm install --global humagent`. Then use `humagent` directly.
-
-## Open an interface
+## Open a page
 
 ```sh
 humagent open ./page.html
@@ -26,13 +12,13 @@ humagent open http://127.0.0.1:3000/path
 humagent open ./page.html --no-open --json
 ```
 
-The command returns a session ID, source description, and private browser URL. It starts the local server when necessary.
-
-`--network` permits external resources for trusted HTML files. Without this option, external requests and resources are blocked.
+`open` starts the server if needed and returns a session ID and private browser URL.
 
 Use a dedicated artifact directory. Humagent serves supported sibling assets from that directory.
 
-## Try a demo
+`--network` allows external resources for trusted HTML files. Without it, Humagent blocks external connections and resources.
+
+## Demos
 
 ```sh
 humagent demo
@@ -40,24 +26,24 @@ humagent demo calculator
 humagent demo existing
 ```
 
-The default demo is `plan`. Humagent copies examples to `demos/VERSION` under its data directory. Existing copies remain unchanged.
+The default demo is `plan`. Demos copy examples to `demos/VERSION` under the data directory without overwriting existing copies.
 
-## Install the skill
+## Install the agent skill
 
 ```sh
 humagent setup
 humagent setup --directory ./my-agent/skills/humagent
 ```
 
-The default directory is `.agents/skills/humagent` in the current project.
+The default location is `.agents/skills/humagent` in the current project. Setup leaves identical files unchanged.
 
-Repeating setup with identical content succeeds without changes. Different content requires explicit replacement:
+To replace a modified skill, preserve any custom instructions first. Then run:
 
 ```sh
 humagent setup --directory ./my-agent/skills/humagent --force
 ```
 
-Read and preserve custom instructions before replacement. Setup does not edit global agent configuration.
+Setup does not change global agent configuration.
 
 ## Receive input
 
@@ -65,24 +51,25 @@ Read and preserve custom instructions before replacement. Setup does not edit gl
 humagent wait SESSION --consumer my-agent --timeout 50 --lease 600
 ```
 
-Replace `SESSION` with the ID from `open`.
+Use the session ID returned by `open`.
 
-The timeout controls how long this command waits. It defaults to 50 seconds and cannot exceed 600 seconds.
+| Option | Meaning | Default | Range |
+| --- | --- | --- | --- |
+| `--timeout` | Seconds to wait for input | 50 | More than 0, up to 600 |
+| `--lease` | Seconds to reserve a delivered batch | 120 | 1–3600 |
 
-The lease reserves a delivered batch for one consumer. It defaults to 120 seconds. Its range is 1–3600 seconds.
-
-| Result | Action |
+| Result | Next action |
 | --- | --- |
-| `feedback` | Read the events. Apply authorized work. Acknowledge the returned receipt. |
-| `timeout` | Repeat the wait while the review remains active. |
-| `ended` | Stop waiting. Do not reopen without a request. |
-| `interrupted` | Check server status. Resume when the server is available. |
+| `feedback` | Read all events. Apply authorized changes. Acknowledge the receipt. |
+| `timeout` | Repeat `wait` while review remains active. |
+| `ended` | Stop waiting. Reopen only on request. |
+| `interrupted` | Check server status before resuming. |
 
-Reading does not delete input. An expired lease permits another delivery. Check event IDs before repeating consequential actions.
+Keep `wait` attached to the active agent turn. A detached process does not guarantee agent resumption.
 
-Keep the command attached to the agent's active turn. A detached process does not guarantee agent resumption.
+Events remain stored until acknowledgment. They can arrive again after lease expiry. Check event IDs before repeating consequential actions.
 
-## Reply or acknowledge
+## Reply and acknowledge
 
 ```sh
 humagent reply SESSION --receipt RECEIPT --message "Updated the page."
@@ -90,76 +77,47 @@ humagent ack SESSION --receipt RECEIPT
 humagent renew SESSION --receipt RECEIPT --lease 600
 ```
 
-`reply --receipt` records the message and completes the identified batch. `ack` completes it without a message.
+Use the receipt returned by `wait`.
 
-`renew` extends the active lease. Renew before expiry when work needs more time.
+| Command | Effect |
+| --- | --- |
+| `reply --receipt` | Send a reply and complete that batch. |
+| `reply` without a receipt | Send a reply without completing work. |
+| `ack` | Complete the batch without a reply. |
+| `renew` | Extend the lease. Run it before expiry. |
 
-A reply without `--receipt` sends a message but does not complete work.
+Newer input remains queued. Run `wait` again to receive it.
 
-## Inspect or stop
+## Inspect and stop
 
-```sh
-humagent status
-humagent status SESSION
-humagent doctor
-humagent end SESSION
-humagent stop
-```
+| Command | Effect |
+| --- | --- |
+| `humagent status [SESSION]` | Show sessions without starting a stopped server. |
+| `humagent doctor` | Show runtime details and check packaged files. |
+| `humagent end SESSION` | Reject new input. Keep previously queued input available. |
+| `humagent stop` | Stop the server without deleting sessions. |
 
-`status` reports sessions without starting a stopped server. `doctor` reports runtime information and checks packaged files.
-
-`end` rejects new input for that session. Previously queued input remains available to the agent.
-
-`stop` stops the server. It does not delete saved sessions.
-
-## Data and server options
+## Storage and ports
 
 | Setting | Meaning |
 | --- | --- |
-| `--home PATH` | Select the data directory for this command. |
-| `HUMAGENT_HOME` | Select the default data directory. |
-| `HUMAGENT_PORT` | Select the server port. Use `0` to choose a free port. |
-| `humagent server --port N` | Start a foreground server on the specified port. |
-| `--json` | Request JSON output. Piped output also uses JSON. |
+| `--home PATH` | Data directory for this command |
+| `HUMAGENT_HOME` | Default data directory, otherwise `~/.humagent` |
+| `HUMAGENT_PORT` | Server port, or `0` for a free port |
+| `humagent server --port N` | Start a foreground server on port N |
 
-The default data directory is `~/.humagent`. The server chooses a free loopback port by default.
-
-Use the same data directory for commands that share sessions. Do not publish this directory or its credentials.
+The default server uses a free loopback port. Commands must use the same data directory to share sessions. Keep that directory private.
 
 ## Troubleshooting
 
-### No agent is listening
-
-The browser does not run an agent. Ask your existing agent to read the skill and run `humagent wait SESSION`.
-
-Queued feedback stays available. A closed agent turn needs a new user message or a supported harness callback.
-
-### The browser does not open
-
-Use the printed URL manually. On a headless computer, pass `--no-open`. The interface and browser normally run on the same computer.
-
-### An older server is running
-
-Run `humagent stop`. Repeat `open` with the updated command. Saved sessions remain available.
-
-### The source changed
-
-Refresh the interface. Check the selected target. Discard the stale pending submission. Submit the confirmed request again.
-
-Do not change an old event's revision to bypass the conflict check.
-
-### The interface does not connect
-
-Check that the localhost server is running. Open its final HTML route directly.
-
-Upstream CSP, frame restrictions, service workers, and absolute development-server URLs can prevent attachment. Humagent does not bypass these protections.
-
-### The command cannot start
-
-Run `humagent doctor`. Check your Node.js or Bun version. Read `server.log` in the data directory for server failures.
-
-For a port conflict, set `HUMAGENT_PORT=0`. On Windows PowerShell, use `$env:HUMAGENT_PORT="0"` before the command.
-
-### The registry package is unavailable
-
-A repository change does not publish a package. Use the CI tarball until the maintainer publishes the first npm release.
+| Problem | Action |
+| --- | --- |
+| No agent is listening | Ask your agent to run `humagent wait SESSION`. Queued input remains available. |
+| The agent turn ended | Send the agent a new message, unless its harness provides a supported completion callback. |
+| The browser did not open | Open the printed URL. Use `--no-open` on a headless computer. The browser normally runs on the same computer. |
+| An older server is running | Run `humagent stop`, then repeat `open`. Saved sessions remain available. |
+| The source changed | Refresh, check the target, discard the stale submission, then submit again. Do not relabel the old revision. |
+| A local app does not connect | Check its server and final HTML route. CSP, frame restrictions, service workers, and absolute URLs can block attachment. |
+| The command cannot start | Run `humagent doctor`. Check the runtime version and `server.log` in the data directory. |
+| Port conflict | Set `HUMAGENT_PORT=0`. In PowerShell, use `$env:HUMAGENT_PORT="0"`. |
+| npm package unavailable | Use the [CI archive](https://github.com/souljorje/humagent/actions) until the first npm release. |

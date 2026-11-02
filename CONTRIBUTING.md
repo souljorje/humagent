@@ -1,8 +1,8 @@
-# Contribute to Humagent
+# Contributing
 
-Use Bun 1.4.4 for development. Read [AGENTS.md](AGENTS.md) and [the specification](docs/SPEC.md) before changing behavior.
+Use Bun 1.4.4. Read [AGENTS.md](AGENTS.md) and [the specification](docs/SPEC.md) before changing behavior.
 
-## Install and check
+## Checks
 
 ```sh
 bun install --frozen-lockfile
@@ -11,11 +11,9 @@ bunx --bun playwright-core install chromium
 bun run test:browser
 ```
 
-Linux CI installs browser system dependencies with `--with-deps`. Set `HUMAGENT_BROWSER_PATH` to use an existing Chromium executable.
+Linux CI uses `--with-deps` for browser system dependencies. Set `HUMAGENT_BROWSER_PATH` to use an existing Chromium executable.
 
-## Check the package
-
-Install Node.js 22+ for npm compatibility checks.
+Package checks also need Node.js 22+:
 
 ```sh
 bun pm pack
@@ -23,14 +21,14 @@ bun run test:package
 bun run test:install
 ```
 
-The checks install the archive in a temporary directory. They do not publish to a registry.
+These checks install the archive in a temporary directory without publishing it.
 
-## Keep the scope clear
+## Changes
 
-Preserve ordinary application behavior in Interact mode. Use structured input for task-specific requests. Do not add a backend handler for each new workflow.
+Preserve application behavior in Interact mode. Keep task-specific requests as data, not new backend handlers.
 
-Keep source files unchanged during browser review. Add a regression test for delivery, revision, security, or attachment changes.
+Do not write source files during review. Add regression tests for changes to delivery, revisions, security, or attachment.
 
-Retain license notices for adapted code. Use the documentation rules in `AGENTS.md`. Record compatibility limits rather than claiming unsupported behavior.
+Follow the writing and attribution rules in `AGENTS.md`. Record compatibility limits. Keep screenshots, state, and logs in `.local/`.
 
-Keep screenshots, state, and logs in `.local/`. Do not commit credentials or generated archives.
+Do not commit credentials or generated archives.
