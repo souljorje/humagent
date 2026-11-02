@@ -1,111 +1,90 @@
-# SDK and protocol v1
+# Forms and SDK
 
-Humagent injects `window.humagent` into supported pages. Wait for `humagent:ready` or the SDK's `ready` promise before use.
+Humagent adds `window.humagent` to attached pages. Use a marked form to send named values:
 
-## API
+```html
+<form id="plan" data-humagent-intent="revise_plan" data-humagent-persist>
+  <label>Approach <select name="approach">
+    <option value="pilot">Pilot first</option>
+    <option value="platform">Platform first</option>
+  </select></label>
+  <button type="submit">Revise plan</button>
+</form>
+```
 
-| API | Effect |
-| --- | --- |
-| `window.humagent.ready` | Resolve after connection and form restoration. |
-| `submit({ intent, values, message? })` | Send a structured request. Resolve to the stored event. |
-| `getState()` | Return a JSON copy of the frame's working state. |
-| `setState(patch)` | Merge top-level fields and save against the current state version. |
-| `on('reply', handler)` | Subscribe while the frame exists. Return an unsubscribe function. |
+`revise_plan` names a request for the agent. It needs no server handler and grants no permission to execute the plan.
 
-Intents describe requests to the agent. They need no server handlers and never execute as code.
+Add `data-humagent-message` for context. Use a stable form ID and `data-humagent-persist` to save nonsensitive values across refresh.
 
-State writes run in sequence within each frame. A stale version returns an error instead of replacing another view's values.
+Unmarked forms keep their normal behavior. Marked forms send values on submission.
 
-The `forms` key stores persisted form values. Use another key for mini-app data. `setState` does not update the application's database.
-
-Refresh can reset application memory. Reply history remains in the workspace, independent of frame subscriptions.
-
-## Forms
-
-1. Mark the form with `data-humagent-intent`.
-2. Add `data-humagent-message` when the request needs context.
-3. Assign a stable form `id`.
-4. Add `data-humagent-persist` only for values suitable for storage.
-
-Only explicit submission sends an agent request. Unmarked forms keep their normal behavior.
-
-| Control | Submitted value |
+| Control | Value |
 | --- | --- |
 | Single checkbox | Boolean |
 | Checkbox group | Array of checked values |
 | Radio group | Selected value or `null` |
-| Multiple selection | Array of selected values |
-| Repeated field name | Array of values |
-| Other included controls | String, including number and range inputs |
+| Multiple selection or repeated name | Array of values |
+| Other controls | String, including numbers and ranges |
 
-The SDK collects named, enabled controls. It excludes disabled fieldsets and file, password, hidden, submit, reset, and button inputs.
+The SDK collects named, enabled controls. It skips disabled fieldsets and file, password, hidden, submit, reset, and button inputs.
+It rejects names that could change JavaScript prototypes.
 
-It rejects names that could modify JavaScript prototypes. The agent interprets number strings and units.
+## JavaScript
+
+Wait for `humagent:ready`. If the SDK already exists, await `window.humagent.ready`.
+
+| API | Effect |
+| --- | --- |
+| `ready` | Resolve after connection and form restoration. |
+| `submit({intent, values, message?})` | Store a request. Return its event or an error. |
+| `getState()` | Return a JSON copy of saved state. |
+| `setState(patch)` | Merge top-level fields against the current state version. |
+| `on('reply', handler)` | Receive replies while the page exists. Return an unsubscribe function. |
+
+Show submission errors so users can retry. Success means Humagent stored the request, not that the agent completed it.
+
+State writes run in sequence. Stale writes fail instead of replacing newer values. Reserve the `forms` key for saved form values.
+
+Saving state does not change the application's database. Refresh can reset application memory. Replies stay in the workspace.
 
 ## Events
 
-The server validates `protocol`, `clientId`, `kind`, `revision`, and `payload`. It adds `id`, `createdAt`, `status`, and `deliveries`.
+Protocol version is `1`. The SDK builds the envelope. The server adds identity, timestamps, status, and delivery count.
 
-Payload limits: 256 KiB and 23 levels of depth. The [protocol source](https://github.com/souljorje/humagent/blob/feat/initial-runtime/src/protocol.ts) defines text limits.
-
-| Kind | Required payload | Optional payload |
-| --- | --- | --- |
-| `message` | `text` | None |
-| `annotation` | `target`, `text` | None |
-| `edit` | `target`, `before`, `after` | Explanation |
-| `submission` | `intent`, `values` | Message |
-
-An empty `edit.after` proposes deletion. Edits do not write source files.
-
-Targets can contain a stable `data-humagent-id`, element ID, selector, tag, visible text, and source URL.
-Selected text also carries its quote, prefix, and suffix. These describe rendered content, not guaranteed source lines or execution permission.
-
-## Delivery
-
-`wait` returns:
-
-```js
-{status: 'feedback', session, target, receipt, leaseExpiresAt, events}
-```
-
-A lease reserves events for one consumer. A receipt identifies the batch to complete. Reading does not delete events.
-
-| Operation | Effect |
+| Kind | Payload |
 | --- | --- |
-| `reply --receipt` | Store the reply and acknowledgment atomically. |
-| `reply` without a receipt | Store a reply without completing work. |
-| `ack` | Complete the batch without a reply. |
-| `renew` | Extend the active lease. |
+| `message` | `text` |
+| `annotation` | `target`, `text` |
+| `edit` | `target`, `before`, `after`, optional `explanation` |
+| `submission` | `intent`, `values`, optional `message` |
 
-Other results are `timeout`, `ended`, and `interrupted`. Competing listeners or consumers receive an error.
+An empty `edit.after` proposes deletion. Targets can include IDs, selectors, tags, text, URLs, and quote context. They describe rendered content, not guaranteed source lines.
 
-Delivery is at-least-once. Check event IDs before repeating external actions after lease expiry.
+Requests must contain JSON and stay within 256 KiB. Nesting must stay below 24 levels, including the envelope.
 
-Human input is not a shell command. A choice grants approval only when the owning workflow explicitly defines it that way.
+| Text | Maximum characters |
+| --- | --- |
+| Client ID / revision | 100 / 128 |
+| Intent | 200 |
+| Message / annotation | 4,000 |
+| Each edit string | 50,000 |
+
+See [delivery commands](CLI.md#receive-input) for receipts and retries.
 
 ## Revisions
 
-A source revision hashes the entry HTML file or response with SHA-256. It does not cover all assets or source files.
+Source revisions hash served HTML with SHA-256. Other assets do not affect the hash.
 
-Dynamic timestamps or nonces can make strict comparison unsuitable for some routes. Always read current source before applying an edit.
+For HTTP apps, revisions change when Humagent serves HTML. Status reads and submissions do not fetch another page. Refresh the app to load new output.
+File changes still trigger revision checks.
 
-A changed entry hash triggers a refresh notice. Stale submissions return `STALE_REVISION`. Stale state writes return `STATE_CONFLICT`.
+Stale input returns `STALE_REVISION`. Stale state writes return `STATE_CONFLICT`.
 
-For a stale submission:
+For stale input:
 
 1. Refresh the page.
 2. Check the target.
 3. Discard the old pending submission.
-4. Submit the confirmed request again.
+4. Submit the checked request again.
 
-Do not assign a new revision to old feedback. Failed sends retain drafts. Accepted events remain queued even without a waiting agent.
-
-## Transport
-
-The frame uses `postMessage`. The workspace checks the message's source, origin, and channel.
-
-The workspace sends its session credential in HTTP headers, never to the frame. The CLI uses a separate control token.
-
-HTTP API requests use JSON. Server-Sent Events notify the workspace through an authenticated fetch connection.
-
-Node.js or Bun runs the CLI and server. v0.1 has no MCP server or MCP Apps adapter.
+Keep old feedback associated with its original revision. Failed sends retain drafts. Accepted events stay queued until acknowledgment.

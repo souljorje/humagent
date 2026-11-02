@@ -1,58 +1,45 @@
-# Security
+# Security and limits
 
-Use Humagent only with trusted local pages and development apps. It is not a multi-user host or a sandbox for malicious websites.
+Use trusted local pages and development apps. Humagent is not a host for multiple users or a sandbox for malicious websites.
 
-## Isolation
+## Files and isolation
 
-Each page uses a loopback origin separate from the workspace. Its iframe permits scripts and forms, but not top navigation or popups.
+Pages use sandboxed frames on separate loopback origins. Frames permit scripts and forms, but not top navigation or popups.
+The SDK uses `postMessage`. The workspace checks its source, origin, and channel.
 
-The SDK channel accepts human input and working-state operations. Origin separation protects the workspace. The iframe sandbox alone is insufficient.
+Humagent checks Host and Origin headers, canonical paths, payload sizes, and unsafe prototype keys. No endpoint runs shell commands or edits source.
 
-The application proxy can still reach the application's normal APIs. Do not attach to administrative or privileged internal services.
+The file server rejects hidden paths, traversal, and symlinks outside the selected directory. That directory cannot contain Humagent's private state.
+Keep secrets outside it because page scripts can read supported sibling assets.
+
+## Network
+
+File pages block external resources and connections through Content Security Policy (CSP). `--network` relaxes this policy for trusted files.
+
+App targets require HTTP loopback addresses with fixed hosts and ports. Humagent rejects URL credentials, remote hosts, HTTPS, and redirects outside the selected origin.
+
+The proxy strips cookies and keeps upstream CSP and frame restrictions. It does not support cookie authentication or guarantee service-worker behavior.
+Absolute URLs, CSP, and WebSocket settings can prevent attachment. Test the intended app.
+
+The proxy can reach the app's normal APIs. Do not attach privileged internal services or expose Humagent's ports publicly.
+
+v0.1 excludes remote sites, Markdown rendering, rich-text edits, and MCP Apps. Browser policies do not provide operating-system isolation.
 
 ## Credentials and storage
 
-Privileged API operations require a random control token. The browser receives a separate credential for one session.
+Keep session URLs private. Their fragments carry a session credential. The workspace moves it to session storage and removes the fragment.
 
-The initial URL carries this credential in its fragment. The workspace moves it to session storage and removes the fragment.
+That credential permits input, saved state, transcript access, and session ending. Only the separate control token permits opening targets, waits, acknowledgments, and agent replies.
+Credentials stay outside page frames.
 
-The session credential permits input, state changes, transcript access, and session ending. It cannot open targets, wait, acknowledge events, or send agent replies.
-
-Keep session URLs private. Never give control credentials to page scripts.
-
-Where supported, the data directory uses `0700` and control and atomic session files use `0600`. Stored input is not encrypted.
-
+Stored input is not encrypted. Where supported, the data directory uses `0700`. Control and atomic session files use `0600`.
+Each session uses a separate file under `sessions/` in the data directory. Older stores migrate automatically and retain a backup.
 Browser drafts and unconfirmed sends use local storage. Avoid shared browser profiles for sensitive work.
-
-## Files and requests
-
-Humagent checks Host and Origin headers, canonical paths, loopback targets, payload sizes, and unsafe prototype keys.
-
-Artifact directories cannot contain Humagent's state directory. The file server rejects hidden paths, traversal, and symlinks outside the artifact directory.
-
-Supported sibling assets are readable by page scripts. Keep secrets outside that directory.
-
-No HTTP endpoint executes shell commands or edits source files.
-
-## Network access
-
-Local HTML blocks external connections and resources through its Content Security Policy (CSP). `--network` relaxes this policy for trusted files.
-
-The proxy forwards requests to one selected HTTP loopback origin. It strips cookies, provides no authentication, and retains upstream CSP and frame protections.
-
-It rejects external redirects. Remote sites are unsupported.
-
-Do not expose local ports without authentication and a documented threat model. Browser policies do not provide an operating-system sandbox.
 
 ## Agent actions
 
-Page scripts can submit requests without a human gesture. Treat page-controlled content as untrusted input, not proof of user authorization.
+Page scripts can submit requests without a human gesture. Treat page content as untrusted input. Keep the agent's existing permissions.
 
-Keep the agent's existing permissions. Obtain authorization before consequential external actions.
+Acknowledgment marks a batch complete. It does not grant permission for external actions. Check event IDs before repeating actions after lease expiry.
 
-An event can arrive again after lease expiry, even if an earlier consumer acted without acknowledging it.
-Use event IDs and the workflow's approval and retry safeguards before repeating actions. Humagent does not guarantee exactly-once execution.
-
-## Report a vulnerability
-
-Contact the repository owner privately. Keep credentials and private artifacts out of public issues.
+Report vulnerabilities privately to the repository owner. Keep credentials and private artifacts out of public issues.

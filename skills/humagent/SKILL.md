@@ -5,8 +5,8 @@ description: Work with a human through local HTML, a localhost app, or a generat
 
 # Humagent
 
-Use the installed `humagent` command with Node.js 22+ or Bun 1.4.4+.
-After publication, `npx humagent@latest` and `bunx --bun humagent@latest` are alternatives.
+Use the installed `humagent` command with Node.js 24+ or Bun 1.4.4+.
+After publication, use `npx humagent@latest` when no global command exists. Apply this prefix to each command below.
 
 Read `humagent --help`. Use `--json` for command results.
 
@@ -17,12 +17,13 @@ Read `humagent --help`. Use `--json` for command results.
 3. Apply the project's brand and domain instructions.
 4. Keep the application's renderer and server.
 
-Do not modify Humagent for a task-specific interaction.
+Keep task-specific interactions in page code.
 
 For structured input, use named controls in a form with `data-humagent-intent`.
 Use a stable form ID and `data-humagent-persist` for nonsensitive values that must survive refresh.
 
-Keep local interactions independent of model calls. Custom mini-apps can send explicit requests through `window.humagent.submit()`. See `docs/SDK.md` for the contract.
+Keep local interactions independent of model calls. Custom mini-apps can send explicit requests through `window.humagent.submit()`.
+See the [SDK guide](https://github.com/souljorje/humagent/blob/main/docs/SDK.md).
 
 ## Open and wait
 
@@ -51,13 +52,13 @@ Renew the receipt before lease expiry. Check event IDs and earlier changes befor
 
 ## Reply
 
-Check the result, then run:
+Check the result. Send a reply:
 
 ```sh
 humagent reply SESSION --receipt RECEIPT --message "Describe changes and remaining limits."
 ```
 
-The receipt completes only its batch. A reply without a receipt does not acknowledge work. Use `ack --receipt` when no reply is needed.
+The receipt completes only its batch. A reply without a receipt does not acknowledge work. Use `ack --receipt` to complete work without a reply.
 
 Run `wait` again to continue. Save important results in the task's source files.
 

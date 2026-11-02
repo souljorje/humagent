@@ -1,6 +1,6 @@
 # Engineering
 
-Read [the specification](docs/SPEC.md) before changing behavior. Preserve application behavior. Do not add task-specific backend handlers.
+Preserve application behavior. Keep task-specific requests as data, not backend handlers.
 
 ## Runtime and checks
 
@@ -8,13 +8,13 @@ Use Bun 1.4.4 for development, dependencies, builds, and tests. Keep `bun.lock` 
 
 Use TypeScript for the server and CLI. Use browser-native modules for the workspace.
 
-Published JavaScript must run on Node.js 22+ and Bun 1.4.4+. Keep the Node shebang for npm/npx compatibility.
+Published JavaScript must run on Node.js 24+ and Bun 1.4.4+. Keep the Node shebang for npm/npx compatibility.
 Child servers must use the CLI's runtime executable. npm users must not need Bun.
 
 Run `bun run check` after code changes. Run `bun run test:browser` after browser changes.
 
 Run `bun pm pack` before `bun run test:package` and `bun run test:install`.
-Test both an existing app and a generated mini-app. Record checks that cannot run.
+Test both an existing app and a generated mini-app. Report checks that cannot run in the change summary.
 
 Keep temporary output in `.local/`.
 
