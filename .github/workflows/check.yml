@@ -15,7 +15,7 @@ jobs:
       - run: npm run check
       - run: npx playwright-core install --with-deps chromium
       - run: npm run test:browser
-      - run: npm pack --dry-run
+      - run: npm pack
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -23,5 +23,6 @@ jobs:
           path: |
             .local/*.png
             package-lock.json
+            humagent-*.tgz
           include-hidden-files: true
           if-no-files-found: ignore
