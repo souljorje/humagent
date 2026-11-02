@@ -20,7 +20,7 @@ The session credential permits input, state changes, transcript access, and sess
 
 Keep session URLs private. Never give control credentials to page scripts.
 
-The data directory uses mode `0700`. Control and atomic session files use `0600`, where supported. Stored input is not encrypted.
+Where supported, the data directory uses `0700` and control and atomic session files use `0600`. Stored input is not encrypted.
 
 Browser drafts and unconfirmed sends use local storage. Avoid shared browser profiles for sensitive work.
 

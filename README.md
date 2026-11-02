@@ -16,7 +16,7 @@ flowchart LR
     Source -->|Refresh| Page
 ```
 
-Humagent runs locally. Your agent applies edits. It needs no model service or API key and collects no telemetry.
+Humagent runs locally without a model service or API key. It collects no telemetry. Your agent applies source edits.
 
 ## Start
 
