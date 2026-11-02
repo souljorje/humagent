@@ -1,4 +1,4 @@
-import test from 'node:test';
+import {test, afterAll} from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -7,7 +7,7 @@ import {Store} from '../dist/store.js';
 import {input,jsonValue} from '../dist/protocol.js';
 import {buildContext,findQuote} from '../web/vendor/anchors.js';
 const directories=[];
-test.after(()=>directories.forEach(dir=>fs.rmSync(dir,{recursive:true,force:true})));
+afterAll(()=>directories.forEach(dir=>fs.rmSync(dir,{recursive:true,force:true})));
 function setup(){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'humagent-core-'));directories.push(dir);const store=new Store(dir);const session=store.open({kind:'file',value:'/tmp/a.html',root:'/tmp',network:false},'v1');return {dir,store,id:session.id};}
 const message=(clientId='one',revision='v1')=>({protocol:1,clientId,revision,kind:'message',payload:{text:'Review this'}});
 test('validates structured submissions without turning intent into code',()=>{const e=input({protocol:1,clientId:'x',revision:'v',kind:'submission',payload:{intent:'entirely_new_workflow',values:{priority:2,choices:['a']}}});assert.deepEqual(e.payload.values,{priority:2,choices:['a']});});

@@ -1,4 +1,4 @@
-import test from 'node:test';
+import {test, beforeAll, afterAll} from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,8 +13,8 @@ const root=path.join(dir,'artifacts');fs.mkdirSync(root);const file=path.join(ro
 fs.writeFileSync(file,'<!doctype html><html><body><h1>Hello</h1><script>const literal="</body>";</script></body></html>');
 fs.writeFileSync(path.join(root,'app.js'),'window.works=true;');
 let runtime;
-test.before(async()=>{runtime=await createRuntime({directory:path.join(dir,'state')});});
-test.after(async()=>{await runtime.close();fs.rmSync(dir,{recursive:true,force:true});});
+beforeAll(async()=>{runtime=await createRuntime({directory:path.join(dir,'state')});});
+afterAll(async()=>{await runtime.close();fs.rmSync(dir,{recursive:true,force:true});});
 async function api(route,method='GET',data,headers={}) {const res=await fetch(runtime.origin+route,{method,headers:{authorization:`Bearer ${runtime.token}`,'content-type':'application/json',...headers},body:data===undefined?undefined:JSON.stringify(data)});return {status:res.status,data:await res.json()};}
 async function opened(){const res=await api('/api/open','POST',{target:file});assert.equal(res.status,200);return res.data;}
 test('opens isolated local surface and injects before literal body text',async()=>{const s=await opened();const snapshot=(await api(`/api/sessions/${s.session}`)).data;const page=await fetch(snapshot.surface.frameUrl);const html=await page.text();assert.match(html,/window.__HUMAGENT__/);assert.match(html,/const literal="<\/body>"/);assert.ok(snapshot.surface.origin!==runtime.origin);assert.ok(!html.includes(runtime.token));assert.ok(!html.includes(new URL(s.url).hash.slice(1)));assert.match(page.headers.get('content-security-policy'),/connect-src 'none'/);assert.match(await (await fetch(snapshot.surface.origin+'/app.js')).text(),/works=true/);});
