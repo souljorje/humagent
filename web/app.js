@@ -77,7 +77,7 @@ let flushResolve=null;
 $('refresh').onclick=async()=>{
   if(!session)return;
   try{if(bridgeReady){const flushed=new Promise((resolve,reject)=>{const timer=setTimeout(()=>{flushResolve=null;reject(new Error('Interface did not confirm saved working state. Refresh was cancelled.'));},5000);flushResolve=message=>{clearTimeout(timer);flushResolve=null;message.error?reject(new Error(message.error)):resolve();};});post('flush');await flushed;}
-    await sync();bridgeReady=false;$('connecting').hidden=false;$('bridge-status').textContent='Bridge connecting';$('frame').src=$('frame').src;loadedRevision=session.revision;
+    await sync();bridgeReady=false;$('connecting').hidden=false;$('bridge-status').textContent='Bridge connecting';$('frame').src=new URL($('frame').src).origin===session.surface.origin?$('frame').src:session.surface.frameUrl;loadedRevision=session.revision;
     // Retain an existing selection with its old revision; never silently rebind it.
   }catch(e){error(e.message);}
 };

@@ -80,7 +80,7 @@ export async function startSurface(store: Store, id: string, parentOrigin: strin
     currentPath = route;
     const hash = digest(bytes); store.setRevision(id, hash);
     return inject(bytes.toString('utf8'), {protocol:1, session:id, channel, parentOrigin, revision:hash,
-      sourceUrl: target.kind === 'file' ? target.value : new URL(route, upstreamOrigin).href});
+      sourceUrl: target.kind === 'file' ? path.resolve(target.root!, '.' + decodeURIComponent(route.split('?')[0]!)) : new URL(route, upstreamOrigin).href});
   }
   const sockets = new Set<import('node:net').Socket>();
   const server = http.createServer(async (req, res) => {

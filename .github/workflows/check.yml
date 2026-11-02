@@ -20,6 +20,8 @@ jobs:
         if: always()
         with:
           name: browser-evidence
-          path: .local/*.png
+          path: |
+            .local/*.png
+            package-lock.json
           include-hidden-files: true
           if-no-files-found: ignore

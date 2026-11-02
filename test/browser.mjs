@@ -8,7 +8,7 @@ import {createRuntime} from '../dist/server.js';
 
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'humagent-browser-'));
 fs.cpSync('examples',path.join(dir,'examples'),{recursive:true});fs.mkdirSync('.local',{recursive:true});
-const runtime=await createRuntime({directory:path.join(dir,'state')});
+let runtime=await createRuntime({directory:path.join(dir,'state')});
 const browser=await chromium.launch({headless:true,executablePath:process.env.HUMAGENT_BROWSER_PATH||undefined,args:['--no-sandbox']});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
 async function api(route,method='GET',data){const response=await fetch(runtime.origin+route,{method,headers:{authorization:`Bearer ${runtime.token}`,'content-type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});const body=await response.json();assert.ok(response.ok,JSON.stringify(body));return body;}
@@ -22,7 +22,7 @@ try{
   await frame().locator('input[name="outcome"]').fill('A preserved human outcome.');
   await frame().locator('textarea[name="notes"]').fill('Keep this exact note.');
   await frame().locator('input[name="humanReview"]').uncheck();
-  await until(()=>runtime.store.get(s.session).state.forms?.launch?.notes==='Keep this exact note.');
+  await until(()=>runtime.store.get(s.session).state.forms?.launch?.notes==='Keep this exact note.'&&runtime.store.get(s.session).state.forms?.launch?.humanReview===false);
   await page.reload();await page.waitForFunction(()=>document.getElementById('bridge-status').textContent==='Interface connected');
   assert.equal(await frame().locator('input[name="outcome"]').inputValue(),'A preserved human outcome.');
   assert.equal(await frame().locator('input[value="platform-first"]').isChecked(),true);
@@ -65,6 +65,29 @@ try{
   console.log('PASS text-range anchoring and desktop/mobile layout');
 
   await page.setViewportSize({width:1440,height:1000});
+  await page.locator('[data-mode="annotate"]').click();await frame().locator('h1').click();
+  await page.locator('#message').fill('Preserve this unfinished draft.');
+  fs.writeFileSync(planFile,fs.readFileSync(planFile,'utf8').replace('Start small.','Start focused.'));
+  await page.locator('#update').waitFor();await page.locator('#send').click();
+  await page.waitForFunction(()=>document.getElementById('error').textContent.includes('STALE_REVISION'));
+  await page.locator('#refresh').click();
+  await page.waitForFunction(()=>document.getElementById('bridge-status').textContent==='Interface connected');
+  assert.match(await frame().locator('h1').textContent(),/Start focused/);
+  assert.equal(await page.locator('#message').inputValue(),'Preserve this unfinished draft.');
+  assert.equal(await frame().locator('input[name="outcome"]').inputValue(),'A preserved human outcome.');
+  await page.locator('#clear-target').click();
+  page.once('dialog',dialog=>dialog.accept());await page.locator('#discard').click();
+  await page.locator('[data-mode="interact"]').click();
+  console.log('PASS stale feedback is refused; explicit refresh preserves draft and form state');
+
+  const port=Number(new URL(runtime.origin).port);await runtime.close();
+  runtime=await createRuntime({directory:path.join(dir,'state'),port});
+  await page.waitForFunction(()=>document.getElementById('error').textContent.includes('service restarted'));
+  await page.locator('#refresh').click();
+  await page.waitForFunction(()=>document.getElementById('bridge-status').textContent==='Interface connected');
+  assert.equal(await frame().locator('input[name="outcome"]').inputValue(),'A preserved human outcome.');
+  assert.equal(await page.locator('#message').inputValue(),'Preserve this unfinished draft.');
+  console.log('PASS service restart reconnects on explicit refresh without losing saved state');
   const calc=await open(path.join(dir,'examples/calculator.html'));
   await frame().locator('#tasks').evaluate(el=>{el.value='120';el.dispatchEvent(new Event('input',{bubbles:true}));});
   assert.equal(await frame().locator('#hours').textContent(),'16.0 hours');
