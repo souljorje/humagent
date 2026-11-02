@@ -12,6 +12,11 @@ jobs:
         with:
           bun-version: '1.4.4'
       - run: bun install --frozen-lockfile
+      - run: git archive --format=tar.gz --output=humagent-source.tar.gz HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-snapshot
+          path: humagent-source.tar.gz
       - run: bun run check
       - run: bunx --bun playwright-core install --with-deps chromium
       - run: bun run test:browser
@@ -24,6 +29,6 @@ jobs:
           path: |
             .local/*.png
             bun.lock
-            humagent-*.tgz
+            humagent-0.*.tgz
           include-hidden-files: true
           if-no-files-found: ignore
