@@ -1,0 +1,5 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>An existing interface</title><link rel="stylesheet" href="example.css"></head><body>
+<header><span class="eyebrow">EXISTING INTERFACE · NO HUMAGENT BINDINGS</span><h1 id="headline">A page that was already here.</h1><p id="copy">This ordinary page has its own behavior. Humagent should add a review layer without requiring it to adopt a component catalog or new rendering framework.</p></header>
+<section class="card"><h2>Try its existing behavior</h2><p>Button presses stay local in Interact mode.</p><button id="counter">Count: 0</button><p id="result">Nothing sent to an agent.</p></section>
+<script>let count=0;document.getElementById('counter').onclick=()=>{count++;document.getElementById('counter').textContent='Count: '+count;};</script>
+</body></html>

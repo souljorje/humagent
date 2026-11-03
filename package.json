@@ -1,0 +1,82 @@
+{
+  "name": "humagent",
+  "version": "0.1.0",
+  "description": "Work with your AI agent through pages, prototypes, and local apps.",
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "bun@1.4.4",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "humagent": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js"
+    }
+  },
+  "files": [
+    "dist",
+    "web",
+    "skills",
+    "examples",
+    "docs/CLI.md",
+    "docs/SDK.md",
+    "docs/SECURITY.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/souljorje/humagent.git"
+  },
+  "scripts": {
+    "build": "bun scripts/build.mjs",
+    "lint": "bunx --bun --no-install oxlint src web scripts test",
+    "format": "bunx --bun --no-install oxfmt src web test scripts tsconfig.json package.json",
+    "format:check": "bunx --bun --no-install oxfmt --check src web test scripts tsconfig.json package.json",
+    "typecheck": "bun ./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "test": "bun run build && bun test ./test/*.test.mjs --timeout 15000",
+    "test:browser": "bun run build && playwright test --config test/playwright.config.mjs",
+    "test:package": "bun test/package.mjs",
+    "check": "bun run format:check && bun run typecheck && bun run test",
+    "prepack": "bun run build",
+    "test:install": "node test/install.mjs",
+    "test:runners": "bun test/runners.mjs",
+    "check:release": "bun run check && bun run test:browser && bun pm pack && bun run test:package && bun run test:install && bun run test:runners"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/node": "25.1.0",
+    "oxfmt": "0.75.0",
+    "oxlint": "1.90.0",
+    "typescript": "5.8.3"
+  },
+  "homepage": "https://github.com/souljorje/humagent#readme",
+  "bugs": {
+    "url": "https://github.com/souljorje/humagent/issues"
+  },
+  "author": "Georgii Bukharov",
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "generative-ui",
+    "annotations",
+    "prototypes",
+    "human-in-the-loop"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.6",
+    "hono": "4.13.16"
+  }
+}

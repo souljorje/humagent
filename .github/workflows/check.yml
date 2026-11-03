@@ -1,0 +1,88 @@
+name: Check
+on:
+  push:
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run check
+      - run: bunx --no-install playwright install --with-deps chromium
+      - run: bun run test:browser
+      - run: bun pm pack
+      - run: bun run test:package
+      - run: bun run test:install
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-candidate
+          path: |
+            humagent-*.tgz
+          include-hidden-files: true
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-results
+          path: |
+            .local/playwright-results/
+            .local/playwright-report/
+          include-hidden-files: true
+          if-no-files-found: ignore
+  install:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            node: '24'
+          - os: macos-14
+            node: '24'
+          - os: windows-latest
+            node: '24'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+      - run: node test/package.mjs
+      - run: node test/install.mjs
+  runners:
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+      - run: npm install --global pnpm@10.11.0
+      - run: bun run test:runners
