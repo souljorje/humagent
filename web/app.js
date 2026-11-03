@@ -39,9 +39,14 @@ $('copy-command').onclick = async () => {
 };
 $('message').value = draft.text || '';
 $('replacement').value = draft.replacement || '';
+const controlEditError =
+  'Edit the control through its normal interface, or annotate it instead.';
 function error(message) {
   $('error').textContent = message;
   $('error').hidden = !message;
+}
+function clearControlEditError() {
+  if ($('error').textContent === controlEditError) error('');
 }
 function saveDraft() {
   try {
@@ -118,6 +123,7 @@ function renderTarget() {
     : 'Message to your agent';
 }
 function setMode(next) {
+  if (next !== mode) clearControlEditError();
   mode = next;
   for (const button of document.querySelectorAll('[data-mode]'))
     button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
@@ -426,11 +432,10 @@ window.addEventListener('message', async (event) => {
   }
   if (msg.method === 'selected') {
     if (mode === 'edit' && !msg.params.editable) {
-      error(
-        'Edit the control through its normal interface, or annotate it instead.',
-      );
+      error(controlEditError);
       return;
     }
+    clearControlEditError();
     selection = { ...msg.params, revision: msg.revision };
     renderTarget();
     saveDraft();

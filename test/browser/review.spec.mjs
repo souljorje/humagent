@@ -44,6 +44,32 @@ test('exact edit proposals do not write source files', async ({
   expect(fs.readFileSync(workspace.file(), 'utf8')).toBe(source);
 });
 
+test('control edit guidance clears when the user corrects the selection', async ({
+  page,
+  review,
+}) => {
+  await review.open();
+  const notice = page.locator('#error');
+  const control = review.frame.locator('input[name="outcome"]');
+  await page.locator('[data-mode="edit"]').click();
+  await control.click();
+  await expect(notice).toHaveText(
+    'Edit the control through its normal interface, or annotate it instead.',
+  );
+
+  await page.locator('[data-mode="interact"]').click();
+  await expect(notice).toBeHidden();
+  await control.fill('An updated outcome.');
+  await expect(control).toHaveValue('An updated outcome.');
+
+  await page.locator('[data-mode="edit"]').click();
+  await control.click();
+  await expect(notice).toBeVisible();
+  await review.frame.locator('h1').click();
+  await expect(page.locator('#target-label')).toHaveText('headline');
+  await expect(notice).toBeHidden();
+});
+
 test('text selections include their exact quote and context', async ({
   page,
   plan,
@@ -128,6 +154,8 @@ test('stale feedback fails while explicit refresh retains drafts and form values
   await page.locator('#send').click();
   await expect(page.locator('#error')).toContainText('STALE_REVISION');
   expect(workspace.store.get(plan.session).events).toHaveLength(0);
+  await page.locator('[data-mode="interact"]').click();
+  await expect(page.locator('#error')).toContainText('STALE_REVISION');
 
   await page.locator('#refresh').click();
   await review.ready();
