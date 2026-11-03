@@ -43,6 +43,9 @@ Wait for `humagent:ready`. If the SDK already exists, await `window.humagent.rea
 
 Show submission errors so users can retry. Success means Humagent stored the request, not that the agent completed it.
 
+Identical unconfirmed submissions reuse their original client ID within the same session and revision, including after reload.
+Changed values or revisions create separate requests. After confirmation, another explicit submission creates a new request.
+
 State writes run in sequence. Stale writes fail instead of replacing newer values. Reserve the `forms` key for saved form values.
 
 Saving state does not change the application's database. Refresh can reset application memory. Replies stay in the workspace.

@@ -244,12 +244,20 @@ async function sync() {
   return syncing;
 }
 async function transmit(event) {
-  if (!pending.some((e) => e.clientId === event.clientId)) {
-    pending.push(event);
+  // Reuse unconfirmed input across SDK calls, form retries, and reloads.
+  const delivery =
+    pending.find(
+      (e) =>
+        e.revision === event.revision &&
+        e.kind === event.kind &&
+        JSON.stringify(e.payload) === JSON.stringify(event.payload),
+    ) ?? event;
+  if (!pending.some((e) => e.clientId === delivery.clientId)) {
+    pending.push(delivery);
     saveOutbox();
   }
-  const result = await api('events', 'POST', event);
-  pending = pending.filter((e) => e.clientId !== event.clientId);
+  const result = await api('events', 'POST', delivery);
+  pending = pending.filter((e) => e.clientId !== delivery.clientId);
   saveOutbox();
   await sync();
   return result;
@@ -290,15 +298,9 @@ $('composer').addEventListener('submit', async (event) => {
   }
   const previous = $('message').value;
   $('send').disabled = true;
-  const existing = pending.find(
-    (e) =>
-      e.revision === value.revision &&
-      e.kind === value.kind &&
-      JSON.stringify(e.payload) === JSON.stringify(value.payload),
-  );
   try {
     error('');
-    await transmit(existing || value);
+    await transmit(value);
     if ($('message').value === previous) $('message').value = '';
     selection = null;
     $('replacement').value = '';

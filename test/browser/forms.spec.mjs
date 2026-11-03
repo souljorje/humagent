@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { test, expect } from './fixtures.mjs';
 
 test('saved form values survive a workspace reload', async ({
@@ -101,6 +102,105 @@ test('the SDK stores structured requests without a task handler', async ({
       values: { ranks: ['b', 'a'], count: 7 },
     },
   });
+});
+
+for (const reload of [false, true]) {
+  test(`form retries reuse accepted input after a lost response${reload ? ' and reload' : ''}`, async ({
+    page,
+    plan,
+    review,
+    workspace,
+  }) => {
+    const requests = [];
+    await page.route(
+      `**/api/sessions/${plan.session}/events`,
+      async (route) => {
+        requests.push(route.request().postDataJSON());
+        if (requests.length === 1) {
+          const response = await route.fetch();
+          expect(response.status()).toBe(200);
+          await route.abort();
+        } else await route.continue();
+      },
+    );
+    await review.frame.locator('button[type="submit"]').click();
+    await expect(page.locator('#error')).toBeVisible();
+    await expect(page.locator('#outbox')).toBeVisible();
+    expect(workspace.store.get(plan.session).events).toHaveLength(1);
+    const original = workspace.store.get(plan.session).events[0];
+    if (reload) {
+      await page.reload();
+      await review.ready();
+    }
+    await review.frame.locator('button[type="submit"]').click();
+    await expect(review.frame.locator('[data-humagent-status]')).toHaveText(
+      'Queued for the agent.',
+    );
+    await expect(page.locator('#outbox')).toBeHidden();
+    expect(requests).toHaveLength(2);
+    expect(requests[1].clientId).toBe(original.clientId);
+    expect(workspace.store.get(plan.session).events).toHaveLength(1);
+
+    // A confirmed submission does not suppress a later explicit request.
+    await review.frame.locator('button[type="submit"]').click();
+    await expect
+      .poll(() => workspace.store.get(plan.session).events.length)
+      .toBe(2);
+    expect(workspace.store.get(plan.session).events[1].clientId).not.toBe(
+      original.clientId,
+    );
+  });
+}
+
+test('SDK retries keep changed values and new revisions separate', async ({
+  page,
+  plan,
+  review,
+  workspace,
+}) => {
+  const routePattern = `**/api/sessions/${plan.session}/events`;
+  await page.route(routePattern, async (route) => {
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    await route.abort();
+  });
+  const error = await review.evaluate(async () => {
+    try {
+      await window.humagent.submit({
+        intent: 'review',
+        values: { choice: 'original' },
+      });
+    } catch (error) {
+      return error.message;
+    }
+  });
+  expect(error).toBeTruthy();
+  await expect(page.locator('#outbox')).toBeVisible();
+  const original = workspace.store.get(plan.session).events[0];
+  await page.unroute(routePattern);
+
+  const changed = await review.evaluate(() =>
+    window.humagent.submit({ intent: 'review', values: { choice: 'changed' } }),
+  );
+  expect(changed.id).not.toBe(original.id);
+  await expect(page.locator('#outbox')).toBeVisible();
+
+  fs.appendFileSync(workspace.file(), '<p>A new source revision.</p>');
+  await page.reload();
+  await review.ready();
+  const revised = await review.evaluate(() =>
+    window.humagent.submit({
+      intent: 'review',
+      values: { choice: 'original' },
+    }),
+  );
+  expect(revised.id).not.toBe(original.id);
+  expect(revised.revision).not.toBe(original.revision);
+  expect(workspace.store.get(plan.session).events).toHaveLength(3);
+  await expect(page.locator('#outbox')).toBeVisible();
+  await page.locator('#retry').click();
+  await expect(page.locator('#outbox')).toBeHidden();
+  expect(workspace.store.get(plan.session).events).toHaveLength(3);
 });
 
 test('the SDK rejects lossy values before sending or saving them', async ({
