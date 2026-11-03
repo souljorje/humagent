@@ -75,7 +75,8 @@ See [delivery commands](CLI.md#receive-input) for receipts and retries.
 
 Source revisions hash served HTML with SHA-256. Other assets do not affect the hash.
 
-For HTTP apps, revisions change when Humagent serves HTML. Status reads and submissions do not fetch another page. Refresh the app to load new output.
+For HTTP apps, revisions change when Humagent serves HTML for document navigation. HTML fragment fetches remain unchanged and do not change the active revision.
+Status reads and submissions do not fetch another page. Refresh the app to load new output.
 File changes still trigger revision checks.
 
 Stale input returns `STALE_REVISION`. Stale state writes return `STATE_CONFLICT`.

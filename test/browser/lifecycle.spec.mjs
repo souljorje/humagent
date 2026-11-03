@@ -107,6 +107,37 @@ test('refresh flushes state and keeps the currently displayed route', async ({
   expect(workspace.store.get(session.session).surfacePath).toBe('/b');
 });
 
+test('HTML fragment fetches preserve the displayed app and allow submissions', async ({
+  page,
+  review,
+  workspace,
+  app,
+}) => {
+  const opened = await review.open(app.origin + '/a');
+  const before = await workspace.api(`/api/sessions/${opened.session}`);
+  const fragment = await review.evaluate(async () => {
+    const response = await fetch('/fragment');
+    return {
+      text: await response.text(),
+      encoding: response.headers.get('content-encoding'),
+    };
+  });
+  expect(fragment).toEqual({
+    text: '<p>Unchanged HTML fragment</p>',
+    encoding: 'gzip',
+  });
+  const after = await workspace.api(`/api/sessions/${opened.session}`);
+  expect(after.revision).toBe(before.revision);
+  expect(after.surface.frameUrl).toBe(before.surface.frameUrl);
+  expect(await review.evaluate(() => location.pathname)).toBe('/a');
+  const event = await review.evaluate(() =>
+    window.humagent.submit({ intent: 'review', values: { choice: 'keep' } }),
+  );
+  expect(event.revision).toBe(before.revision);
+  expect(workspace.store.get(opened.session).events).toHaveLength(1);
+  await expect(page.locator('#error')).toBeHidden();
+});
+
 test('dynamic HTML accepts submissions without a refresh loop', async ({
   page,
   review,

@@ -47,7 +47,9 @@ async function opened() {
 test('opens isolated local surface and injects before literal body text', async () => {
   const s = await opened();
   const snapshot = (await api(`/api/sessions/${s.session}`)).data;
-  const page = await fetch(snapshot.surface.frameUrl);
+  const page = await fetch(snapshot.surface.frameUrl, {
+    headers: { 'sec-fetch-dest': 'iframe' },
+  });
   const html = await page.text();
   assert.match(html, /window.__HUMAGENT__/);
   assert.match(html, /const literal="<\/body>"/);
@@ -62,6 +64,21 @@ test('opens isolated local surface and injects before literal body text', async 
     await (await fetch(snapshot.surface.origin + '/app.js')).text(),
     /works=true/,
   );
+});
+test('fetching sibling HTML preserves its bytes and the active file revision', async () => {
+  const fragment = '<p>Unchanged HTML fragment</p>';
+  fs.writeFileSync(path.join(root, 'fragment.html'), fragment);
+  const s = await opened();
+  const before = (await api(`/api/sessions/${s.session}`)).data;
+  for (const headers of [{}, { 'sec-fetch-dest': 'empty' }]) {
+    const response = await fetch(before.surface.origin + '/fragment.html', {
+      headers,
+    });
+    assert.equal(await response.text(), fragment);
+    const after = (await api(`/api/sessions/${s.session}`)).data;
+    assert.equal(after.revision, before.revision);
+    assert.equal(after.surface.frameUrl, before.surface.frameUrl);
+  }
 });
 test('session capability cannot invoke privileged operations or other sessions', async () => {
   const s = await opened(),
@@ -295,7 +312,9 @@ test('dynamic app snapshots and submissions do not refetch or change revisions',
     });
     const id = result.data.session;
     const first = (await api(`/api/sessions/${id}`)).data;
-    await fetch(first.surface.frameUrl);
+    await fetch(first.surface.frameUrl, {
+      headers: { 'sec-fetch-dest': 'iframe' },
+    });
     const revision = runtime.store.get(id).revision;
     const count = requests;
     const changes = [];

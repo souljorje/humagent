@@ -2,6 +2,7 @@ import { test as base, expect } from '@playwright/test';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { createRuntime } from '../../dist/server.js';
 import { fixture } from '../fixtures.mjs';
@@ -97,7 +98,10 @@ export const test = base.extend({
         return;
       }
       res.setHeader('content-type', 'text/html');
-      if (req.url === '/dynamic') {
+      if (req.url === '/fragment') {
+        res.setHeader('content-encoding', 'gzip');
+        res.end(gzipSync('<p>Unchanged HTML fragment</p>'));
+      } else if (req.url === '/dynamic') {
         dynamicRequests++;
         res.end(
           `<h1>Dynamic ${dynamicRequests}</h1><form id="dynamic" data-humagent-intent="review"><input name="choice" value="keep"><button type="submit">Send</button></form>`,

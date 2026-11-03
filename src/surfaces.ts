@@ -230,18 +230,19 @@ export async function startSurface(
       );
       const rawPath = req.url.split('?')[0]!;
       const url = new URL(req.url, origin);
+      // Fetches and HTML fragments must not replace the attached document.
+      const documentRequest =
+        req.method !== 'HEAD' &&
+        ['document', 'iframe', 'frame'].includes(
+          String(req.headers['sec-fetch-dest'] ?? ''),
+        );
       const requestOrigin = req.headers.origin;
       if (requestOrigin && !['GET', 'HEAD'].includes(req.method ?? 'GET'))
         ensure(requestOrigin === origin, 'Foreign origin', 'FORBIDDEN', 403);
       if (rawPath.startsWith('/__humagent/')) {
         const name = rawPath.slice('/__humagent/'.length);
         ensure(
-          [
-            'sdk.js',
-            'json.js',
-            'targets.js',
-            'selection/anchors.js',
-          ].includes(name),
+          ['sdk.js', 'json.js', 'targets.js'].includes(name),
           'Not found',
           'NOT_FOUND',
           404,
@@ -277,7 +278,7 @@ export async function startSurface(
         return res.end(
           req.method === 'HEAD'
             ? undefined
-            : html
+            : html && documentRequest
               ? decorated(
                   bytes,
                   rawPath === '/' ? `/${path.basename(target.value)}` : req.url,
@@ -321,6 +322,7 @@ export async function startSurface(
                 origin + redirect.pathname + redirect.search + redirect.hash;
             }
             if (
+              documentRequest &&
               response.headers['content-type']?.includes('text/html') &&
               response.statusCode === 200
             ) {
