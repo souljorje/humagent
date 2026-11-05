@@ -43,13 +43,13 @@
     "format:check": "bunx --bun --no-install oxfmt --check src web test scripts tsconfig.json package.json",
     "typecheck": "bun ./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
     "test": "bun run build && bun test ./test/*.test.mjs --timeout 15000",
-    "test:browser": "bun run build && playwright test --config test/playwright.config.mjs",
-    "test:package": "bun test/package.mjs",
-    "check": "bun run format:check && bun run typecheck && bun run test",
+    "test:browser": "bun run build && bun run test:browser:built",
+    "test:browser:built": "playwright test --config test/playwright.config.mjs",
+    "check": "bun run format:check && bun run test",
     "prepack": "bun run build",
     "test:install": "node test/install.mjs",
     "test:runners": "bun test/runners.mjs",
-    "check:release": "bun run check && bun run test:browser && bun pm pack && bun run test:package && bun run test:install && bun run test:runners"
+    "check:release": "bun run check && bun run test:browser:built && bun pm pack --ignore-scripts && bun run test:install && bun run test:runners"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",

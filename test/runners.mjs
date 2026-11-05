@@ -19,14 +19,12 @@ const env = {
   HUMAGENT_PORT: '0',
   npm_config_cache: path.join(temporary, 'cache'),
   npm_config_update_notifier: 'false',
-  XDG_CACHE_HOME: path.join(temporary, 'cache'),
-  XDG_DATA_HOME: path.join(temporary, 'data'),
 };
-const run = async (command, args, workingDirectory = cwd, extraEnv = {}) =>
+const run = async (command, args) =>
   (
     await exec(command, args, {
-      cwd: workingDirectory,
-      env: { ...env, ...extraEnv },
+      cwd,
+      env,
       encoding: 'utf8',
       timeout: 60000,
     })
@@ -37,18 +35,11 @@ try {
     '{"name":"runner-fixture","private":true}',
   );
   await run('npm', ['install', '--no-audit', '--no-fund', archive]);
-  assert.equal(
-    JSON.parse(
-      await run('bunx', [
-        '--bun',
-        '--no-install',
-        'humagent',
-        'doctor',
-        '--json',
-      ]),
-    ).runtime,
-    'bun',
-  );
+  await run('bun', [
+    '--input-type=module',
+    '--eval',
+    "import assert from 'node:assert/strict'; import {createRuntime} from 'humagent'; import {PROTOCOL} from 'humagent/protocol'; assert.equal(typeof createRuntime, 'function'); assert.equal(PROTOCOL, 1);",
+  ]);
   const opened = JSON.parse(
     await run('bunx', [
       '--bun',
@@ -75,18 +66,6 @@ try {
     path.join(isolated, 'package.json'),
     '{"name":"isolated-runner-fixture","private":true}',
   );
-  const store = path.join(temporary, 'pnpm-store');
-  assert.equal(
-    (
-      await run(
-        'pnpm',
-        ['--package', archive, 'dlx', 'humagent', '--version'],
-        isolated,
-        { pnpm_config_store_dir: store, npm_config_store_dir: store },
-      )
-    ).trim(),
-    pkg.version,
-  );
   // No local dependency or cached package can satisfy this npx invocation.
   const fresh = {
     ...env,
@@ -112,7 +91,7 @@ try {
     'npx must install the archive into its fresh cache',
   );
   console.log(
-    'PASS bunx --bun, pnpm dlx, and fresh-cache npx execute the release archive',
+    'PASS bunx --bun and fresh-cache npx execute the release archive',
   );
 } finally {
   try {

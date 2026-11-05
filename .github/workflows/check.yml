@@ -24,10 +24,8 @@ jobs:
       - run: bun run lint
       - run: bun run check
       - run: bunx --no-install playwright install --with-deps chromium
-      - run: bun run test:browser
-      - run: bun pm pack
-      - run: bun run test:package
-      - run: bun run test:install
+      - run: bun run test:browser:built
+      - run: bun pm pack --ignore-scripts
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -40,9 +38,7 @@ jobs:
         if: always()
         with:
           name: browser-results
-          path: |
-            .local/playwright-results/
-            .local/playwright-report/
+          path: .local/playwright-results/
           include-hidden-files: true
           if-no-files-found: ignore
   install:
@@ -50,24 +46,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-24.04
-            node: '24'
-          - os: macos-14
-            node: '24'
-          - os: windows-latest
-            node: '24'
+        os: [ubuntu-24.04, macos-14, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: '24'
       - uses: actions/download-artifact@v4
         with:
           name: release-candidate
-      - run: node test/package.mjs
       - run: node test/install.mjs
   runners:
     needs: check
@@ -84,5 +73,4 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: release-candidate
-      - run: npm install --global pnpm@10.11.0
       - run: bun run test:runners

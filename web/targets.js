@@ -1,4 +1,3 @@
-/* Element selection. See README.md#third-party-notices for copyright and license terms. */
 export function selector(el) {
   if (!el || !el.tagName) return '';
   const parts = [];
@@ -50,7 +49,6 @@ export function context(el) {
   };
 }
 
-/* Text selection. See README.md#third-party-notices for copyright and license terms. */
 export function buildContext(text, start, end, pad = 32) {
   return {
     prefix: text.slice(Math.max(0, start - pad), start),

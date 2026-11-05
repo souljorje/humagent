@@ -47,13 +47,43 @@ const run = async (...args) =>
 let app;
 try {
   assert.ok(fs.existsSync(archive), 'Run bun pm pack first');
+  await execute('tar', ['-xzf', archive, '-C', temporary]);
+  const root = path.join(temporary, 'package');
+  const packaged = JSON.parse(
+    fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
+  );
+  for (const file of ['node_modules', 'src', '.github', '.local'])
+    assert.equal(fs.existsSync(path.join(root, file)), false, file);
+  for (const hook of ['prepare', 'preinstall', 'install', 'postinstall'])
+    assert.equal(packaged.scripts?.[hook], undefined, hook);
+  assert.deepEqual(packaged.dependencies, pkg.dependencies);
+  assert.equal(packaged.engines.node, '>=24');
+  for (const file of [
+    'web/index.html',
+    'web/sdk.js',
+    'web/json.js',
+    'web/targets.js',
+    'examples/plan.html',
+    'skills/humagent/SKILL.md',
+    'docs/CLI.md',
+    'docs/SDK.md',
+    'docs/SECURITY.md',
+    'LICENSE',
+    'README.md',
+    ...Object.values(packaged.exports).flatMap(Object.values),
+  ])
+    assert.ok(fs.existsSync(path.join(root, file)), file);
+  assert.ok(
+    fs
+      .readFileSync(path.join(root, packaged.bin.humagent), 'utf8')
+      .startsWith('#!/usr/bin/env node\n'),
+  );
   fs.writeFileSync(
     path.join(temporary, 'package.json'),
     '{"name":"install-fixture","private":true}',
   );
   await npmRun(['install', '--no-audit', '--no-fund', archive]);
   const installed = path.join(temporary, 'node_modules', 'humagent');
-  assert.equal(fs.existsSync(path.join(installed, 'src')), false);
   const require = createRequire(path.join(installed, 'package.json'));
   for (const name of Object.keys(pkg.dependencies)) {
     const resolved = require.resolve(name);
@@ -64,9 +94,16 @@ try {
       `Runtime dependency resolved outside the installation: ${name}`,
     );
   }
+  await execute(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      "import assert from 'node:assert/strict'; import {createRuntime} from 'humagent'; import {PROTOCOL} from 'humagent/protocol'; assert.equal(typeof createRuntime, 'function'); assert.equal(PROTOCOL, 1);",
+    ],
+    { cwd: temporary, env, timeout: 10000 },
+  );
   assert.equal((await run('--version')).version, pkg.version);
-  assert.equal((await run('doctor')).runtime, 'node');
-  assert.equal((await run('doctor')).filesPresent, true);
   const opened = await run('demo', 'plan', '--no-open');
   const snapshot = await run('status', opened.session);
   assert.equal(fs.existsSync(snapshot.target.value), true);

@@ -13,7 +13,7 @@ Child servers must use the CLI's runtime executable. npm users must not need Bun
 
 Run `bun run check` after code changes. Run `bun run test:browser` after browser changes.
 
-Run `bun pm pack` before `bun run test:package` and `bun run test:install`.
+Run `bun pm pack` before `bun run test:install`.
 Test both an existing app and a generated mini-app. Report checks that cannot run in the change summary.
 
 Keep temporary output in `.local/`.
