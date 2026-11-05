@@ -1,6 +1,7 @@
 /** Wire contract. Task-specific intents are data, never executable handlers. */
-export const PROTOCOL = 1 as const;
-export const MAX_BYTES = 256 * 1024;
+import { batch, ReviewError } from '../shared/batch.js';
+export { PROTOCOL, MAX_BYTES } from '../shared/batch.js';
+import { MAX_BYTES } from '../shared/batch.js';
 export type Json =
   | null
   | boolean
@@ -9,13 +10,19 @@ export type Json =
   | Json[]
   | { [key: string]: Json };
 export type ObjectValue = { [key: string]: Json };
-export type Kind = 'message' | 'annotation' | 'edit' | 'submission';
+export interface ReviewItem {
+  id: string;
+  target?: ObjectValue;
+  comment?: string;
+  replacement?: { before: string; after: string };
+  intent?: string;
+  values?: ObjectValue;
+}
 export interface Input {
-  protocol: 1;
+  protocol: 2;
   clientId: string;
-  kind: Kind;
   revision: string;
-  payload: ObjectValue;
+  payload: { message?: string; items: ReviewItem[] };
 }
 export interface Event extends Input {
   id: string;
@@ -122,42 +129,15 @@ export function boundedObject(value: unknown): asserts value is ObjectValue {
   );
 }
 export function input(value: unknown): Input {
-  boundedObject(value);
-  ensure(
-    value.protocol === PROTOCOL,
-    'Unsupported protocol version',
-    'PROTOCOL_MISMATCH',
-  );
-  text(value.clientId, 'clientId', 100);
-  text(value.revision, 'revision', 128);
-  ensure(
-    ['message', 'annotation', 'edit', 'submission'].includes(
-      value.kind as string,
-    ),
-    'Unknown event kind',
-  );
-  boundedObject(value.payload);
-  const p = value.payload;
-  if (value.kind === 'message') text(p.text, 'message');
-  if (value.kind === 'annotation') {
-    text(p.text, 'annotation');
-    boundedObject(p.target);
+  try {
+    return batch(value) as Input;
+  } catch (error) {
+    if (error instanceof ReviewError)
+      throw new Failure(error.status, error.code, error.message);
+    throw new Failure(
+      400,
+      'INVALID_INPUT',
+      error instanceof Error ? error.message : 'Invalid input',
+    );
   }
-  if (value.kind === 'edit') {
-    boundedObject(p.target);
-    text(p.before, 'before', 50000);
-    text(p.after, 'after', 50000, true);
-  }
-  if (value.kind === 'submission') {
-    text(p.intent, 'intent', 200);
-    boundedObject(p.values);
-    if (p.message !== undefined) text(p.message, 'message', 4000, true);
-  }
-  return {
-    protocol: PROTOCOL,
-    clientId: value.clientId,
-    kind: value.kind as Kind,
-    revision: value.revision,
-    payload: p,
-  };
 }

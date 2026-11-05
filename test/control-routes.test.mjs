@@ -298,11 +298,14 @@ test('route receipts preserve target, revision, and individual event ownership',
   const view = await json(await request(base), 200);
   const otherView = await json(await request(other), 200);
   const event = {
-    protocol: 1,
+    protocol: 2,
     clientId: 'same-id',
     revision: view.revision,
-    kind: 'annotation',
-    payload: { text: 'Review this', target: { selector: 'h1' } },
+    payload: {
+      items: [
+        { id: 'comment', comment: 'Review this', target: { selector: 'h1' } },
+      ],
+    },
   };
   const sessionHeaders = {
     authorization: '',
@@ -312,7 +315,7 @@ test('route receipts preserve target, revision, and individual event ownership',
     await jsonRequest(`${base}/events`, 'POST', event, sessionHeaders),
     200,
   );
-  assert.deepEqual(sent.payload.target, { selector: 'h1' });
+  assert.deepEqual(sent.payload.items[0].target, { selector: 'h1' });
   assert.equal(
     (await json(await jsonRequest(`${base}/events`, 'POST', event), 200)).id,
     sent.id,

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { Store } from '../dist/runtime/store.js';
 import { input, jsonValue } from '../dist/runtime/protocol.js';
 import { buildContext } from '../dist/sdk/targets.js';
-import { cloneJson } from '../dist/sdk/json.js';
+import { cloneJson } from '../dist/shared/json.js';
 const directories = [];
 afterAll(() =>
   directories.forEach((dir) =>
@@ -24,33 +24,41 @@ function setup() {
   return { dir, store, id: session.id };
 }
 const message = (clientId = 'one', revision = 'v1') => ({
-  protocol: 1,
+  protocol: 2,
   clientId,
   revision,
-  kind: 'message',
-  payload: { text: 'Review this' },
+  payload: { message: 'Review this', items: [] },
 });
 test('validates structured submissions without turning intent into code', () => {
   const e = input({
-    protocol: 1,
+    protocol: 2,
     clientId: 'x',
     revision: 'v',
-    kind: 'submission',
     payload: {
-      intent: 'entirely_new_workflow',
-      values: { priority: 2, choices: ['a'] },
+      items: [
+        {
+          id: 'decision',
+          intent: 'entirely_new_workflow',
+          values: { priority: 2, choices: ['a'] },
+        },
+      ],
     },
   });
-  assert.deepEqual(e.payload.values, { priority: 2, choices: ['a'] });
+  assert.deepEqual(e.payload.items[0].values, { priority: 2, choices: ['a'] });
 });
 test('rejects malformed payloads and reserved keys', () => {
-  assert.throws(() => input({ ...message(), protocol: 2 }));
+  assert.throws(() => input({ ...message(), protocol: 1 }));
   assert.throws(() => input({ ...message(), kind: 'execute' }));
-  assert.throws(() => input({ ...message(), payload: { text: '' } }));
+  assert.throws(() =>
+    input({ ...message(), payload: { message: '', items: [] } }),
+  );
   assert.throws(() => jsonValue(JSON.parse('{"__proto__":{"x":1}}')));
   assert.throws(() => jsonValue({ x: Infinity }));
   assert.throws(() =>
-    input({ ...message(), payload: { text: 'a'.repeat(300000) } }),
+    input({
+      ...message(),
+      payload: { message: 'a'.repeat(300000), items: [] },
+    }),
   );
 });
 test('persists before receipt; same client ID is idempotent', () => {
@@ -59,7 +67,11 @@ test('persists before receipt; same client ID is idempotent', () => {
   assert.equal(store.send(id, message()).id, one.id);
   assert.equal(new Store(dir).get(id).events.length, 1);
   assert.throws(
-    () => store.send(id, { ...message(), payload: { text: 'different' } }),
+    () =>
+      store.send(id, {
+        ...message(),
+        payload: { message: 'different', items: [] },
+      }),
     /reused/,
   );
 });
@@ -73,6 +85,7 @@ test('stale revision refuses new input but an accepted retry still succeeds', ()
 test('working state uses separate optimistic version', () => {
   const { store, id } = setup();
   store.saveState(id, 0, { selection: 'a' });
+  assert.equal(store.saveState(id, 0, { selection: 'a' }).stateVersion, 1);
   assert.equal(store.get(id).revision, 'v1');
   assert.throws(
     () => store.saveState(id, 0, { selection: 'b' }),
@@ -171,23 +184,22 @@ test('session writes leave other session files untouched', () => {
   assert.equal(restarted.get(id).events.length, 1);
   assert.equal(restarted.get(other.id).events.length, 0);
 });
-test('legacy sessions migrate with receipts and a retained backup', () => {
+test('unsupported stored protocols fail without rewriting data', () => {
   const { dir, store, id } = setup();
-  store.send(id, message());
-  const batch = store.take(id, 'agent');
-  const legacy = JSON.stringify({
+  const file = path.join(dir, 'sessions', `${id}.json`);
+  const saved = {
     protocol: 1,
-    sessions: { [id]: store.get(id) },
-  });
-  fs.rmSync(path.join(dir, 'sessions'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'sessions.json'), legacy);
-  const migrated = new Store(dir);
-  assert.equal(
-    fs.readFileSync(path.join(dir, 'sessions.legacy.json'), 'utf8'),
-    legacy,
-  );
-  migrated.acknowledge(id, batch.receipt, 'Migrated reply.');
-  assert.equal(new Store(dir).get(id).events[0].status, 'completed');
+    session: {
+      ...store.get(id),
+      events: [
+        { protocol: 1, kind: 'message', payload: { text: 'Old input' } },
+      ],
+    },
+  };
+  const bytes = JSON.stringify(saved);
+  fs.writeFileSync(file, bytes);
+  assert.throws(() => new Store(dir).get(id), /unsupported/);
+  assert.equal(fs.readFileSync(file, 'utf8'), bytes);
 });
 test('corruption in one session does not hide other sessions', () => {
   const { dir, store, id } = setup();

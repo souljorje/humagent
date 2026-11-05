@@ -13,6 +13,7 @@ import {
   type Target,
 } from './protocol.js';
 import { writeJson } from './storage.js';
+import { fingerprint } from '../shared/batch.js';
 
 function readSession(
   saved: { protocol?: unknown; session?: Session },
@@ -60,6 +61,10 @@ function readSession(
     );
   }
   boundedObject(session.state);
+  ensure(
+    session.events.every((event) => event.protocol === 2),
+    'Stored feedback uses an unsupported protocol. Use a new data directory.',
+  );
   return session;
 }
 
@@ -74,41 +79,22 @@ export class Store extends EventEmitter {
     this.sessionDirectory = path.join(directory, 'sessions');
     fs.mkdirSync(this.sessionDirectory, { recursive: true, mode: 0o700 });
     const legacy = path.join(directory, 'sessions.json');
-    if (fs.existsSync(legacy)) {
-      const saved = JSON.parse(fs.readFileSync(legacy, 'utf8'));
-      ensure(
-        saved.protocol === 1 &&
-          saved.sessions &&
-          typeof saved.sessions === 'object',
-        'Unsupported or corrupt state file',
-      );
-      for (const [id, session] of Object.entries(saved.sessions)) {
-        ensure(
-          /^[\w-]+$/.test(id) && (session as Session)?.id === id,
-          'Unsupported or corrupt session',
-        );
-        const file = path.join(this.sessionDirectory, `${id}.json`);
-        if (!fs.existsSync(file)) writeJson(file, { protocol: 1, session });
-      }
-      const backup = path.join(directory, 'sessions.legacy.json');
-      fs.renameSync(
-        legacy,
-        fs.existsSync(backup) ? `${backup}.${randomUUID()}` : backup,
-      );
-    }
+    ensure(
+      !fs.existsSync(legacy),
+      'Legacy sessions are unsupported. Use a new data directory.',
+    );
     for (const file of fs.readdirSync(this.sessionDirectory)) {
       if (!/^[\w-]+\.json$/.test(file)) continue;
       const id = file.slice(0, -5);
       try {
-        const saved = JSON.parse(
-          fs.readFileSync(path.join(this.sessionDirectory, file), 'utf8'),
-        );
+        const source = path.join(this.sessionDirectory, file);
+        const saved = JSON.parse(fs.readFileSync(source, 'utf8'));
         const session = readSession(saved, id);
         this.sessions.set(id, session);
       } catch {
         this.failures.set(
           id,
-          'Stored session is unreadable. Restore its file from a backup.',
+          'Stored session is unreadable or unsupported. Restore a compatible backup or use a new data directory.',
         );
       }
     }
@@ -173,25 +159,28 @@ export class Store extends EventEmitter {
   }
   send(id: string, raw: unknown) {
     const s = this.get(id);
-    ensure(!s.ended, 'Session has ended', 'ENDED', 410);
+    const clientId =
+      raw && typeof raw === 'object'
+        ? (raw as { clientId?: unknown }).clientId
+        : undefined;
+    const existing = s.events.find((e) => e.clientId === clientId);
     const value = input(raw);
-    const existing = s.events.find((e) => e.clientId === value.clientId);
     if (existing) {
       const original: Input = {
-        protocol: 1,
+        protocol: 2,
         clientId: existing.clientId,
-        kind: existing.kind,
         revision: existing.revision,
         payload: existing.payload,
       };
       ensure(
-        JSON.stringify(original) === JSON.stringify(value),
+        fingerprint(original) === fingerprint(value),
         'clientId was reused with different content',
         'IDEMPOTENCY_CONFLICT',
         409,
       );
       return existing;
     }
+    ensure(!s.ended, 'Session has ended', 'ENDED', 410);
     ensure(
       s.revision === value.revision,
       'The interface changed. Refresh, verify the target, and resubmit.',
@@ -218,6 +207,12 @@ export class Store extends EventEmitter {
     const s = this.get(id);
     ensure(!s.ended, 'Session has ended', 'ENDED', 410);
     boundedObject(value);
+    if (
+      s.stateVersion > 0 &&
+      expectedVersion === s.stateVersion - 1 &&
+      fingerprint(value) === fingerprint(s.state)
+    )
+      return s;
     ensure(
       Number.isInteger(expectedVersion) && expectedVersion === s.stateVersion,
       'Working state changed in another view. Re-read and reconcile.',

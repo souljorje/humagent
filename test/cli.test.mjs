@@ -80,18 +80,17 @@ test('Bun CLI preserves runtime and origin through an agent loop and restart', a
           'x-humagent-session': new URL(opened.url).hash.slice(1),
         },
         body: JSON.stringify({
-          protocol: 1,
+          protocol: 2,
           clientId: 'bun-cli-test',
-          kind: 'message',
           revision: snapshot.revision,
-          payload: { text: 'Check this interface.' },
+          payload: { message: 'Check this interface.', items: [] },
         }),
       },
     );
     assert.equal(response.status, 200);
     const batch = await pending;
     assert.equal(batch.status, 'feedback');
-    assert.equal(batch.events[0].payload.text, 'Check this interface.');
+    assert.equal(batch.events[0].payload.message, 'Check this interface.');
     await run(
       'renew',
       opened.session,
