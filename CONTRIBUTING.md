@@ -22,8 +22,11 @@ Source files belong to one package:
 - `src/runtime/` contains the server, sessions, persistence, and surface serving.
 - `src/ui/` contains the browser interface.
 - `src/sdk/` contains the injected bridge, forms, and element targeting.
+- `src/shared/` contains common contracts, validation, and browser-safe helpers.
+- `src/examples/` contains example pages and their TypeScript modules.
 
-The build compiles TypeScript and copies browser assets into `dist/`. Tests are in `test/`.
+All executable source uses TypeScript. The build compiles application and example modules into `dist/`, then copies HTML and CSS.
+Scripts and tests remain in `scripts/` and `test/`. The main check also checks their types.
 
 ## Checks
 

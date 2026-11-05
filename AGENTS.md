@@ -6,7 +6,7 @@ Preserve application behavior. Keep task-specific requests as data, not backend 
 
 Use Bun 1.4.4 for development, dependencies, builds, and tests. Keep `bun.lock` and frozen installation in CI.
 
-Use TypeScript for the server and CLI. Use browser-native modules for the workspace.
+Use TypeScript for application code, examples, scripts, and tests. Compile browser code to native JavaScript modules.
 
 Published JavaScript must run on Node.js 24+ and Bun 1.4.4+. Keep the Node shebang for npm/npx compatibility.
 Child servers must use the CLI's runtime executable. npm users must not need Bun.
