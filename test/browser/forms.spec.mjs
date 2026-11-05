@@ -1,7 +1,107 @@
-import fs from 'node:fs';
 import { test, expect } from './fixtures.mjs';
 
-test('saved form values survive a workspace reload', async ({
+for (const lost of ['HTTP response', 'bridge acknowledgment'])
+  test(`form persistence recovers a lost ${lost}`, async ({
+    page,
+    plan,
+    review,
+    workspace,
+  }) => {
+    if (lost === 'HTTP response') {
+      let dropped = false;
+      await page.route(
+        `**/api/sessions/${plan.session}/state`,
+        async (route) => {
+          if (!dropped) {
+            dropped = true;
+            await route.fetch();
+            await route.abort();
+          } else await route.continue();
+        },
+      );
+    } else {
+      await page.addInitScript(() => {
+        let dropped = false;
+        window.addEventListener(
+          'message',
+          (event) => {
+            if (
+              !dropped &&
+              event.data?.method === 'result' &&
+              event.data.result?.stateVersion === 1
+            ) {
+              dropped = true;
+              window.droppedStateAcknowledgment = true;
+              event.stopImmediatePropagation();
+            }
+          },
+          true,
+        );
+      });
+      await page.reload();
+      await review.ready();
+    }
+    await review.frame
+      .locator('input[name="outcome"]')
+      .fill('Survive the lost response');
+    await expect
+      .poll(
+        () => workspace.store.get(plan.session).state.forms?.launch?.outcome,
+      )
+      .toBe('Survive the lost response');
+    if (lost === 'bridge acknowledgment')
+      await expect
+        .poll(() => review.evaluate(() => window.droppedStateAcknowledgment))
+        .toBe(true);
+    const documentId = await review.evaluate(
+      () => window.__HUMAGENT__.documentId,
+    );
+    await page.locator('#refresh').click();
+    await expect
+      .poll(() => review.evaluate(() => window.__HUMAGENT__.documentId), {
+        timeout: 15000,
+      })
+      .not.toBe(documentId);
+    await review.ready();
+    await expect(review.frame.locator('input[name="outcome"]')).toHaveValue(
+      'Survive the lost response',
+    );
+    await review.frame.locator('input[name="outcome"]').fill('A later edit');
+    await expect
+      .poll(
+        () => workspace.store.get(plan.session).state.forms?.launch?.outcome,
+      )
+      .toBe('A later edit');
+  });
+
+test('form submission captures values before delayed persistence', async ({
+  page,
+  plan,
+  review,
+}) => {
+  let release;
+  const delayed = new Promise((resolve) => {
+    release = resolve;
+  });
+  let requests = 0;
+  await page.route(`**/api/sessions/${plan.session}/state`, async (route) => {
+    if (++requests === 1) await delayed;
+    await route.continue();
+  });
+  await review.frame.locator('input[name="outcome"]').fill('Submitted value');
+  await review.frame
+    .locator('form[data-humagent-intent] button[type="submit"]')
+    .click();
+  await expect.poll(() => requests).toBe(1);
+  await review.frame.locator('input[name="outcome"]').fill('Later value');
+  release();
+  await expect(page.locator('.draft')).toHaveCount(1);
+  expect((await review.state()).drafts[0].item.values.outcome).toBe(
+    'Submitted value',
+  );
+});
+
+test('form values survive reload and staged values remain a separate snapshot', async ({
   page,
   plan,
   review,
@@ -11,101 +111,93 @@ test('saved form values survive a workspace reload', async ({
   await review.frame
     .locator('input[name="outcome"]')
     .fill('A preserved outcome.');
-  await review.frame
-    .locator('textarea[name="notes"]')
-    .fill('Keep this exact note.');
+  await review.frame.locator('textarea[name="notes"]').fill('Exact note.');
   await review.frame.locator('input[name="confirmBeforeAction"]').uncheck();
+  await review.frame
+    .locator('form[data-humagent-intent] button[type="submit"]')
+    .click();
+  await expect(review.frame.locator('[data-humagent-status]')).toHaveText(
+    'Added to review',
+  );
+  expect(workspace.store.get(plan.session).events).toHaveLength(0);
+  await review.frame
+    .locator('input[name="outcome"]')
+    .fill('A later form value.');
   await expect
-    .poll(() => workspace.store.get(plan.session).state.forms?.launch)
-    .toMatchObject({
-      approach: 'platform-first',
-      outcome: 'A preserved outcome.',
-      notes: 'Keep this exact note.',
-      confirmBeforeAction: false,
-    });
-
+    .poll(() => workspace.store.get(plan.session).state.forms?.launch?.outcome)
+    .toBe('A later form value.');
   await page.reload();
   await review.ready();
   await expect(review.frame.locator('input[name="outcome"]')).toHaveValue(
-    'A preserved outcome.',
-  );
-  await expect(review.frame.locator('textarea[name="notes"]')).toHaveValue(
-    'Keep this exact note.',
+    'A later form value.',
   );
   await expect(
     review.frame.locator('input[value="platform-first"]'),
   ).toBeChecked();
-  await expect(
-    review.frame.locator('input[name="confirmBeforeAction"]'),
-  ).not.toBeChecked();
+  expect((await review.state()).drafts[0].item.values.outcome).toBe(
+    'A preserved outcome.',
+  );
+  await page.locator('#send').click();
+  await expect
+    .poll(() => workspace.store.get(plan.session).events.length)
+    .toBe(1);
+  expect(
+    workspace.store.get(plan.session).events[0].payload.items[0].values,
+  ).toMatchObject({
+    approach: 'platform-first',
+    notes: 'Exact note.',
+    confirmBeforeAction: false,
+  });
 });
 
-test('form submission reaches a waiting agent and displays its reply', async ({
+test('SDK and forms stage beside annotations and one batch reaches the waiting agent', async ({
   page,
   plan,
   review,
   workspace,
 }) => {
-  await review.frame.locator('input[value="platform-first"]').check();
+  const result = await review.evaluate(() =>
+    window.humagent.submit({
+      intent: 'a_new_task',
+      values: { ranks: ['b', 'a'] },
+      message: 'Use these choices.',
+    }),
+  );
+  expect(result).toMatchObject({
+    status: 'draft',
+    draftId: expect.any(String),
+  });
+  expect(await review.evaluate(() => Object.keys(window.humagent))).toEqual([
+    'submit',
+  ]);
   await review.frame
-    .locator('input[name="outcome"]')
-    .fill('A selected outcome.');
-  await review.frame
-    .locator('textarea[name="notes"]')
-    .fill('Keep this exact note.');
-  await review.frame.locator('input[name="confirmBeforeAction"]').uncheck();
+    .locator('form[data-humagent-intent] button[type="submit"]')
+    .click();
+  await expect(page.locator('.draft')).toHaveCount(2);
+  await review.addComment('h1', 'Keep it short.');
+  await page.locator('#message').fill('Review everything together.');
+  expect(workspace.store.get(plan.session).events).toHaveLength(0);
   const waiting = workspace.api(`/api/sessions/${plan.session}/wait`, 'POST', {
-    consumer: 'browser-test',
+    consumer: 'test',
     timeoutMs: 10000,
   });
-  await review.frame.locator('button[type="submit"]').click();
-  const batch = await waiting;
-  expect(batch.status).toBe('feedback');
-  expect(batch.events).toHaveLength(1);
-  expect(batch.events[0]).toMatchObject({
-    kind: 'submission',
-    payload: {
-      values: {
-        approach: 'platform-first',
-        outcome: 'A selected outcome.',
-        defer: 'automation',
-        notes: 'Keep this exact note.',
-        confirmBeforeAction: false,
-      },
-    },
-  });
-
+  await page.locator('#send').click();
+  const receipt = await waiting;
+  expect(receipt.events).toHaveLength(1);
+  expect(receipt.events[0].payload.items).toHaveLength(3);
+  expect(receipt.events[0].payload.message).toBe('Review everything together.');
   await workspace.api(`/api/sessions/${plan.session}/reply`, 'POST', {
-    receipt: batch.receipt,
-    message: 'Updated the plan. Nothing was executed.',
+    receipt: receipt.receipt,
+    message: 'Updated. Nothing was executed.',
   });
-  await expect(page.locator('.entry.agent')).toHaveText(/Nothing was executed/);
+  await expect(page.locator('#activity')).toContainText(
+    'Nothing was executed.',
+  );
   expect(workspace.store.get(plan.session).events[0].status).toBe('completed');
 });
 
-test('the SDK stores structured requests without a task handler', async ({
-  plan,
-  review,
-  workspace,
-}) => {
-  const event = await review.evaluate(() =>
-    window.humagent.submit({
-      intent: 'a_new_task_without_a_handler',
-      values: { ranks: ['b', 'a'], count: 7 },
-    }),
-  );
-  expect(workspace.store.get(plan.session).events).toHaveLength(1);
-  expect(event).toMatchObject({
-    kind: 'submission',
-    payload: {
-      intent: 'a_new_task_without_a_handler',
-      values: { ranks: ['b', 'a'], count: 7 },
-    },
-  });
-});
-
-for (const reload of [false, true]) {
-  test(`form retries reuse accepted input after a lost response${reload ? ' and reload' : ''}`, async ({
+for (const reload of [false, true])
+  test(`a lost HTTP response retries the same batch${reload ? ' after reload' : ''}`, async ({
     page,
     plan,
     review,
@@ -123,172 +215,199 @@ for (const reload of [false, true]) {
         } else await route.continue();
       },
     );
-    await review.frame.locator('button[type="submit"]').click();
-    await expect(page.locator('#error')).toBeVisible();
+    await review.evaluate(() =>
+      window.humagent.submit({
+        intent: 'review',
+        values: { decision: 'first' },
+      }),
+    );
+    await page.locator('#send').click();
     await expect(page.locator('#outbox')).toBeVisible();
+    await expect(page.locator('#error')).toBeVisible();
     expect(workspace.store.get(plan.session).events).toHaveLength(1);
-    const original = workspace.store.get(plan.session).events[0];
     if (reload) {
       await page.reload();
       await review.ready();
     }
-    await review.frame.locator('button[type="submit"]').click();
-    await expect(review.frame.locator('[data-humagent-status]')).toHaveText(
-      'Queued for the agent.',
+    await review.evaluate(() =>
+      window.humagent.submit({ intent: 'review', values: { decision: 'new' } }),
     );
+    await page.locator('#message').fill('A new instruction');
+    await page
+      .getByRole('button', { name: 'Retry batch', exact: true })
+      .click();
     await expect(page.locator('#outbox')).toBeHidden();
-    expect(requests).toHaveLength(2);
-    expect(requests[1].clientId).toBe(original.clientId);
+    expect(requests[1]).toEqual(requests[0]);
     expect(workspace.store.get(plan.session).events).toHaveLength(1);
-
-    // A confirmed submission does not suppress a later explicit request.
-    await review.frame.locator('button[type="submit"]').click();
+    expect((await review.state()).drafts[0].item.values.decision).toBe('new');
+    await expect(page.locator('#message')).toHaveValue('A new instruction');
+    await page.locator('#send').click();
     await expect
       .poll(() => workspace.store.get(plan.session).events.length)
       .toBe(2);
-    expect(workspace.store.get(plan.session).events[1].clientId).not.toBe(
-      original.clientId,
-    );
   });
-}
 
-test('SDK retries keep changed values and new revisions separate', async ({
+test('SDK rejects lossy values and failed browser persistence without staging success', async ({
   page,
   plan,
   review,
   workspace,
 }) => {
-  const routePattern = `**/api/sessions/${plan.session}/events`;
-  await page.route(routePattern, async (route) => {
-    const response = await route.fetch();
-    expect(response.status()).toBe(200);
-    await route.abort();
-  });
-  const error = await review.evaluate(async () => {
-    try {
-      await window.humagent.submit({
-        intent: 'review',
-        values: { choice: 'original' },
-      });
-    } catch (error) {
-      return error.message;
-    }
-  });
-  expect(error).toBeTruthy();
-  await expect(page.locator('#outbox')).toBeVisible();
-  const original = workspace.store.get(plan.session).events[0];
-  await page.unroute(routePattern);
-
-  const changed = await review.evaluate(() =>
-    window.humagent.submit({ intent: 'review', values: { choice: 'changed' } }),
-  );
-  expect(changed.id).not.toBe(original.id);
-  await expect(page.locator('#outbox')).toBeVisible();
-
-  fs.appendFileSync(workspace.file(), '<p>A new source revision.</p>');
-  await page.reload();
-  await review.ready();
-  const revised = await review.evaluate(() =>
-    window.humagent.submit({
-      intent: 'review',
-      values: { choice: 'original' },
-    }),
-  );
-  expect(revised.id).not.toBe(original.id);
-  expect(revised.revision).not.toBe(original.revision);
-  expect(workspace.store.get(plan.session).events).toHaveLength(3);
-  await expect(page.locator('#outbox')).toBeVisible();
-  await page.locator('#retry').click();
-  await expect(page.locator('#outbox')).toBeHidden();
-  expect(workspace.store.get(plan.session).events).toHaveLength(3);
-});
-
-test('the SDK rejects lossy values before sending or saving them', async ({
-  plan,
-  review,
-  workspace,
-}) => {
-  const rejected = await review.evaluate(async () => {
+  const count = await review.evaluate(async () => {
     const cyclic = {};
     cyclic.self = cyclic;
-    const values = [
+    let rejected = 0;
+    for (const value of [
       NaN,
       Infinity,
       undefined,
       () => {},
-      Symbol('invalid'),
+      Symbol('x'),
       1n,
       new Date(),
       cyclic,
       Array(1),
-    ];
-    let count = 0;
-    for (const value of values) {
+    ]) {
       try {
         await window.humagent.submit({ intent: 'invalid', values: { value } });
       } catch {
-        count++;
-      }
-      try {
-        await window.humagent.setState({ invalid: value });
-      } catch {
-        count++;
+        rejected++;
       }
     }
-    return { count, expected: values.length * 2 };
+    return rejected;
   });
-  expect(rejected.count).toBe(rejected.expected);
+  expect(count).toBe(9);
+  await page.evaluate(() => {
+    window.originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith('humagent:review:')) throw new Error('Storage full');
+      return window.originalSetItem.call(this, key, value);
+    };
+  });
+  const failure = await review.evaluate(async () => {
+    try {
+      await window.humagent.submit({
+        intent: 'review',
+        values: { safe: true },
+      });
+    } catch (e) {
+      return e.message;
+    }
+  });
+  expect(failure).toContain('Storage full');
+  expect((await review.state()).drafts).toHaveLength(0);
   expect(workspace.store.get(plan.session).events).toHaveLength(0);
-  expect(workspace.store.get(plan.session).state).not.toHaveProperty('invalid');
+  await page.evaluate(() => {
+    Storage.prototype.setItem = window.originalSetItem;
+  });
+  await review.evaluate(() =>
+    window.humagent.submit({ intent: 'review', values: { safe: true } }),
+  );
+  await expect(page.locator('.draft')).toHaveCount(1);
 });
 
-test('custom state and form saves share one ordered update queue', async ({
+test('form serialization handles repeated fields and excludes private or disabled fields', async ({
+  page,
+  review,
+  workspace,
+}) => {
+  await review.open();
+  await review.evaluate(() => {
+    const form = document.createElement('form');
+    form.dataset.humagentIntent = 'controls';
+    form.innerHTML =
+      '<input name="repeated" value="one"><input name="repeated" value="two"><input type="checkbox" name="checks" value="a" checked><input type="checkbox" name="checks" value="b"><input type="radio" name="radio" value="yes" checked><select name="multi" multiple><option selected>a</option><option selected>b</option></select><input type="password" name="secret" value="no"><input type="file" name="file"><input name="disabled" disabled><button>Stage controls</button>';
+    document.body.append(form);
+  });
+  await review.frame.getByRole('button', { name: 'Stage controls' }).click();
+  await expect(page.locator('.draft')).toHaveCount(1);
+  expect((await review.state()).drafts[0].item.values).toEqual({
+    repeated: ['one', 'two'],
+    checks: ['a'],
+    radio: 'yes',
+    multi: ['a', 'b'],
+  });
+  expect(workspace.store.list()[0].events).toHaveLength(0);
+});
+
+test('generated mini-app stays local until Send all', async ({
+  page,
+  review,
+  workspace,
+}) => {
+  const opened = await review.open(workspace.file('calculator.html'));
+  await review.frame.locator('#tasks').evaluate((el) => {
+    el.value = '120';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await expect(review.frame.locator('#hours')).toHaveText('16.0 hours');
+  await review.frame
+    .locator('form[data-humagent-intent] button[type="submit"]')
+    .click();
+  await expect(page.locator('.draft')).toHaveCount(1);
+  expect(workspace.store.get(opened.session).events).toHaveLength(0);
+  await page.locator('#send').click();
+  await expect
+    .poll(() => workspace.store.get(opened.session).events.length)
+    .toBe(1);
+});
+
+test('an accepted batch can be confirmed after the session ends', async ({
+  page,
   plan,
   review,
   workspace,
 }) => {
-  await review.frame
-    .locator('textarea[name="notes"]')
-    .fill('Keep this exact note.');
-  await review.evaluate(async () => {
-    const extra = document.createElement('form');
-    extra.id = 'extra';
-    extra.dataset.humagentIntent = 'extra';
-    extra.dataset.humagentPersist = '';
-    extra.innerHTML = '<input name="priority" value="high">';
-    document.body.append(extra);
-    const first = window.humagent.setState({ custom: { step: 1 } });
-    extra.elements.priority.dispatchEvent(
-      new Event('input', { bubbles: true }),
-    );
-    const second = window.humagent.setState({ another: 'kept' });
-    await Promise.all([first, second]);
+  const pattern = `**/api/sessions/${plan.session}/events`;
+  await page.route(pattern, async (route) => {
+    await route.fetch();
+    await route.abort();
   });
-  await expect
-    .poll(() => workspace.store.get(plan.session).state)
-    .toMatchObject({
-      custom: { step: 1 },
-      another: 'kept',
-      forms: {
-        launch: { notes: 'Keep this exact note.' },
-        extra: { priority: 'high' },
-      },
-    });
+  await review.evaluate(() =>
+    window.humagent.submit({ intent: 'review', values: { chosen: true } }),
+  );
+  await page.locator('#send').click();
+  await expect(page.locator('#error')).toBeVisible();
+  await page.unroute(pattern);
+  await workspace.api(`/api/sessions/${plan.session}/end`, 'POST', {});
+  await expect(page.locator('#presence')).toHaveText('Ended');
+  await page.getByRole('button', { name: 'Retry batch' }).click();
+  await expect(page.locator('#outbox')).toBeHidden();
+  expect(workspace.store.get(plan.session).events).toHaveLength(1);
 });
 
-test('a generated mini-app runs locally until submission', async ({
+test('lost staging acknowledgments retry without duplicate drafts', async ({
+  page,
+  plan: _plan,
   review,
-  workspace,
 }) => {
-  const session = await review.open(workspace.file('calculator.html'));
-  await review.frame.locator('#tasks').evaluate((element) => {
-    element.value = '120';
-    element.dispatchEvent(new Event('input', { bubbles: true }));
+  await page.addInitScript(() => {
+    let dropped = false;
+    window.addEventListener(
+      'message',
+      (event) => {
+        if (
+          !dropped &&
+          event.data?.method === 'result' &&
+          event.data.result?.status === 'draft'
+        ) {
+          dropped = true;
+          window.droppedStageAcknowledgment = true;
+          event.stopImmediatePropagation();
+        }
+      },
+      true,
+    );
   });
-  await expect(review.frame.locator('#hours')).toHaveText('16.0 hours');
-  expect(workspace.store.get(session.session).events).toHaveLength(0);
-  await review.frame.locator('button[type="submit"]').click();
-  await expect
-    .poll(() => workspace.store.get(session.session).events.length)
-    .toBe(1);
+  await page.reload();
+  await review.ready();
+  const staged = await review.evaluate(() =>
+    window.humagent.submit({ intent: 'review', values: { chosen: true } }),
+  );
+  expect(staged.status).toBe('draft');
+  expect(await review.evaluate(() => window.droppedStageAcknowledgment)).toBe(
+    true,
+  );
+  expect((await review.state()).drafts).toHaveLength(1);
+  await expect(page.locator('.draft')).toHaveCount(1);
 });

@@ -26,16 +26,15 @@ export function isNativeInteractiveControl(el) {
   if (!el || !el.closest) return false;
   if (
     el.closest(
-      "button,input,select,textarea,option,optgroup,label,summary,[contenteditable]:not([contenteditable='false'])",
+      "a[href],button,input,select,textarea,option,optgroup,label,summary,[contenteditable]:not([contenteditable='false'])",
     )
   )
     return true;
   const widget = el.closest(
-    "[role='button'],[role='checkbox'],[role='combobox'],[role='menuitem'],[role='menuitemcheckbox'],[role='menuitemradio'],[role='option'],[role='radio'],[role='switch'],[role='tab'],[role='treeitem']",
+    "[role='link'],[role='button'],[role='checkbox'],[role='combobox'],[role='menuitem'],[role='menuitemcheckbox'],[role='menuitemradio'],[role='option'],[role='radio'],[role='switch'],[role='tab'],[role='treeitem'],[role='textbox'],[role='slider'],[role='spinbutton'],[role='listbox'],[role='grid']",
   );
   if (!widget) return false;
-  const link = el.closest('a[href]');
-  return !(link && widget.contains(link));
+  return true;
 }
 export function context(el) {
   return {

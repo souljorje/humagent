@@ -70,12 +70,71 @@ export const test = base.extend({
         'Interface connected',
       );
       await expect.poll(() => evaluate(() => !!window.humagent)).toBe(true);
-      await evaluate(() => window.humagent.ready);
     };
     await use({
       frame: page.frameLocator('#frame'),
       evaluate,
       ready,
+      async addComment(selector, comment) {
+        await page
+          .frameLocator('#frame')
+          .locator(selector)
+          .click({ button: 'right' });
+        await page
+          .frameLocator('#frame')
+          .getByRole('button', { name: 'Comment', exact: true })
+          .click();
+        await page
+          .frameLocator('#frame')
+          .getByLabel('Comment', { exact: true })
+          .fill(comment);
+        await page
+          .frameLocator('#frame')
+          .getByRole('button', { name: 'Add to review', exact: true })
+          .click();
+        await expect(
+          page
+            .frameLocator('#frame')
+            .getByRole('dialog', { name: 'Add feedback' }),
+        ).toBeHidden();
+      },
+      async replace(selector, replacement) {
+        await evaluate((selector) => {
+          const element = document.querySelector(selector),
+            range = document.createRange();
+          range.selectNodeContents(element);
+          const selection = document.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        }, selector);
+        await page
+          .frameLocator('#frame')
+          .getByRole('button', { name: 'Suggest replacement', exact: true })
+          .click();
+        await page
+          .frameLocator('#frame')
+          .getByLabel('Exact replacement', { exact: true })
+          .fill(replacement);
+        await page
+          .frameLocator('#frame')
+          .getByRole('button', { name: 'Add to review', exact: true })
+          .click();
+        await expect(
+          page
+            .frameLocator('#frame')
+            .getByRole('dialog', { name: 'Add feedback' }),
+        ).toBeHidden();
+      },
+      async state() {
+        return page.evaluate(() =>
+          JSON.parse(
+            localStorage.getItem(
+              `humagent:review:${new URL(location.href).searchParams.get('session')}`,
+            ),
+          ),
+        );
+      },
       async open(target = workspace.file()) {
         const opened = await workspace.api('/api/open', 'POST', { target });
         await page.goto(opened.url);
@@ -106,7 +165,7 @@ export const test = base.extend({
         res.end(
           `<h1>Dynamic ${dynamicRequests}</h1><form id="dynamic" data-humagent-intent="review"><input name="choice" value="keep"><button type="submit">Send</button></form>`,
         );
-      } else if (req.url === '/a' || req.url === '/b') {
+      } else if (['/a', '/b', '/c'].includes(req.url)) {
         res.end(
           `<h1>Page ${req.url.slice(1)}</h1><a href="/b">Next page</a><form id="route" data-humagent-intent="review" data-humagent-persist><input name="note"></form>`,
         );

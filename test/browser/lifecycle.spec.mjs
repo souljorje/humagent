@@ -1,5 +1,165 @@
 import { test, expect } from './fixtures.mjs';
 
+test('navigation stays current when a corrective request also arrives late', async ({
+  page,
+  review,
+  workspace,
+  app,
+}) => {
+  const opened = await review.open(app.origin + '/a');
+  let releaseA, releaseB, secondDocument;
+  const waitA = new Promise((resolve) => {
+    releaseA = resolve;
+  });
+  const waitB = new Promise((resolve) => {
+    releaseB = resolve;
+  });
+  let heldA = false,
+    heldB = false,
+    appliedB = false;
+  await page.route(
+    `**/api/sessions/${opened.session}/surface`,
+    async (route) => {
+      if (!heldA) {
+        const response = await route.fetch();
+        heldA = true;
+        await waitA;
+        return route.fulfill({ response });
+      }
+      if (
+        !heldB &&
+        route.request().postDataJSON().documentId === secondDocument
+      ) {
+        heldB = true;
+        await waitB;
+        const response = await route.fetch();
+        appliedB = true;
+        return route.fulfill({ response });
+      }
+      await route.continue();
+    },
+  );
+  try {
+    await page.locator('#refresh').click();
+    await expect.poll(() => heldA).toBe(true);
+    await review.evaluate(() => {
+      location.href = '/b';
+    });
+    await expect(review.frame.locator('h1')).toHaveText('Page b');
+    await review.ready();
+    secondDocument = await review.evaluate(
+      () => window.__HUMAGENT__.documentId,
+    );
+    releaseA();
+    await expect.poll(() => heldB).toBe(true);
+    await review.evaluate(() => {
+      location.href = '/c';
+    });
+    await expect(review.frame.locator('h1')).toHaveText('Page c');
+    await review.ready();
+    await review.evaluate(() =>
+      window.humagent.submit({ intent: 'current', values: { page: 'c' } }),
+    );
+    releaseB();
+    await expect.poll(() => appliedB).toBe(true);
+    await expect
+      .poll(() => workspace.store.get(opened.session).surfacePath)
+      .toBe('/c');
+    await expect(page.locator('#send')).toBeEnabled();
+    await page.locator('#send').click();
+    await expect
+      .poll(() => workspace.store.get(opened.session).events.length)
+      .toBe(1);
+  } finally {
+    releaseA();
+    releaseB();
+  }
+});
+
+test('late navigation responses cannot replace the current revision', async ({
+  page,
+  review,
+  workspace,
+  app,
+}) => {
+  const opened = await review.open(app.origin + '/a');
+  let release;
+  const delayed = new Promise((resolve) => {
+    release = resolve;
+  });
+  let held = false,
+    finished = false;
+  await page.route(
+    `**/api/sessions/${opened.session}/surface`,
+    async (route) => {
+      if (held) return route.continue();
+      const response = await route.fetch();
+      held = true;
+      await delayed;
+      await route.fulfill({ response });
+      finished = true;
+    },
+  );
+  try {
+    await page.locator('#refresh').click();
+    await expect.poll(() => held).toBe(true);
+    await review.evaluate(() => {
+      location.href = '/b';
+    });
+    await expect(review.frame.locator('h1')).toHaveText('Page b');
+    await review.ready();
+    await review.evaluate(() =>
+      window.humagent.submit({ intent: 'current', values: { page: 'b' } }),
+    );
+    await expect(page.locator('#send')).toBeEnabled();
+    release();
+    await expect.poll(() => finished).toBe(true);
+    await page.locator('#send').click();
+    await expect
+      .poll(() => workspace.store.get(opened.session).events.length)
+      .toBe(1);
+    expect(workspace.store.get(opened.session).surfacePath).toBe('/b');
+    await expect(page.locator('#error')).toBeHidden();
+  } finally {
+    release();
+  }
+});
+
+test('nested app frames preserve the attached document and keep their native forms', async ({
+  page,
+  review,
+  workspace,
+  app,
+}) => {
+  const opened = await review.open(app.origin + '/a');
+  const before = workspace.store.get(opened.session);
+  await review.evaluate(() => {
+    const child = document.createElement('iframe');
+    child.id = 'child';
+    child.src = '/b';
+    document.body.append(child);
+  });
+  const child = review.frame.frameLocator('#child');
+  await expect(child.locator('h1')).toHaveText('Page b');
+  await expect(child.locator('input')).toBeVisible();
+  expect(
+    await child.locator('body').evaluate(() => ({
+      sdk: typeof window.humagent,
+      boot: typeof window.__HUMAGENT__,
+    })),
+  ).toEqual({ sdk: 'undefined', boot: 'undefined' });
+  expect(workspace.store.get(opened.session).revision).toBe(before.revision);
+  expect(workspace.store.get(opened.session).surfacePath).toBe('/a');
+  await review.addComment('h1', 'Review the parent');
+  await page.locator('#send').click();
+  await expect
+    .poll(() => workspace.store.get(opened.session).events.length)
+    .toBe(1);
+  expect(workspace.store.get(opened.session).events[0].revision).toBe(
+    before.revision,
+  );
+});
+
 test('default restarts retain drafts, form values, and pending input', async ({
   page,
   plan,
@@ -14,13 +174,15 @@ test('default restarts retain drafts, form values, and pending input', async ({
     .toBe('A preserved outcome.');
   const blockedEvents = `**/api/sessions/${plan.session}/events`;
   await page.route(blockedEvents, (route) => route.abort());
+  await page.locator('#toggle-review').click();
   await page.locator('#message').fill('Keep this unsent message.');
   await page.locator('#send').click();
   await expect(page.locator('#error')).toBeVisible();
   await expect(page.locator('#outbox')).toBeVisible();
   const pendingId = await page.evaluate(
     (id) =>
-      JSON.parse(localStorage.getItem(`humagent:outbox:${id}`))[0].clientId,
+      JSON.parse(localStorage.getItem(`humagent:review:${id}`)).outbox[0].batch
+        .clientId,
     plan.session,
   );
   await page.unroute(blockedEvents);
@@ -47,11 +209,12 @@ test('default restarts retain drafts, form values, and pending input', async ({
   await expect(page.locator('#outbox')).toBeVisible();
   const restoredId = await page.evaluate(
     (id) =>
-      JSON.parse(localStorage.getItem(`humagent:outbox:${id}`))[0].clientId,
+      JSON.parse(localStorage.getItem(`humagent:review:${id}`)).outbox[0].batch
+        .clientId,
     plan.session,
   );
   expect(restoredId).toBe(pendingId);
-  await page.locator('#retry').click();
+  await page.getByRole('button', { name: 'Retry batch', exact: true }).click();
   await expect
     .poll(
       () =>
@@ -75,13 +238,13 @@ test('existing apps retain native clicks, API requests, and annotations', async 
   expect(
     await review.evaluate(async () => (await fetch('/api/value')).json()),
   ).toEqual({ value: 42 });
-  await page.locator('[data-mode="annotate"]').click();
-  await review.frame.locator('#headline').click();
-  await page.locator('#message').fill('Review an existing app.');
+  await review.addComment('#headline', 'Review an existing app.');
   await page.locator('#send').click();
   await expect
     .poll(
-      () => workspace.store.get(session.session).events[0]?.payload.target.id,
+      () =>
+        workspace.store.get(session.session).events[0]?.payload.items[0].target
+          .id,
     )
     .toBe('headline');
 });
@@ -133,7 +296,12 @@ test('HTML fragment fetches preserve the displayed app and allow submissions', a
   const event = await review.evaluate(() =>
     window.humagent.submit({ intent: 'review', values: { choice: 'keep' } }),
   );
-  expect(event.revision).toBe(before.revision);
+  expect(event.status).toBe('draft');
+  expect(workspace.store.get(opened.session).events).toHaveLength(0);
+  await page.locator('#send').click();
+  await expect
+    .poll(() => workspace.store.get(opened.session).events.length)
+    .toBe(1);
   expect(workspace.store.get(opened.session).events).toHaveLength(1);
   await expect(page.locator('#error')).toBeHidden();
 });
@@ -146,7 +314,11 @@ test('dynamic HTML accepts submissions without a refresh loop', async ({
 }) => {
   const session = await review.open(app.origin + '/dynamic');
   const requests = app.dynamicRequests;
-  await review.frame.locator('button[type="submit"]').click();
+  await review.frame
+    .locator('form[data-humagent-intent] button[type="submit"]')
+    .click();
+  await expect(page.locator('.draft')).toHaveCount(1);
+  await page.locator('#send').click();
   await expect
     .poll(() => workspace.store.get(session.session).events.length)
     .toBe(1);

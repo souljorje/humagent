@@ -1,3 +1,5 @@
+import { createReview } from './review-state.js';
+
 const $ = (id) => document.getElementById(id);
 const id = new URL(location.href).searchParams.get('session');
 const credentialKey = `humagent:key:${id}`;
@@ -6,82 +8,64 @@ if (location.hash) {
   history.replaceState(null, '', location.pathname + location.search);
 }
 const capability = sessionStorage.getItem(credentialKey);
-const storageKey = `humagent:draft:${id}`,
-  outboxKey = `humagent:outbox:${id}`;
-function read(key, fallback) {
-  try {
-    return JSON.parse(localStorage.getItem(key)) ?? fallback;
-  } catch {
-    return fallback;
+let session,
+  review,
+  loadedRevision,
+  latestDocument,
+  bridgeReady = false,
+  syncing,
+  writable = false,
+  editing,
+  flushCall;
+const available = new Map();
+const rendered = new WeakMap();
+function renderChanged(element, value, draw) {
+  const key = JSON.stringify(value);
+  if (rendered.get(element) === key) return;
+  const active = document.activeElement;
+  const focusedId = element.contains(active)
+    ? active.closest('[data-draft-id],[data-batch-id]')?.dataset
+    : null;
+  const label = active.textContent;
+  element.replaceChildren();
+  draw();
+  rendered.set(element, key);
+  if (focusedId) {
+    const selector = focusedId.draftId
+      ? `[data-draft-id="${CSS.escape(focusedId.draftId)}"]`
+      : `[data-batch-id="${CSS.escape(focusedId.batchId)}"]`;
+    const buttons = [
+      ...(element.querySelector(selector)?.querySelectorAll('button') || []),
+    ];
+    const next =
+      buttons.find((el) => el.textContent === label && !el.disabled) ||
+      buttons.find((el) => !el.disabled);
+    next?.focus({ preventScroll: true });
   }
 }
-const draft = read(storageKey, {});
-let mode = draft.mode || 'interact',
-  selection = draft.selection || null;
-let session = null,
-  loadedRevision = null,
-  bridgeReady = false,
-  syncing = null,
-  signature = '',
-  replySeen = new Set(),
-  pending = read(outboxKey, []);
-$('wait-command').textContent = id
-  ? `humagent wait ${id} --timeout 50 --lease 600`
-  : 'Open a session with humagent open.';
-$('copy-command').onclick = async () => {
-  try {
-    await navigator.clipboard.writeText($('wait-command').textContent);
-    $('copy-command').textContent = 'Copied';
-    setTimeout(() => ($('copy-command').textContent = 'Copy command'), 2000);
-  } catch {
-    error('Select and copy the command manually.');
-  }
-};
-$('message').value = draft.text || '';
-$('replacement').value = draft.replacement || '';
-const controlEditError =
-  'Edit the control through its normal interface, or annotate it instead.';
-function error(message) {
+let unsavedMessage = false;
+function error(message = '') {
   $('error').textContent = message;
   $('error').hidden = !message;
 }
-function clearControlEditError() {
-  if ($('error').textContent === controlEditError) error('');
+function openTray(open = true) {
+  $('tray').hidden = !open;
+  $('toggle-review').setAttribute('aria-expanded', String(open));
 }
-function saveDraft() {
-  try {
-    localStorage.setItem(
-      storageKey,
-      JSON.stringify({
-        text: $('message').value,
-        replacement: $('replacement').value,
-        selection,
-        mode,
-      }),
+function canWrite(retry = false) {
+  if (!writable)
+    throw new Error(
+      'This review is editable in another tab. Close that tab, then reload here.',
     );
-  } catch {
-    error(
-      'Browser storage is full; keep this tab open until you send your draft.',
+  if (!review)
+    throw new Error(
+      'Browser storage is unavailable. Restore access before adding feedback.',
     );
-  }
-}
-function saveOutbox() {
-  try {
-    localStorage.setItem(outboxKey, JSON.stringify(pending));
-  } catch {
-    error(
-      'Browser storage is unavailable. Keep this tab open until delivery succeeds.',
-    );
-  }
-  $('outbox').hidden = !pending.length;
-  $('outbox-count').textContent =
-    `${pending.length} input${pending.length === 1 ? '' : 's'} awaiting confirmation`;
+  if (session?.ended && !retry) throw new Error('Review session has ended');
 }
 async function api(action = '', method = 'GET', data) {
   if (!capability)
-    throw new Error(
-      'Open this session through the Humagent CLI to obtain its browser capability.',
-    );
+    throw new Error('Open this session through the Humagent CLI.');
   const response = await fetch(
     `/api/sessions/${id}${action ? '/' + action : ''}`,
     {
@@ -94,7 +78,11 @@ async function api(action = '', method = 'GET', data) {
     },
   );
   const result = await response.json();
-  if (!response.ok) throw new Error(`${result.error}: ${result.message}`);
+  if (!response.ok) {
+    const failure = new Error(`${result.error}: ${result.message}`);
+    failure.rejected = response.status >= 400 && response.status < 500;
+    throw failure;
+  }
   return result;
 }
 function post(method, params = {}, requestId) {
@@ -110,93 +98,241 @@ function post(method, params = {}, requestId) {
       session.surface.origin,
     );
 }
-function renderTarget() {
-  $('target').hidden = !selection;
-  $('target-label').textContent =
-    selection?.target.id || selection?.target.selector || '';
-  $('quote').textContent = selection?.before || '';
-  $('replacement-label').hidden = !(selection && mode === 'edit');
-  $('composer-label').textContent = selection
-    ? mode === 'edit'
-      ? 'Explanation (optional)'
-      : 'Comment on selection'
-    : 'Message to your agent';
+function button(label, action, disabled = false, retry = false) {
+  const el = document.createElement('button');
+  el.textContent = label;
+  el.disabled = disabled;
+  el.onclick = () =>
+    Promise.resolve()
+      .then(() => {
+        canWrite(retry);
+        return action();
+      })
+      .catch((e) => error(e.message));
+  return el;
 }
-function setMode(next) {
-  if (next !== mode) clearControlEditError();
-  mode = next;
-  for (const button of document.querySelectorAll('[data-mode]'))
-    button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
-  $('mode-hint').textContent =
-    mode === 'interact'
-      ? 'Use the interface normally. Switch modes to leave contextual feedback.'
-      : mode === 'annotate'
-        ? 'Select words or click an element, then write a comment.'
-        : 'Select text or an element, then enter the exact replacement. No source is changed here.';
-  post('mode', { mode });
-  renderTarget();
-  saveDraft();
+function paragraph(text, className) {
+  const el = document.createElement('p');
+  el.textContent = text;
+  if (className) el.className = className;
+  return el;
 }
-function renderConversation() {
-  const items = [
-    ...session.events.map((e) => ({ ...e, at: e.createdAt, role: 'human' })),
-    ...session.replies.map((r) => ({ ...r, role: 'agent' })),
-  ].sort((a, b) => a.at.localeCompare(b.at));
-  const sig = JSON.stringify(items);
-  if (sig === signature) return;
-  signature = sig;
-  if (!items.length) return;
-  const log = $('transcript'),
-    wasNearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 90;
-  log.replaceChildren();
-  for (const item of items) {
-    const article = document.createElement('article');
-    article.className = `entry ${item.role}`;
-    const header = document.createElement('div');
-    header.className = 'entry-head';
-    header.textContent = item.role === 'agent' ? 'Agent' : `You · ${item.kind}`;
-    article.append(header);
-    if (item.role === 'agent') {
-      const p = document.createElement('p');
-      p.textContent = item.text;
-      article.append(p);
-    } else {
-      const p = item.payload;
-      if (p.target) {
-        const q = document.createElement('blockquote');
-        q.textContent =
-          p.target.anchor?.quote || p.target.text || p.target.selector;
-        article.append(q);
+function render() {
+  if (!review) return;
+  const snapshot = review.snapshot();
+  $('toggle-review').textContent = `Review (${snapshot.drafts.length})`;
+  $('empty').hidden = !!snapshot.drafts.length;
+  const mutable = writable && !session?.ended;
+  renderChanged(
+    $('drafts'),
+    [
+      snapshot.drafts,
+      snapshot.outbox,
+      mutable,
+      loadedRevision,
+      session?.revision,
+      [...available],
+    ],
+    () => {
+      for (const [index, draft] of snapshot.drafts.entries()) {
+        const item = draft.item;
+        const li = document.createElement('li');
+        li.className = 'draft';
+        li.dataset.draftId = item.id;
+        const stale =
+          draft.revision !== loadedRevision ||
+          draft.revision !== session?.revision;
+        const locked = review.locked(item.id);
+        li.dataset.stale = String(stale);
+        const title = document.createElement('div');
+        title.className = 'draft-title';
+        title.textContent =
+          item.intent || item.target?.id || item.target?.tag || 'Selected text';
+        li.append(title);
+        if (item.target) {
+          const quote = document.createElement('blockquote');
+          quote.textContent =
+            item.target.anchor?.quote ||
+            item.target.text ||
+            item.target.selector;
+          li.append(quote);
+        }
+        if (item.replacement) {
+          const before = document.createElement('del'),
+            after = document.createElement('ins');
+          before.textContent = item.replacement.before;
+          after.textContent = item.replacement.after || '(delete)';
+          li.append(before, after);
+        }
+        if (item.comment) li.append(paragraph(item.comment));
+        if (item.values) {
+          const values = document.createElement('pre');
+          values.textContent = JSON.stringify(item.values, null, 2);
+          li.append(values);
+        }
+        li.append(
+          paragraph(
+            locked
+              ? 'Awaiting confirmation'
+              : stale
+                ? 'Stale revision — recreate or remove this item'
+                : available.get(item.id) === false
+                  ? 'Target unavailable — inspect before sending'
+                  : 'Draft',
+            'draft-status',
+          ),
+        );
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        actions.append(
+          button('Edit', () => edit(draft), !mutable || locked),
+          button('Remove', () => review.remove(item.id), !mutable || locked),
+          button(
+            'Move up',
+            () => review.move(item.id, -1),
+            !mutable || locked || index === 0,
+          ),
+          button(
+            'Move down',
+            () => review.move(item.id, 1),
+            !mutable || locked || index === snapshot.drafts.length - 1,
+          ),
+        );
+        li.append(actions);
+        $('drafts').append(li);
       }
-      if (item.kind === 'edit') {
-        const before = document.createElement('del');
-        before.textContent = p.before;
-        const after = document.createElement('ins');
-        after.textContent = p.after || '(delete)';
-        article.append(before, after);
-      } else if (item.kind === 'submission') {
-        const title = document.createElement('p');
-        title.textContent = p.message || p.intent;
-        const values = document.createElement('pre');
-        values.textContent = JSON.stringify(p.values, null, 2);
-        article.append(title, values);
-      } else {
-        const text = document.createElement('p');
-        text.textContent = p.text;
-        article.append(text);
-      }
-      const status = document.createElement('small');
-      status.textContent =
-        item.status === 'queued'
-          ? 'Queued · waiting for agent'
-          : item.status === 'delivered'
-            ? 'Received · agent working'
-            : 'Completed';
-      article.append(status);
+    },
+  );
+  if (!unsavedMessage && document.activeElement !== $('message'))
+    $('message').value = snapshot.message.text;
+  $('message').disabled = !mutable;
+  $('message-stale').hidden =
+    !snapshot.message.text.trim() ||
+    review.messageLocked() ||
+    snapshot.message.revision === loadedRevision;
+  const drafts = snapshot.drafts.filter((d) => !review.locked(d.item.id));
+  const hasMessage = !review.messageLocked() && !!snapshot.message.text.trim();
+  $('send').textContent = `Send all (${drafts.length})`;
+  $('send').disabled =
+    unsavedMessage ||
+    !mutable ||
+    !bridgeReady ||
+    (!drafts.length && !hasMessage) ||
+    drafts.some((d) => d.revision !== loadedRevision) ||
+    (hasMessage && snapshot.message.revision !== loadedRevision) ||
+    loadedRevision !== session?.revision;
+  $('outbox').hidden = !snapshot.outbox.length;
+  renderChanged($('pending-batches'), [snapshot.outbox, writable], () => {
+    for (const entry of snapshot.outbox) {
+      const div = document.createElement('div');
+      div.className = 'pending';
+      div.dataset.batchId = entry.batch.clientId;
+      div.append(
+        paragraph(
+          `${entry.batch.payload.items.length} feedback items${entry.batch.payload.message ? ' and an overall instruction' : ''}`,
+        ),
+      );
+      if (entry.error) div.append(paragraph(entry.error, 'warning'));
+      div.append(
+        button(
+          'Retry batch',
+          () => deliver(entry.batch.clientId),
+          !writable,
+          true,
+        ),
+      );
+      if (entry.rejected)
+        div.append(
+          button(
+            'Return to drafts',
+            () => review.release(entry.batch.clientId),
+            !writable,
+          ),
+        );
+      $('pending-batches').append(div);
     }
-    log.append(article);
+  });
+  $('recovery').textContent = snapshot.recovery.join(' ');
+  $('recovery').hidden = !snapshot.recovery.length;
+  post('drafts', { items: snapshot.drafts });
+}
+function edit(draft) {
+  editing = draft.item.id;
+  $('edit-form').hidden = false;
+  $('edit-comment').value = draft.item.comment || '';
+  $('edit-original').hidden = !draft.item.replacement;
+  $('edit-replacement').hidden = !draft.item.replacement;
+  $('edit-original').textContent = draft.item.replacement?.before || '';
+  $('edit-after').value = draft.item.replacement?.after || '';
+  $('edit-structured').hidden = !draft.item.values;
+  $('edit-values').value = draft.item.values
+    ? JSON.stringify(draft.item.values, null, 2)
+    : '';
+  $('edit-comment').focus();
+}
+$('edit-form').onsubmit = (event) => {
+  event.preventDefault();
+  try {
+    canWrite();
+    const item = review
+      .snapshot()
+      .drafts.find((d) => d.item.id === editing)?.item;
+    if (!item) throw new Error('Draft no longer exists');
+    item.comment = $('edit-comment').value;
+    if (item.replacement) item.replacement.after = $('edit-after').value;
+    if (item.values) item.values = JSON.parse($('edit-values').value);
+    review.edit(editing, item);
+    $('edit-form').hidden = true;
+    error();
+  } catch (e) {
+    error(e.message);
   }
-  if (wasNearBottom) log.scrollTop = log.scrollHeight;
+};
+$('cancel-edit').onclick = () => {
+  $('edit-form').hidden = true;
+};
+function renderHistory() {
+  const entries = [
+    ...session.events.map((e) => ({ ...e, at: e.createdAt })),
+    ...session.replies,
+  ].sort((a, b) => a.at.localeCompare(b.at));
+  renderChanged($('transcript'), entries, () => {
+    for (const entry of entries) {
+      const article = document.createElement('article');
+      article.className = 'entry';
+      if (entry.text !== undefined) article.append(paragraph(entry.text));
+      else {
+        article.append(
+          paragraph(
+            `${entry.status === 'delivered' ? 'Working' : entry.status === 'completed' ? 'Completed' : 'Queued'} · ${entry.payload.items.length} feedback items`,
+          ),
+        );
+        if (entry.payload.message)
+          article.append(paragraph(entry.payload.message));
+        const details = document.createElement('details'),
+          summary = document.createElement('summary'),
+          pre = document.createElement('pre');
+        summary.textContent = 'Feedback details';
+        pre.textContent = JSON.stringify(entry.payload.items, null, 2);
+        details.append(summary, pre);
+        article.append(details);
+      }
+      $('transcript').append(article);
+    }
+  });
+  const reply = session.replies.at(-1);
+  const last = session.events.at(-1);
+  $('activity').hidden = !reply && !last;
+  $('activity').textContent =
+    reply && (!last || reply.at >= last.createdAt)
+      ? `Agent: ${reply.text}`
+      : last
+        ? last.status === 'delivered'
+          ? 'Agent is working on your review.'
+          : last.status === 'completed'
+            ? 'Review completed.'
+            : 'Review queued. Waiting for your agent.'
+        : '';
 }
 async function sync() {
   if (syncing) return syncing;
@@ -205,182 +341,121 @@ async function sync() {
     const first = !session;
     const reconnected =
       !!session && session.surface.origin !== updated.surface.origin;
-    if (reconnected) {
-      bridgeReady = false;
-      error('The service restarted. Refresh the interface to reconnect.');
-    }
     session = updated;
     $('title').textContent = session.title;
     document.title = `${session.title} · Humagent`;
     $('presence').textContent = session.ended
       ? 'Ended'
-      : session.agent === 'waiting'
-        ? 'Agent listening'
-        : session.agent === 'working'
-          ? 'Agent working'
-          : 'No agent listening';
-    $('presence').dataset.state = session.agent;
-    $('send').disabled = session.ended;
-    $('end').disabled = session.ended;
-    $('agent-help').hidden = session.ended || session.agent !== 'idle';
-    if (first) {
-      $('frame').src = session.surface.frameUrl;
-      loadedRevision = session.revision;
-      replySeen = new Set(session.replies.map((r) => r.id));
+      : session.agent === 'working'
+        ? 'Agent working'
+        : session.agent === 'waiting'
+          ? 'Agent listening'
+          : 'Agent idle';
+    $('end').disabled = session.ended || !writable;
+    $('annotate').disabled = session.ended || !writable || !bridgeReady;
+    if (first) $('frame').src = session.surface.frameUrl;
+    if (reconnected) {
+      bridgeReady = false;
+      error('The service restarted. Refresh the page to reconnect.');
     }
     $('update').hidden =
       !reconnected && (!loadedRevision || loadedRevision === session.revision);
-    for (const reply of session.replies)
-      if (!replySeen.has(reply.id)) {
-        post('reply', reply);
-        replySeen.add(reply.id);
-      }
     if (session.ended) post('ended');
-    renderConversation();
+    renderHistory();
+    render();
+    return session;
   })()
     .catch((e) => {
       error(e.message);
       $('presence').textContent = 'Disconnected';
-      $('send').disabled = true;
-      $('connecting').hidden = true;
+      throw e;
     })
     .finally(() => {
       syncing = null;
     });
   return syncing;
 }
-async function transmit(event) {
-  // Reuse unconfirmed input across SDK calls, form retries, and reloads.
-  const delivery =
-    pending.find(
-      (e) =>
-        e.revision === event.revision &&
-        e.kind === event.kind &&
-        JSON.stringify(e.payload) === JSON.stringify(event.payload),
-    ) ?? event;
-  if (!pending.some((e) => e.clientId === delivery.clientId)) {
-    pending.push(delivery);
-    saveOutbox();
-  }
-  const result = await api('events', 'POST', delivery);
-  pending = pending.filter((e) => e.clientId !== delivery.clientId);
-  saveOutbox();
+async function deliver(clientId) {
+  canWrite(true);
+  await review.deliver(clientId, (value) => api('events', 'POST', value));
+  error();
   await sync();
-  return result;
 }
-$('message').addEventListener('keydown', (event) => {
-  if (
-    event.key === 'Enter' &&
-    (event.metaKey || event.ctrlKey) &&
-    !$('send').disabled
-  ) {
-    event.preventDefault();
-    $('composer').requestSubmit();
-  }
-});
-$('composer').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const text = $('message').value.trim();
-  if (!text && !(selection && mode === 'edit')) return;
-  const value = {
-    protocol: 1,
-    clientId: crypto.randomUUID(),
-    revision: selection?.revision || loadedRevision,
-    kind: 'message',
-    payload: { text },
-  };
-  if (selection && mode === 'annotate') {
-    value.kind = 'annotation';
-    value.payload = { target: selection.target, text };
-  }
-  if (selection && mode === 'edit') {
-    value.kind = 'edit';
-    value.payload = {
-      target: selection.target,
-      before: selection.before,
-      after: $('replacement').value,
-      explanation: text,
-    };
-  }
-  const previous = $('message').value;
-  $('send').disabled = true;
+$('send').onclick = async () => {
   try {
-    error('');
-    await transmit(value);
-    if ($('message').value === previous) $('message').value = '';
-    selection = null;
-    $('replacement').value = '';
-    renderTarget();
-    saveDraft();
-  } catch (e) {
-    error(e.message);
-  } finally {
-    $('send').disabled = !!session?.ended;
-  }
-});
-for (const name of ['message', 'replacement'])
-  $(name).addEventListener('input', saveDraft);
-for (const button of document.querySelectorAll('[data-mode]'))
-  button.addEventListener('click', () => setMode(button.dataset.mode));
-$('clear-target').onclick = () => {
-  selection = null;
-  renderTarget();
-  saveDraft();
-};
-$('retry').onclick = async () => {
-  try {
-    const queued = [...pending];
-    for (const event of queued) await transmit(event);
-    error('');
-  } catch (e) {
-    error(e.message);
-  }
-};
-$('discard').onclick = () => {
-  if (
-    confirm('Discard all unconfirmed submissions? Composer drafts are kept.')
-  ) {
-    pending = [];
-    saveOutbox();
-    error('');
-  }
-};
-$('end').onclick = async () => {
-  if (
-    !confirm(
-      'End this session? Unsent drafts remain in this browser; new submissions will be refused.',
-    )
-  )
-    return;
-  try {
-    await api('end', 'POST', {});
+    canWrite();
+    if (unsavedMessage)
+      throw new Error(
+        'Save the overall instruction before sending. Edit it to retry browser storage.',
+      );
     await sync();
+    if (!bridgeReady || loadedRevision !== session.revision)
+      throw new Error('Refresh and inspect stale feedback before sending.');
+    const clientId = review.begin(loadedRevision);
+    await deliver(clientId);
   } catch (e) {
     error(e.message);
   }
 };
-let flushResolve = null;
+$('message').oninput = () => {
+  try {
+    canWrite();
+    unsavedMessage = false;
+    review.setMessage($('message').value, loadedRevision ?? null);
+    $('draft-status').textContent = 'Saved in this browser.';
+  } catch (e) {
+    unsavedMessage = true;
+    $('send').disabled = true;
+    error(`Draft could not be saved. Keep this tab open. ${e.message}`);
+    $('draft-status').textContent = 'Not saved';
+  }
+};
+$('verify-message').onclick = () => {
+  try {
+    canWrite();
+    review.setMessage($('message').value, loadedRevision);
+  } catch (e) {
+    error(e.message);
+  }
+};
+$('toggle-review').onclick = () => openTray($('tray').hidden);
+$('close-tray').onclick = () => {
+  openTray(false);
+  $('toggle-review').focus();
+};
+$('annotate').onclick = () => {
+  try {
+    canWrite();
+    $('frame').focus();
+    post('pick');
+  } catch (e) {
+    error(e.message);
+  }
+};
 $('refresh').onclick = async () => {
-  if (!session) return;
   try {
     if (bridgeReady) {
+      const requestId = crypto.randomUUID();
       const flushed = new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
-          flushResolve = null;
+          flushCall = null;
           reject(
             new Error(
-              'Interface did not confirm saved working state. Refresh was cancelled.',
+              'The page did not confirm saved form values. Refresh was cancelled.',
             ),
           );
-        }, 5000);
-        flushResolve = (message) => {
-          clearTimeout(timer);
-          flushResolve = null;
-          if (message.error) reject(new Error(message.error));
-          else resolve();
+        }, 20000);
+        flushCall = {
+          id: requestId,
+          finish(params) {
+            clearTimeout(timer);
+            flushCall = null;
+            if (params.error) reject(new Error(params.error));
+            else resolve();
+          },
         };
       });
-      post('flush');
+      post('flush', {}, requestId);
       await flushed;
     }
     await sync();
@@ -390,11 +465,56 @@ $('refresh').onclick = async () => {
     $('bridge-status').textContent = 'Bridge connecting';
     if (reloadInPlace) post('reload');
     else $('frame').src = session.surface.frameUrl;
-    // Retain an existing selection with its old revision; never silently rebind it.
   } catch (e) {
     error(e.message);
   }
 };
+$('end').onclick = async () => {
+  if (!confirm('End this session? Drafts remain in this browser.')) return;
+  try {
+    canWrite();
+    await api('end', 'POST', {});
+    await sync();
+  } catch (e) {
+    error(e.message);
+  }
+};
+$('wait-command').textContent = `humagent wait ${id} --timeout 50 --lease 600`;
+$('copy-command').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText($('wait-command').textContent);
+    $('copy-command').textContent = 'Copied';
+  } catch {
+    error('Select and copy the command manually.');
+  }
+};
+$('export').onclick = () => {
+  const blob = new Blob([JSON.stringify(review?.exportRecovery(), null, 2)], {
+    type: 'application/json',
+  });
+  const url = URL.createObjectURL(blob),
+    link = document.createElement('a');
+  link.href = url;
+  link.download = 'humagent-review.json';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+$('take-over').onclick = () => location.reload();
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    $('edit-form').hidden = true;
+    openTray(false);
+    $('toggle-review').focus();
+  }
+  if (
+    event.key === 'Enter' &&
+    (event.ctrlKey || event.metaKey) &&
+    !$('send').disabled
+  ) {
+    event.preventDefault();
+    $('send').click();
+  }
+});
 window.addEventListener('message', async (event) => {
   if (
     !session ||
@@ -406,55 +526,71 @@ window.addEventListener('message', async (event) => {
     return;
   const msg = event.data;
   if (msg.method === 'hello') {
+    latestDocument = msg.documentId;
+    if (writable) {
+      let documentId = msg.documentId;
+      try {
+        for (;;) {
+          await api('surface', 'POST', { documentId });
+          if (documentId === latestDocument) break;
+          documentId = latestDocument;
+        }
+      } catch (e) {
+        if (documentId === latestDocument) error(e.message);
+        return;
+      }
+    }
+    if (msg.documentId !== latestDocument) return;
     bridgeReady = true;
     loadedRevision = msg.revision;
+    available.clear();
     $('connecting').hidden = true;
     $('bridge-status').textContent = 'Interface connected';
+    $('annotate').disabled = !writable || session.ended;
     post('init', {
-      mode,
       state: session.state,
       stateVersion: session.stateVersion,
       ended: session.ended,
+      drafts: review?.snapshot().drafts || [],
     });
+    void sync().catch(() => {});
     return;
   }
   if (msg.method === 'flushed') {
-    flushResolve?.(msg.params);
+    if (flushCall?.id === msg.id) flushCall.finish(msg.params);
     return;
   }
   if (msg.method === 'notice') {
     error(String(msg.params?.message || ''));
     return;
   }
-  if (msg.method === 'mode') {
-    setMode(msg.params.mode);
+  if (msg.method === 'pickerDone') {
+    $('annotate').focus();
     return;
   }
-  if (msg.method === 'selected') {
-    if (mode === 'edit' && !msg.params.editable) {
-      error(controlEditError);
-      return;
-    }
-    clearControlEditError();
-    selection = { ...msg.params, revision: msg.revision };
-    renderTarget();
-    saveDraft();
-    (mode === 'edit' ? $('replacement') : $('message')).focus();
+  if (msg.method === 'availability') {
+    for (const item of msg.params.items) available.set(item.id, item.available);
+    render();
     return;
   }
-  if (!['submit', 'state'].includes(msg.method) || !msg.id) return;
+  if (
+    !['stage', 'state', 'readState'].includes(msg.method) ||
+    typeof msg.id !== 'string'
+  )
+    return;
   try {
+    canWrite();
     let result;
-    if (msg.method === 'submit')
-      result = await transmit({
-        protocol: 1,
-        clientId: msg.id,
-        kind: msg.params.kind,
-        revision: msg.revision,
-        payload: msg.params.payload,
-      });
-    else {
-      result = await api('state', 'PUT', msg.params);
+    if (msg.method === 'stage') {
+      result = review.stage(msg.params.item, msg.revision, msg.id);
+      openTray();
+      error();
+    } else {
+      const saved =
+        msg.method === 'readState'
+          ? await api()
+          : await api('state', 'PUT', msg.params);
+      result = { state: saved.state, stateVersion: saved.stateVersion };
       session.state = result.state;
       session.stateVersion = result.stateVersion;
     }
@@ -488,30 +624,82 @@ async function listen() {
       const response = await fetch(`/api/sessions/${id}/stream`, {
         headers: { 'x-humagent-session': capability },
       });
-      if (!response.ok) throw new Error('Connection lost');
+      if (!response.ok) throw new Error('Disconnected');
       const reader = response.body.getReader();
-      while (true) {
-        const { done } = await reader.read();
-        if (done) break;
-        await sync();
+      try {
+        while (!(await reader.read()).done) await sync();
+      } finally {
+        await reader.cancel().catch(() => {});
+        reader.releaseLock();
       }
     } catch {}
-    $('presence').textContent = 'Reconnecting';
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 }
-setMode(mode);
-saveOutbox();
-await sync();
-if (session) {
+await new Promise((resolve) => {
+  if (!navigator.locks) {
+    error(
+      'This browser cannot safely coordinate review tabs. Use a current browser.',
+    );
+    resolve();
+    return;
+  }
+  void navigator.locks
+    .request(`humagent:review:${id}`, { ifAvailable: true }, async (lock) => {
+      writable = !!lock;
+      $('readonly').hidden = writable;
+      try {
+        review = createReview(localStorage, id, render);
+      } catch (e) {
+        error(e.message);
+        writable = false;
+      }
+      resolve();
+      if (lock)
+        await new Promise((release) =>
+          window.addEventListener('pagehide', release, { once: true }),
+        );
+    })
+    .catch((e) => {
+      error(e.message);
+      resolve();
+    });
+});
+window.addEventListener('storage', (event) => {
+  if (!writable && event.key === `humagent:review:${id}`) {
+    try {
+      review?.reload();
+    } catch (e) {
+      error(e.message);
+    }
+  }
+});
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) location.reload();
+});
+window.addEventListener('pagehide', () => {
+  writable = false;
+});
+try {
+  await sync();
+  if (
+    review?.snapshot().drafts.length ||
+    review?.snapshot().outbox.length ||
+    review?.snapshot().message.text
+  )
+    openTray();
   void listen();
-  setInterval(sync, 3000);
+  setInterval(() => {
+    void sync().catch(() => {});
+  }, 3000);
   setTimeout(() => {
     if (!bridgeReady) {
       $('connecting').hidden = true;
       error(
-        'The interface did not connect. Check the local server and its security policy. Your page remains visible.',
+        'The page did not connect. Check its security policy or local server.',
       );
     }
   }, 8000);
+} catch {
+  $('connecting').hidden = true;
 }

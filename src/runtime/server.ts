@@ -16,6 +16,7 @@ import {
   type Surface,
 } from './surfaces.js';
 import { writeJson } from './storage.js';
+import { browserAsset } from './assets.js';
 
 const UI = fileURLToPath(new URL('../ui/', import.meta.url));
 const equal = (a: unknown, b: string) =>
@@ -171,7 +172,8 @@ export async function createRuntime(options: RuntimeOptions) {
     if (
       pathname === '/health' ||
       pathname === '/workspace' ||
-      ['/app.js', '/app.css'].includes(pathname)
+      ['/app.js', '/app.css'].includes(pathname) ||
+      /^\/(ui|shared)\/[a-z][a-z0-9-]*\.(js|css)$/.test(pathname)
     ) {
       await next();
       return;
@@ -208,6 +210,22 @@ export async function createRuntime(options: RuntimeOptions) {
   app.all('/health', () =>
     json(200, { app: 'humagent', protocol: 1, pid: process.pid, version }),
   );
+  for (const root of ['ui', 'shared']) {
+    app.get(`/${root}/:file`, async (c) => {
+      const name = `${root}/${c.req.param('file')}`;
+      const asset = await browserAsset(name, ['ui', 'shared']);
+      ensure(asset, 'Not found', 'NOT_FOUND', 404);
+      return new Response(asset, {
+        headers: {
+          'content-type': name.endsWith('.css')
+            ? 'text/css'
+            : 'text/javascript',
+          'cache-control': 'no-store',
+          'x-content-type-options': 'nosniff',
+        },
+      });
+    });
+  }
   for (const route of ['/workspace', '/app.js', '/app.css']) {
     app.all(route, (c) => {
       ensure(c.req.method === 'GET', 'Method not allowed', 'METHOD', 405);
@@ -238,6 +256,12 @@ export async function createRuntime(options: RuntimeOptions) {
     const value = await body(c.req.raw);
     await (await surface(id)).checkRevision();
     return json(200, store.send(id, value));
+  });
+  app.post(`${sessionPath}/surface`, async (c) => {
+    const id = c.req.param('id');
+    const value = await body(c.req.raw);
+    (await surface(id)).activate(value.documentId);
+    return json(200, view(id));
   });
   app.put(`${sessionPath}/state`, async (c) => {
     const value = await body(c.req.raw);

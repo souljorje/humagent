@@ -63,7 +63,11 @@ try {
     'dist/ui/app.js',
     'dist/ui/app.css',
     'dist/sdk/sdk.js',
-    'dist/sdk/json.js',
+    'dist/shared/json.js',
+    'dist/shared/batch.js',
+    'dist/ui/review-state.js',
+    'dist/sdk/forms.js',
+    'dist/sdk/review.js',
     'dist/sdk/targets.js',
     'examples/plan.html',
     'skills/humagent/SKILL.md',
@@ -101,7 +105,7 @@ try {
     [
       '--input-type=module',
       '--eval',
-      "import assert from 'node:assert/strict'; import {createRuntime} from 'humagent'; import {PROTOCOL} from 'humagent/protocol'; assert.equal(typeof createRuntime, 'function'); assert.equal(PROTOCOL, 1);",
+      "import assert from 'node:assert/strict'; import {createRuntime} from 'humagent'; import {PROTOCOL} from 'humagent/protocol'; assert.equal(typeof createRuntime, 'function'); assert.equal(PROTOCOL, 2);",
     ],
     { cwd: temporary, env, timeout: 10000 },
   );
@@ -139,17 +143,24 @@ try {
         'x-humagent-session': new URL(opened.url).hash.slice(1),
       },
       body: JSON.stringify({
-        protocol: 1,
+        protocol: 2,
         clientId: 'installed-test',
         revision: snapshot.revision,
-        kind: 'submission',
-        payload: { intent: 'revise_plan', values: { approach: 'pilot-first' } },
+        payload: {
+          items: [
+            {
+              id: 'decision',
+              intent: 'revise_plan',
+              values: { approach: 'pilot-first' },
+            },
+          ],
+        },
       }),
     },
   );
   assert.equal(response.status, 200);
   const batch = await waiting;
-  assert.equal(batch.events[0].payload.values.approach, 'pilot-first');
+  assert.equal(batch.events[0].payload.items[0].values.approach, 'pilot-first');
   await run(
     'reply',
     opened.session,

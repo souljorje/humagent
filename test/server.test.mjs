@@ -163,17 +163,20 @@ test('wait receives an event once, reply acknowledges only that receipt', async 
   });
   await new Promise((r) => setTimeout(r, 30));
   const e = await api(`/api/sessions/${s.session}/events`, 'POST', {
-    protocol: 1,
+    protocol: 2,
     clientId: crypto.randomUUID(),
     revision: before.revision,
-    kind: 'submission',
-    payload: { intent: 'new_unregistered_intent', values: { x: 1 } },
+    payload: {
+      items: [
+        { id: 'decision', intent: 'new_unregistered_intent', values: { x: 1 } },
+      ],
+    },
   });
   assert.equal(e.status, 200);
   const batch = await wait;
   assert.equal(batch.status, 200);
   assert.equal(batch.data.status, 'feedback');
-  assert.equal(batch.data.events[0].payload.values.x, 1);
+  assert.equal(batch.data.events[0].payload.items[0].values.x, 1);
   assert.equal(
     (
       await api(`/api/sessions/${s.session}/reply`, 'POST', {
@@ -220,11 +223,18 @@ test('source change rejects stale input without saving the file', async () => {
   const prior = (await api(`/api/sessions/${s.session}`)).data;
   fs.writeFileSync(file, '<!doctype html><h1>New version</h1>');
   const res = await api(`/api/sessions/${s.session}/events`, 'POST', {
-    protocol: 1,
+    protocol: 2,
     clientId: crypto.randomUUID(),
     revision: prior.revision,
-    kind: 'edit',
-    payload: { target: { selector: 'h1' }, before: 'Hello', after: 'Replace' },
+    payload: {
+      items: [
+        {
+          id: 'replacement',
+          target: { selector: 'h1' },
+          replacement: { before: 'Hello', after: 'Replace' },
+        },
+      ],
+    },
   });
   assert.equal(res.status, 409);
   assert.match(fs.readFileSync(file, 'utf8'), /New version/);
@@ -332,11 +342,10 @@ test('dynamic app snapshots and submissions do not refetch or change revisions',
       assert.deepEqual(changes, []);
       offline = true;
       const sent = await api(`/api/sessions/${id}/events`, 'POST', {
-        protocol: 1,
+        protocol: 2,
         clientId: 'dynamic',
         revision,
-        kind: 'message',
-        payload: { text: 'Review the page I saw.' },
+        payload: { message: 'Review the page I saw.', items: [] },
       });
       assert.equal(sent.status, 200);
       assert.equal(requests, count);
@@ -629,11 +638,10 @@ test('disconnecting a pending wait releases its listener and preserves the next 
     );
     const revision = runtime.store.get(id).revision;
     const sent = await api(`/api/sessions/${id}/events`, 'POST', {
-      protocol: 1,
+      protocol: 2,
       clientId: 'after-disconnect',
       revision,
-      kind: 'message',
-      payload: { text: 'Keep this event' },
+      payload: { message: 'Keep this event', items: [] },
     });
     assert.equal(sent.status, 200);
     const received = await within(next.response, 'replacement wait response');
@@ -694,11 +702,10 @@ test('disconnecting an SSE client removes its listener and a replacement receive
     );
     const revision = runtime.store.get(id).revision;
     const sent = await api(`/api/sessions/${id}/events`, 'POST', {
-      protocol: 1,
+      protocol: 2,
       clientId: 'stream-change',
       revision,
-      kind: 'message',
-      payload: { text: 'Notify the new stream' },
+      payload: { message: 'Notify the new stream', items: [] },
     });
     assert.equal(sent.status, 200);
     await until(
@@ -810,11 +817,10 @@ test('Node transport cleans up disconnected waits and streams and shuts down pen
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        protocol: 1,
+        protocol: 2,
         clientId: 'node-after-disconnect',
         revision,
-        kind: 'message',
-        payload: { text: 'Keep the Node event' },
+        payload: { message: 'Keep the Node event', items: [] },
       }),
     });
     assert.equal(response.status, 200);

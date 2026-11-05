@@ -2,125 +2,108 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Humagent · Workspace</title>
-    <link rel="stylesheet" href="/app.css" />
-    <script type="module" src="/app.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Humagent</title>
+    <link rel="stylesheet" href="/ui/app.css" />
+    <script type="module" src="/ui/app.js"></script>
   </head>
   <body>
     <header class="topbar">
-      <span class="brand" aria-label="Humagent"
-        ><span class="logo">h</span>humagent<span class="version"
-          >local</span
-        ></span
-      >
-      <div class="identity">
-        <span class="eyebrow">WORKSPACE</span
-        ><strong id="title">Connecting…</strong>
-      </div>
+      <strong class="brand">Humagent</strong><span id="title">Connecting…</span>
+      <span id="presence" role="status">Connecting</span>
+      <button id="refresh">Refresh page</button
+      ><button id="annotate">Annotate</button>
+      <button id="toggle-review" aria-expanded="false" aria-controls="tray">
+        Review (0)
+      </button>
       <button id="end" class="quiet">End session</button>
     </header>
+    <p id="error" role="alert" hidden></p>
+    <p id="readonly" class="banner" hidden>
+      This review is open in another tab. Close that tab, then
+      <button id="take-over">reload here</button>.
+    </p>
+    <p id="update" class="banner" hidden>
+      The page changed. Refresh and inspect stale feedback before sending.
+    </p>
     <main>
-      <section class="canvas" aria-label="Interface preview">
-        <div class="canvasbar">
-          <div class="segmented" role="group" aria-label="Interaction mode">
-            <button data-mode="interact" aria-pressed="true">Interact</button
-            ><button data-mode="annotate" aria-pressed="false">Annotate</button
-            ><button data-mode="edit" aria-pressed="false">Propose edit</button>
-          </div>
-          <button id="refresh" class="quiet">Refresh interface</button>
-        </div>
-        <div id="update" class="banner" hidden>
-          The source changed. Refresh to review the new version. App-owned state
-          may reset.
-        </div>
-        <div class="framewrap">
-          <iframe
-            id="frame"
-            title="Working interface"
-            sandbox="allow-scripts allow-forms allow-same-origin"
-          ></iframe>
-          <div id="connecting" class="loading">Connecting your interface…</div>
-        </div>
+      <section class="canvas" aria-label="Page under review">
+        <iframe
+          id="frame"
+          title="Page under review"
+          allow="clipboard-write"
+        ></iframe>
+        <div id="connecting" role="status">Connecting to the page…</div>
         <footer>
-          <span id="mode-hint"
-            >Use the interface normally. Switch modes to leave contextual
-            feedback.</span
+          <span>Select text to comment or suggest a replacement.</span
           ><span id="bridge-status">Bridge connecting</span>
         </footer>
       </section>
-      <aside class="conversation" aria-label="Conversation with agent">
-        <div class="conversation-head">
-          <div>
-            <span class="eyebrow">HUMAN + AGENT</span>
-            <h1>Working together</h1>
-          </div>
-          <span id="presence" class="badge">Connecting</span>
+      <aside id="tray" aria-label="Review" hidden>
+        <div class="tray-head">
+          <h1>Review</h1>
+          <button id="close-tray" aria-label="Close review">Close</button>
         </div>
-        <div id="agent-help" class="agent-help">
-          <p>Ask your agent to run this command:</p>
-          <code id="wait-command"></code
-          ><button id="copy-command" class="quiet" type="button">
-            Copy command
-          </button>
-        </div>
-        <div id="transcript" role="log" aria-live="polite">
-          <div class="empty">
-            <span class="empty-icon">↔</span>
-            <h2>A shared place to think.</h2>
-            <p>
-              Explore the interface, point to what matters, and send choices or
-              feedback to your agent.
-            </p>
-            <p class="small">
-              Humagent connects to your agent. It does not run a model.
-            </p>
-          </div>
-        </div>
-        <div id="outbox" class="outbox" hidden>
-          <strong id="outbox-count"></strong>
-          <p>
-            Unconfirmed input stays here. Stale feedback must be recreated after
-            checking the new version.
+        <div class="tray-content">
+          <p id="empty">
+            No feedback yet. Select text on the page or use Annotate to choose
+            an element.
           </p>
-          <button id="retry">Retry pending</button
-          ><button id="discard" class="quiet">Discard pending</button>
-        </div>
-        <div id="error" role="alert" hidden></div>
-        <form id="composer">
-          <div id="target" hidden>
-            <div class="target-heading">
-              <strong>Selected context</strong
-              ><button type="button" id="clear-target" class="quiet">
-                Clear
-              </button>
+          <ol id="drafts" aria-label="Draft feedback"></ol>
+          <form id="edit-form" hidden>
+            <h2>Edit feedback</h2>
+            <pre id="edit-original" hidden></pre>
+            <label
+              >Comment<textarea id="edit-comment" rows="2"></textarea>
+            </label>
+            <label id="edit-replacement" hidden
+              >Exact replacement<textarea id="edit-after" rows="3"></textarea>
+            </label>
+            <label id="edit-structured" hidden
+              >Decision values (JSON)<textarea
+                id="edit-values"
+                rows="4"
+              ></textarea>
+            </label>
+            <div class="actions">
+              <button type="submit">Save feedback</button
+              ><button type="button" id="cancel-edit">Cancel</button>
             </div>
-            <code id="target-label"></code>
-            <blockquote id="quote"></blockquote>
-          </div>
-          <label id="replacement-label" hidden
-            >Exact replacement
-            <textarea
-              id="replacement"
-              rows="3"
-              placeholder="Your exact wording. Leave empty to propose deletion."
-            ></textarea>
-          </label>
-          <label
-            ><span id="composer-label">Message to your agent</span
-            ><textarea
-              id="message"
-              rows="3"
-              placeholder="What should we work on next?"
-            ></textarea>
-          </label>
-          <div class="composer-bottom">
-            <span id="save-status">Draft stays in this browser</span
-            ><button type="submit" id="send" disabled>
-              Send to agent <span aria-hidden="true">↗</span>
-            </button>
-          </div>
-        </form>
+          </form>
+          <label for="message"
+            >Overall instruction <span class="muted">(optional)</span></label
+          >
+          <textarea
+            id="message"
+            rows="3"
+            placeholder="What should your agent do with this feedback?"
+          ></textarea>
+          <p id="message-stale" class="warning" hidden>
+            This instruction belongs to another revision. Inspect the page, then
+            <button id="verify-message">Use for this page</button>.
+          </p>
+          <p id="draft-status" class="muted" role="status">
+            Drafts stay in this browser.
+          </p>
+          <button id="send" class="primary" disabled>Send all (0)</button>
+          <section id="outbox" aria-label="Unconfirmed batches" hidden>
+            <h2>Awaiting confirmation</h2>
+            <div id="pending-batches"></div>
+          </section>
+          <p id="recovery" class="warning" hidden></p>
+          <button id="export" class="quiet">Export review data</button>
+          <p id="activity" role="status" hidden></p>
+          <details id="history">
+            <summary>Activity and agent replies</summary>
+            <div id="transcript"></div>
+          </details>
+          <details id="agent-help">
+            <summary>Connect your agent</summary>
+            <p>Ask your agent to run:</p>
+            <code id="wait-command"></code
+            ><button id="copy-command">Copy command</button>
+          </details>
+        </div>
       </aside>
     </main>
   </body>
