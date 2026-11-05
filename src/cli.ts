@@ -46,21 +46,6 @@ Run with Node.js 24+ or Bun 1.4.4+. Bun is not required for npm/npx use.
 Humagent does not run a model or change source files.
 The agent must run wait to receive browser input.
 `;
-const commands = new Set([
-  'open',
-  'demo',
-  'wait',
-  'reply',
-  'ack',
-  'renew',
-  'status',
-  'end',
-  'server',
-  'stop',
-  'setup',
-  'doctor',
-  'help',
-]);
 const booleanFlags = new Set([
   'no-open',
   'network',
@@ -114,16 +99,8 @@ function parse() {
       flags.set(key, 'true');
     } else {
       ensure(
-        [
-          'home',
-          'consumer',
-          'timeout',
-          'lease',
-          'message',
-          'receipt',
-          'port',
-          'directory',
-        ].includes(key),
+        key === 'home' ||
+          Object.values(commandFlags).some((names) => names.includes(key)),
         `Unknown option: --${key}.`,
       );
       const value = inline.length ? inline.join('=') : args[++i];
@@ -280,7 +257,7 @@ async function main() {
     return;
   }
   ensure(
-    commands.has(command),
+    Object.hasOwn(commandFlags, command),
     `Unknown command: ${command}. Run humagent --help.`,
   );
   ensure(
