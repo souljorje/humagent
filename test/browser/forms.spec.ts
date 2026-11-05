@@ -319,6 +319,13 @@ test('form serialization handles repeated fields and excludes private or disable
     form.dataset.humagentIntent = 'controls';
     form.innerHTML =
       '<input name="repeated" value="one"><input name="repeated" value="two"><input type="checkbox" name="checks" value="a" checked><input type="checkbox" name="checks" value="b"><input type="radio" name="radio" value="yes" checked><select name="multi" multiple><option selected>a</option><option selected>b</option></select><input type="password" name="secret" value="no"><input type="file" name="file"><input name="disabled" disabled><button>Stage controls</button>';
+    const frame = document.createElement('iframe');
+    document.body.append(frame);
+    const adopted = frame.contentDocument!.createElement('input');
+    adopted.name = 'adopted';
+    adopted.value = 'another document';
+    form.append(document.adoptNode(adopted));
+    frame.remove();
     document.body.append(form);
   });
   await review.frame.getByRole('button', { name: 'Stage controls' }).click();
@@ -328,6 +335,7 @@ test('form serialization handles repeated fields and excludes private or disable
     checks: ['a'],
     radio: 'yes',
     multi: ['a', 'b'],
+    adopted: 'another document',
   });
   expect(workspace.store.list()[0].events).toHaveLength(0);
 });

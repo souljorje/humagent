@@ -61,6 +61,19 @@ test('rejects malformed payloads and reserved keys', () => {
     }),
   );
 });
+test('review targets preserve arbitrary JSON metadata', () => {
+  const target = {
+    id: 7,
+    tag: ['section'],
+    anchor: { quote: 3 },
+    revision: 'v1',
+  };
+  const event = input({
+    ...message(),
+    payload: { items: [{ id: 'note', target, comment: 'Review this target' }] },
+  });
+  assert.deepEqual(event.payload.items[0].target, target);
+});
 test('persists before receipt; same client ID is idempotent', () => {
   const { store, id, dir } = setup();
   const one = store.send(id, message());

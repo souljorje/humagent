@@ -3,15 +3,21 @@ import type { FormState, StageResult, Submission } from '../shared/review.js';
 import { errorMessage } from '../shared/errors.js';
 
 type FormControl = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+function isElement(target: EventTarget | null): target is Element {
+  return !!target && 'nodeType' in target && target.nodeType === 1;
+}
+function hasTag<K extends keyof HTMLElementTagNameMap>(
+  el: Element,
+  tag: K,
+): el is HTMLElementTagNameMap[K] {
+  return el.tagName === tag.toUpperCase();
+}
 function controls(form: HTMLFormElement): FormControl[] {
   return [...form.elements].filter(
     (el): el is FormControl =>
-      (el instanceof HTMLInputElement ||
-        el instanceof HTMLTextAreaElement ||
-        el instanceof HTMLSelectElement) &&
+      (hasTag(el, 'input') || hasTag(el, 'textarea') || hasTag(el, 'select')) &&
       !!el.name &&
       !el.matches(':disabled') &&
-      ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) &&
       ![
         'password',
         'file',
@@ -37,7 +43,7 @@ export function formValues(form: HTMLFormElement): ObjectValue {
     if (
       group.every(
         (el): el is HTMLInputElement =>
-          el instanceof HTMLInputElement && el.type === 'checkbox',
+          hasTag(el, 'input') && el.type === 'checkbox',
       )
     )
       result[name] =
@@ -47,13 +53,13 @@ export function formValues(form: HTMLFormElement): ObjectValue {
     else if (
       group.every(
         (el): el is HTMLInputElement =>
-          el instanceof HTMLInputElement && el.type === 'radio',
+          hasTag(el, 'input') && el.type === 'radio',
       )
     )
       result[name] = group.find((el) => el.checked)?.value ?? null;
     else {
       const values = group.flatMap((el) =>
-        el instanceof HTMLSelectElement && el.multiple
+        hasTag(el, 'select') && el.multiple
           ? [...el.selectedOptions].map((o) => o.value)
           : [el.value],
       );
@@ -93,13 +99,13 @@ export function createForms({
       for (const el of controls(form)) {
         const value = values[el.name];
         if (value === undefined) continue;
-        if (el instanceof HTMLInputElement && el.type === 'checkbox')
+        if (hasTag(el, 'input') && el.type === 'checkbox')
           el.checked = Array.isArray(value)
             ? value.includes(el.value)
             : value === true;
-        else if (el instanceof HTMLInputElement && el.type === 'radio')
+        else if (hasTag(el, 'input') && el.type === 'radio')
           el.checked = value === el.value;
-        else if (el instanceof HTMLSelectElement && el.multiple) {
+        else if (hasTag(el, 'select') && el.multiple) {
           for (const option of el.options)
             option.selected =
               Array.isArray(value) && value.includes(option.value);
@@ -128,7 +134,7 @@ export function createForms({
   }
   for (const type of ['input', 'change'])
     document.addEventListener(type, (event) => {
-      if (!(event.target instanceof Element)) return;
+      if (!isElement(event.target)) return;
       const form = event.target.closest<HTMLFormElement>(
         'form[data-humagent-intent][data-humagent-persist][id]',
       );
@@ -149,7 +155,8 @@ export function createForms({
     async (event) => {
       const form = event.target;
       if (
-        !(form instanceof HTMLFormElement) ||
+        !isElement(form) ||
+        !hasTag(form, 'form') ||
         !form.matches('form[data-humagent-intent]')
       )
         return;

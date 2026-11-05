@@ -22,7 +22,13 @@ type Controls = Record<string, HTMLElement> & {
   add: HTMLButtonElement;
 };
 interface Capture {
-  target: ReviewTarget & { anchorId: string };
+  target: ReviewTarget &
+    ReturnType<typeof context> & {
+      url: string;
+      revision: string;
+      anchorId: string;
+      anchor?: { quote: string; prefix: string; suffix: string };
+    };
   before: string;
 }
 
@@ -128,7 +134,11 @@ export function createPageReview({
     )
       anchors.delete(captured.target.anchorId);
     captured = null;
-    if (returnFocus instanceof HTMLElement && returnFocus.isConnected)
+    if (
+      returnFocus?.isConnected &&
+      'focus' in returnFocus &&
+      typeof returnFocus.focus === 'function'
+    )
       returnFocus.focus({ preventScroll: true });
   }
   function fitPanel() {
@@ -341,15 +351,23 @@ export function createPageReview({
       target.url !== boot.sourceUrl
     )
       return null;
+    const anchor = target.anchor;
+    const quote =
+      anchor && typeof anchor === 'object' && !Array.isArray(anchor)
+        ? anchor.quote
+        : undefined;
     if (bound.has(draft.item.id)) {
       const el = bound.get(draft.item.id);
       return el?.isConnected &&
         normalizedText(el) === target.text &&
-        (!target.anchor || exactText(el).includes(target.anchor.quote))
+        (!anchor || exactText(el).includes(String(quote)))
         ? el
         : null;
     }
-    let el = target.anchorId ? anchors.get(target.anchorId) : undefined;
+    let el =
+      typeof target.anchorId === 'string'
+        ? anchors.get(target.anchorId)
+        : undefined;
     if (el && !el.isConnected) {
       bound.set(draft.item.id, null);
       return null;
@@ -358,9 +376,9 @@ export function createPageReview({
       try {
         const matches = target.id
           ? document.querySelectorAll(
-              `[data-humagent-id="${CSS.escape(target.id)}"],#${CSS.escape(target.id)}`,
+              `[data-humagent-id="${CSS.escape(String(target.id))}"],#${CSS.escape(String(target.id))}`,
             )
-          : document.querySelectorAll(target.selector || '');
+          : document.querySelectorAll(String(target.selector || ''));
         if (matches.length !== 1) return null;
         el = matches[0];
       } catch {
@@ -368,8 +386,7 @@ export function createPageReview({
       }
     }
     if (!el || ignored(el) || normalizedText(el) !== target.text) return null;
-    if (target.anchor && !exactText(el).includes(target.anchor.quote))
-      return null;
+    if (anchor && !exactText(el).includes(String(quote))) return null;
     bound.set(draft.item.id, el);
     return el;
   }

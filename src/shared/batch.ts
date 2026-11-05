@@ -1,15 +1,6 @@
 import { cloneJson, type ObjectValue } from './json.js';
 
-export type ReviewTarget = ObjectValue & {
-  id?: string;
-  selector?: string;
-  tag?: string;
-  text?: string;
-  url?: string;
-  revision?: string;
-  anchorId?: string;
-  anchor?: { quote: string; prefix: string; suffix: string };
-};
+export type ReviewTarget = ObjectValue & { revision?: string };
 export interface ReviewItem {
   id: string;
   target?: ReviewTarget;

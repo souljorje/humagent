@@ -186,16 +186,20 @@ function render() {
         li.dataset.stale = String(stale);
         const title = document.createElement('div');
         title.className = 'draft-title';
-        title.textContent =
-          item.intent || item.target?.id || item.target?.tag || 'Selected text';
+        title.textContent = String(
+          item.intent || item.target?.id || item.target?.tag || 'Selected text',
+        );
         li.append(title);
         if (item.target) {
           const quote = document.createElement('blockquote');
-          quote.textContent =
-            item.target.anchor?.quote ||
-            item.target.text ||
-            item.target.selector ||
-            '';
+          const anchor = item.target.anchor;
+          const captured =
+            anchor && typeof anchor === 'object' && !Array.isArray(anchor)
+              ? anchor.quote
+              : undefined;
+          quote.textContent = String(
+            captured || item.target.text || item.target.selector || '',
+          );
           li.append(quote);
         }
         if (item.replacement) {

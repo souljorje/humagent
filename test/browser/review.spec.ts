@@ -132,6 +132,29 @@ test('shadow controls retain native context menus', async ({
   await expect(review.frame.getByRole('dialog')).toBeHidden();
 });
 
+test('closing feedback restores focus to SVG controls', async ({
+  plan: _plan,
+  review,
+}) => {
+  await review.evaluate(() => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'svg-focus';
+    svg.setAttribute('tabindex', '0');
+    document.body.append(svg);
+    svg.focus();
+    document
+      .querySelector('h1')!
+      .dispatchEvent(
+        new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+      );
+  });
+  await expect(review.frame.getByRole('dialog')).toBeVisible();
+  await review.frame
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
+  await expect(review.frame.locator('#svg-focus')).toBeFocused();
+});
+
 test('several comments and an exact deletion form one ordered review without mutating source', async ({
   page,
   plan,
@@ -160,7 +183,9 @@ test('several comments and an exact deletion form one ordered review without mut
     event.payload.items.map((item) => item.comment || item.replacement!.after),
   ).toEqual(['A shorter heading.', 'Keep these boundaries.', '']);
   expect(event.payload.items[2].replacement!.before).toBe(original);
-  expect(event.payload.items[2].target!.anchor!.quote).toBe(original);
+  expect(event.payload.items[2].target!.anchor).toMatchObject({
+    quote: original,
+  });
   expect(event.payload.items[0].target).toMatchObject({
     id: 'headline',
     revision: event.revision,
