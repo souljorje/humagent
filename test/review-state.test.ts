@@ -2,20 +2,22 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createReview } from '../dist/ui/review-state.js';
 import { batch } from '../dist/shared/batch.js';
+import type { Input } from '../dist/shared/batch.js';
+import type { Json } from '../dist/shared/json.js';
 
 function storage() {
-  const values = new Map();
+  const values = new Map<string, string>();
   return {
     fail: false,
-    getItem: (key) => values.get(key) ?? null,
-    setItem(key, value) {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem(key: string, value: string) {
       if (this.fail) throw new Error('Quota exceeded');
       values.set(key, value);
     },
   };
 }
-const decision = (value) => ({ intent: 'review', values: { value } });
-const accepted = (value) => ({
+const decision = (value: Json) => ({ intent: 'review', values: { value } });
+const accepted = (value: Input) => ({
   ...value,
   id: 'stored-event',
   status: 'queued',
@@ -51,26 +53,29 @@ test('sending locks its snapshot and preserves new drafts and edited overall ins
   const first = review.stage(decision(1), 'revision');
   review.setMessage('First instruction', 'revision');
   const clientId = review.begin('revision');
-  assert.throws(() => review.edit(first.draftId, decision(2)), /unconfirmed/);
+  assert.throws(
+    () => review.edit(first.draftId, { id: first.draftId, ...decision(2) }),
+    /unconfirmed/,
+  );
   assert.throws(() => review.remove(first.draftId), /unconfirmed/);
   assert.throws(() => review.begin('revision'), /Add feedback/);
   review.stage(decision(3), 'revision');
   review.setMessage('New instruction', 'revision');
-  let sent;
+  let sent!: Input;
   await review.deliver(clientId, async (value) => {
     sent = value;
     return accepted(value);
   });
   assert.equal(sent.payload.items.length, 1);
   assert.equal(sent.payload.message, 'First instruction');
-  assert.equal(review.snapshot().drafts[0].item.values.value, 3);
+  assert.equal(review.snapshot().drafts[0].item.values!.value, 3);
   assert.equal(review.snapshot().message.text, 'New instruction');
   assert.equal(review.snapshot().outbox.length, 0);
 });
 test('a lost response retries the exact batch across reload', async () => {
   const saved = storage(),
     review = createReview(saved, 's'),
-    requests = [];
+    requests: Input[] = [];
   review.stage(decision(1), 'revision');
   const clientId = review.begin('revision');
   await assert.rejects(
@@ -198,7 +203,7 @@ test('reloading during a rejected-batch retry does not permit a new client ID', 
       throw Object.assign(new Error('Rejected'), { rejected: true });
     }),
   );
-  let finish;
+  let finish!: () => void;
   const retry = review.deliver(
     id,
     (value) =>
@@ -237,7 +242,7 @@ test('returning rejected input cannot overwrite a newer instruction or lose the 
 test('storage wrappers do not reduce the supported wire nesting depth', async () => {
   const saved = storage(),
     review = createReview(saved, 's');
-  let value = 'leaf';
+  let value: Json = 'leaf';
   for (let i = 0; i < 17; i++) value = { child: value };
   review.stage(decision(value), 'r');
   const id = review.begin('r');

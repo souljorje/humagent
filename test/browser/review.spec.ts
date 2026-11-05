@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { test, expect } from './fixtures.mjs';
+import { test, expect } from './fixtures.ts';
 
 test('replacement text stays protected after switching to Comment', async ({
   page,
@@ -17,11 +17,11 @@ test('replacement text stays protected after switching to Comment', async ({
     .getByRole('button', { name: 'Comment', exact: true })
     .click();
   const documentId = await review.evaluate(
-    () => window.__HUMAGENT__.documentId,
+    () => window.__HUMAGENT__!.documentId,
   );
   await page.locator('#refresh').click();
   await expect(page.locator('#error')).toContainText('Add or cancel');
-  expect(await review.evaluate(() => window.__HUMAGENT__.documentId)).toBe(
+  expect(await review.evaluate(() => window.__HUMAGENT__!.documentId)).toBe(
     documentId,
   );
   await review.frame
@@ -49,7 +49,7 @@ test('unfinished feedback survives reselection and blocks refresh until added or
     .fill('Keep this unfinished note');
   await review.evaluate(() =>
     document
-      .querySelector('[data-humagent-id="brief"]')
+      .querySelector('[data-humagent-id="brief"]')!
       .dispatchEvent(
         new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
       ),
@@ -58,18 +58,18 @@ test('unfinished feedback survives reselection and blocks refresh until added or
     'Keep this unfinished note',
   );
   const documentId = await review.evaluate(
-    () => window.__HUMAGENT__.documentId,
+    () => window.__HUMAGENT__!.documentId,
   );
   await page.locator('#refresh').click();
   await expect(page.locator('#error')).toContainText(
     'Add or cancel your current feedback',
   );
-  expect(await review.evaluate(() => window.__HUMAGENT__.documentId)).toBe(
+  expect(await review.evaluate(() => window.__HUMAGENT__!.documentId)).toBe(
     documentId,
   );
   await review.frame.getByRole('button', { name: 'Add to review' }).click();
   await expect(page.locator('.draft')).toHaveCount(1);
-  expect((await review.state()).drafts[0].item.target.id).toBe('headline');
+  expect((await review.state()).drafts[0].item.target!.id).toBe('headline');
 });
 
 test('polling and reordering preserve keyboard focus', async ({
@@ -125,7 +125,7 @@ test('shadow controls retain native context menus', async ({
         composed: true,
         cancelable: true,
       });
-      shadow.querySelector('input').dispatchEvent(event);
+      shadow.querySelector('input')!.dispatchEvent(event);
       return event.defaultPrevented;
     }),
   ).toBe(false);
@@ -157,10 +157,10 @@ test('several comments and an exact deletion form one ordered review without mut
   const event = workspace.store.get(plan.session).events[0];
   expect(event.protocol).toBe(2);
   expect(
-    event.payload.items.map((item) => item.comment || item.replacement.after),
+    event.payload.items.map((item) => item.comment || item.replacement!.after),
   ).toEqual(['A shorter heading.', 'Keep these boundaries.', '']);
-  expect(event.payload.items[2].replacement.before).toBe(original);
-  expect(event.payload.items[2].target.anchor.quote).toBe(original);
+  expect(event.payload.items[2].replacement!.before).toBe(original);
+  expect(event.payload.items[2].target!.anchor!.quote).toBe(original);
   expect(event.payload.items[0].target).toMatchObject({
     id: 'headline',
     revision: event.revision,
@@ -215,7 +215,7 @@ test('removed targets remain unavailable instead of binding to replacements', as
   await review.addComment('h1', 'Keep my original target');
   await expect(review.frame.locator('.marker')).toHaveCount(1);
   await review.evaluate(() => {
-    const h = document.querySelector('h1');
+    const h = document.querySelector('h1')!;
     h.replaceWith(h.cloneNode(true));
   });
   await expect(page.locator('.draft-status')).toContainText(
@@ -264,13 +264,13 @@ test('right-click respects controls and Shift, and double-click retains selected
   review,
 }) => {
   const results = await review.evaluate(() => {
-    const check = (el, shiftKey) => {
+    const check = (el: Element | null, shiftKey: boolean) => {
       const event = new MouseEvent('contextmenu', {
         bubbles: true,
         cancelable: true,
         shiftKey,
       });
-      el.dispatchEvent(event);
+      el!.dispatchEvent(event);
       return event.defaultPrevented;
     };
     return {
@@ -286,7 +286,7 @@ test('right-click respects controls and Shift, and double-click retains selected
   await review.frame.locator('h1').dblclick();
   await expect(review.frame.getByRole('dialog')).toBeVisible();
   expect(
-    await review.evaluate(() => document.getSelection().toString()),
+    await review.evaluate(() => document.getSelection()!.toString()),
   ).toBeTruthy();
 });
 
@@ -391,8 +391,8 @@ test('the review tray fits desktop and narrow screens', async ({
       ),
     ).toBe(true);
     const frame = await page.locator('#frame').boundingBox();
-    expect(frame.width).toBeGreaterThan(250);
-    expect(frame.height).toBeGreaterThan(170);
+    expect(frame!.width).toBeGreaterThan(250);
+    expect(frame!.height).toBeGreaterThan(170);
     await page.screenshot({ path: `.local/review-${width}.png` });
   }
 });

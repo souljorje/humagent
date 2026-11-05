@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures.mjs';
+import { test, expect } from './fixtures.ts';
 
 test('navigation stays current when a corrective request also arrives late', async ({
   page,
@@ -7,11 +7,11 @@ test('navigation stays current when a corrective request also arrives late', asy
   app,
 }) => {
   const opened = await review.open(app.origin + '/a');
-  let releaseA, releaseB, secondDocument;
-  const waitA = new Promise((resolve) => {
+  let releaseA!: () => void, releaseB!: () => void, secondDocument: string;
+  const waitA = new Promise<void>((resolve) => {
     releaseA = resolve;
   });
-  const waitB = new Promise((resolve) => {
+  const waitB = new Promise<void>((resolve) => {
     releaseB = resolve;
   });
   let heldA = false,
@@ -48,7 +48,7 @@ test('navigation stays current when a corrective request also arrives late', asy
     await expect(review.frame.locator('h1')).toHaveText('Page b');
     await review.ready();
     secondDocument = await review.evaluate(
-      () => window.__HUMAGENT__.documentId,
+      () => window.__HUMAGENT__!.documentId,
     );
     releaseA();
     await expect.poll(() => heldB).toBe(true);
@@ -83,8 +83,8 @@ test('late navigation responses cannot replace the current revision', async ({
   app,
 }) => {
   const opened = await review.open(app.origin + '/a');
-  let release;
-  const delayed = new Promise((resolve) => {
+  let release!: () => void;
+  const delayed = new Promise<void>((resolve) => {
     release = resolve;
   });
   let held = false,
@@ -170,7 +170,7 @@ test('default restarts retain drafts, form values, and pending input', async ({
     .locator('input[name="outcome"]')
     .fill('A preserved outcome.');
   await expect
-    .poll(() => workspace.store.get(plan.session).state.forms?.launch?.outcome)
+    .poll(() => workspace.forms(plan.session).launch?.outcome)
     .toBe('A preserved outcome.');
   const blockedEvents = `**/api/sessions/${plan.session}/events`;
   await page.route(blockedEvents, (route) => route.abort());
@@ -181,7 +181,7 @@ test('default restarts retain drafts, form values, and pending input', async ({
   await expect(page.locator('#outbox')).toBeVisible();
   const pendingId = await page.evaluate(
     (id) =>
-      JSON.parse(localStorage.getItem(`humagent:review:${id}`)).outbox[0].batch
+      JSON.parse(localStorage.getItem(`humagent:review:${id}`)!).outbox[0].batch
         .clientId,
     plan.session,
   );
@@ -209,7 +209,7 @@ test('default restarts retain drafts, form values, and pending input', async ({
   await expect(page.locator('#outbox')).toBeVisible();
   const restoredId = await page.evaluate(
     (id) =>
-      JSON.parse(localStorage.getItem(`humagent:review:${id}`)).outbox[0].batch
+      JSON.parse(localStorage.getItem(`humagent:review:${id}`)!).outbox[0].batch
         .clientId,
     plan.session,
   );
@@ -243,7 +243,7 @@ test('existing apps retain native clicks, API requests, and annotations', async 
   await expect
     .poll(
       () =>
-        workspace.store.get(session.session).events[0]?.payload.items[0].target
+        workspace.store.get(session.session).events[0]?.payload.items[0].target!
           .id,
     )
     .toBe('headline');

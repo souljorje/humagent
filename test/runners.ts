@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fixture } from './fixtures.mjs';
+import { fixture } from './fixtures.ts';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const exec = promisify(execFile);
@@ -13,14 +13,14 @@ assert.ok(fs.existsSync(archive), 'Run bun pm pack first');
 const temporary = fixture('runners');
 const cwd = path.join(temporary, 'project');
 fs.mkdirSync(cwd);
-const env = {
+const env: NodeJS.ProcessEnv = {
   ...process.env,
   HUMAGENT_HOME: path.join(temporary, 'state'),
   HUMAGENT_PORT: '0',
   npm_config_cache: path.join(temporary, 'cache'),
   npm_config_update_notifier: 'false',
 };
-const run = async (command, args) =>
+const run = async (command: string, args: string[]) =>
   (
     await exec(command, args, {
       cwd,
@@ -54,7 +54,7 @@ try {
   assert.equal(
     JSON.parse(
       fs
-        .readFileSync(path.join(env.HUMAGENT_HOME, 'server.log'), 'utf8')
+        .readFileSync(path.join(env.HUMAGENT_HOME!, 'server.log'), 'utf8')
         .trim(),
     ).runtime,
     'bun',
@@ -83,7 +83,7 @@ try {
         recursive: true,
       })
       .some((file) =>
-        file
+        String(file)
           .split(path.sep)
           .join('/')
           .endsWith('node_modules/humagent/package.json'),
@@ -99,7 +99,7 @@ try {
   } catch {}
   for (
     let i = 0;
-    i < 100 && fs.existsSync(path.join(env.HUMAGENT_HOME, 'server.lock'));
+    i < 100 && fs.existsSync(path.join(env.HUMAGENT_HOME!, 'server.lock'));
     i++
   )
     await new Promise((r) => setTimeout(r, 20));

@@ -17,6 +17,15 @@ import {
 } from './surfaces.js';
 import { writeJson } from './storage.js';
 import { browserAsset } from './assets.js';
+import type { Session } from './protocol.js';
+
+export interface SessionSnapshot extends Omit<
+  Session,
+  'viewKey' | 'lease' | 'acknowledged'
+> {
+  agent: 'working' | 'waiting' | 'idle';
+  surface: { origin: string; frameUrl: string; channel: string };
+}
 
 const UI = fileURLToPath(new URL('../ui/', import.meta.url));
 const equal = (a: unknown, b: string) =>
@@ -125,7 +134,7 @@ export async function createRuntime(options: RuntimeOptions) {
     }
     return surfaces.get(id)!;
   }
-  function view(id: string) {
+  function view(id: string): Omit<SessionSnapshot, 'surface'> {
     const { viewKey: _key, lease, acknowledged: _ack, ...s } = store.get(id);
     return {
       ...s,
@@ -137,7 +146,7 @@ export async function createRuntime(options: RuntimeOptions) {
             : 'idle',
     };
   }
-  async function snapshot(id: string) {
+  async function snapshot(id: string): Promise<SessionSnapshot> {
     const panel = await surfaces.get(id);
     ensure(
       panel,

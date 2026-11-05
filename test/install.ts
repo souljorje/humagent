@@ -2,8 +2,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fixture } from './fixtures.mjs';
+import { fixture } from './fixtures.ts';
 import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { promisify } from 'node:util';
@@ -16,7 +17,7 @@ const archive = path.resolve(
 const temporary = fixture('install');
 const home = path.join(temporary, 'state');
 // Remove the normal Bun directory. npm execution must not require Bun.
-const env = {
+const env: NodeJS.ProcessEnv = {
   ...process.env,
   HUMAGENT_HOME: home,
   HUMAGENT_PORT: '0',
@@ -30,7 +31,7 @@ env[pathKey] = (env[pathKey] || '')
   .filter((item) => !/[\\/]\.bun[\\/]/i.test(item))
   .join(path.delimiter);
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const npmRun = async (args) =>
+const npmRun = async (args: string[]) =>
   (
     await execute(npm, args, {
       cwd: temporary,
@@ -40,11 +41,11 @@ const npmRun = async (args) =>
       shell: process.platform === 'win32',
     })
   ).stdout;
-const run = async (...args) =>
+const run = async (...args: string[]) =>
   JSON.parse(
     await npmRun(['exec', '--offline', '--', 'humagent', ...args, '--json']),
   );
-let app;
+let app: http.Server | undefined;
 try {
   assert.ok(fs.existsSync(archive), 'Run bun pm pack first');
   await execute('tar', ['-xzf', archive, '-C', temporary]);
@@ -65,20 +66,35 @@ try {
     'dist/sdk/sdk.js',
     'dist/shared/json.js',
     'dist/shared/batch.js',
+    'dist/shared/review.d.ts',
+    'dist/shared/bridge.d.ts',
+    'dist/shared/errors.js',
     'dist/ui/review-state.js',
     'dist/sdk/forms.js',
     'dist/sdk/review.js',
     'dist/sdk/targets.js',
-    'examples/plan.html',
+    'dist/examples/plan.html',
+    'dist/examples/calculator.js',
+    'dist/examples/existing.js',
     'skills/humagent/SKILL.md',
     'docs/CLI.md',
     'docs/SDK.md',
     'docs/SECURITY.md',
     'LICENSE',
     'README.md',
-    ...Object.values(packaged.exports).flatMap(Object.values),
+    ...Object.values(
+      packaged.exports as Record<string, Record<string, string>>,
+    ).flatMap(Object.values),
   ])
     assert.ok(fs.existsSync(path.join(root, file)), file);
+  for (const file of fs.readdirSync(path.join(root, 'dist'), {
+    recursive: true,
+    encoding: 'utf8',
+  }))
+    assert.ok(
+      !file.endsWith('.ts') || file.endsWith('.d.ts'),
+      `Uncompiled source in package: ${file}`,
+    );
   assert.ok(
     fs
       .readFileSync(path.join(root, packaged.bin.humagent), 'utf8')
@@ -179,10 +195,10 @@ try {
     res.setHeader('content-type', 'text/html');
     res.end('<h1>Installed package proxy</h1>');
   });
-  await new Promise((resolve) => app.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => app!.listen(0, '127.0.0.1', resolve));
   const attached = await run(
     'open',
-    `http://127.0.0.1:${app.address().port}`,
+    `http://127.0.0.1:${(app.address() as AddressInfo).port}`,
     '--no-open',
   );
   const appState = await run('status', attached.session);
@@ -244,7 +260,7 @@ try {
     await new Promise((r) => setTimeout(r, 20));
   if (app) {
     app.closeAllConnections();
-    await new Promise((r) => app.close(r));
+    await new Promise<void>((r) => app!.close(() => r()));
   }
   fs.rmSync(temporary, {
     recursive: true,

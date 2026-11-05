@@ -1,39 +1,60 @@
 import { createReview } from './review-state.js';
+import type { SessionSnapshot } from '../runtime/server.js';
+import type { Event as ReviewEvent } from '../runtime/protocol.js';
+import type { Draft, StageResult, StateResult } from '../shared/review.js';
+import type { PageMessage, WorkspaceMessage } from '../shared/bridge.js';
+import { errorMessage } from '../shared/errors.js';
 
-const $ = (id) => document.getElementById(id);
-const id = new URL(location.href).searchParams.get('session');
+type Controls = Record<string, HTMLElement> & {
+  frame: HTMLIFrameElement;
+  message: HTMLTextAreaElement;
+  'edit-form': HTMLFormElement;
+  'edit-comment': HTMLTextAreaElement;
+  'edit-after': HTMLTextAreaElement;
+  'edit-values': HTMLTextAreaElement;
+  send: HTMLButtonElement;
+  annotate: HTMLButtonElement;
+  end: HTMLButtonElement;
+};
+const $ = <K extends keyof Controls>(id: K): Controls[K] =>
+  document.getElementById(id) as Controls[K];
+const id = new URL(location.href).searchParams.get('session') ?? '';
 const credentialKey = `humagent:key:${id}`;
 if (location.hash) {
   sessionStorage.setItem(credentialKey, location.hash.slice(1));
   history.replaceState(null, '', location.pathname + location.search);
 }
-const capability = sessionStorage.getItem(credentialKey);
-let session,
-  review,
-  loadedRevision,
-  latestDocument,
+const capability = sessionStorage.getItem(credentialKey) ?? '';
+let session: SessionSnapshot,
+  review!: ReturnType<typeof createReview>,
+  loadedRevision: string | undefined,
+  latestDocument: string | undefined,
   bridgeReady = false,
-  syncing,
+  syncing: Promise<SessionSnapshot> | null,
   writable = false,
-  editing,
-  flushCall;
-const available = new Map();
-const rendered = new WeakMap();
-function renderChanged(element, value, draw) {
+  editing: string,
+  flushCall: {
+    id: string;
+    finish(params: { error?: string; ok?: boolean }): void;
+  } | null;
+const available = new Map<string, boolean>();
+const rendered = new WeakMap<HTMLElement, string>();
+function renderChanged(element: HTMLElement, value: unknown, draw: () => void) {
   const key = JSON.stringify(value);
   if (rendered.get(element) === key) return;
   const active = document.activeElement;
-  const focusedId = element.contains(active)
-    ? active.closest('[data-draft-id],[data-batch-id]')?.dataset
-    : null;
-  const label = active.textContent;
+  const focusedId =
+    active && element.contains(active)
+      ? active.closest<HTMLElement>('[data-draft-id],[data-batch-id]')?.dataset
+      : null;
+  const label = active?.textContent;
   element.replaceChildren();
   draw();
   rendered.set(element, key);
   if (focusedId) {
     const selector = focusedId.draftId
       ? `[data-draft-id="${CSS.escape(focusedId.draftId)}"]`
-      : `[data-batch-id="${CSS.escape(focusedId.batchId)}"]`;
+      : `[data-batch-id="${CSS.escape(focusedId.batchId!)}"]`;
     const buttons = [
       ...(element.querySelector(selector)?.querySelectorAll('button') || []),
     ];
@@ -63,7 +84,11 @@ function canWrite(retry = false) {
     );
   if (session?.ended && !retry) throw new Error('Review session has ended');
 }
-async function api(action = '', method = 'GET', data) {
+async function api<T = void>(
+  action = '',
+  method = 'GET',
+  data?: unknown,
+): Promise<T> {
   if (!capability)
     throw new Error('Open this session through the Humagent CLI.');
   const response = await fetch(
@@ -79,13 +104,23 @@ async function api(action = '', method = 'GET', data) {
   );
   const result = await response.json();
   if (!response.ok) {
-    const failure = new Error(`${result.error}: ${result.message}`);
-    failure.rejected = response.status >= 400 && response.status < 500;
+    const failure = Object.assign(
+      new Error(`${result.error}: ${result.message}`),
+      {
+        rejected: response.status >= 400 && response.status < 500,
+      },
+    );
     throw failure;
   }
   return result;
 }
-function post(method, params = {}, requestId) {
+function post(
+  method: WorkspaceMessage['method'],
+  params:
+    | Extract<WorkspaceMessage, { params: unknown }>['params']
+    | Record<string, never> = {},
+  requestId?: string,
+) {
   if (session)
     $('frame').contentWindow?.postMessage(
       {
@@ -98,7 +133,12 @@ function post(method, params = {}, requestId) {
       session.surface.origin,
     );
 }
-function button(label, action, disabled = false, retry = false) {
+function button(
+  label: string,
+  action: () => unknown,
+  disabled = false,
+  retry = false,
+) {
   const el = document.createElement('button');
   el.textContent = label;
   el.disabled = disabled;
@@ -108,10 +148,10 @@ function button(label, action, disabled = false, retry = false) {
         canWrite(retry);
         return action();
       })
-      .catch((e) => error(e.message));
+      .catch((e) => error(errorMessage(e)));
   return el;
 }
-function paragraph(text, className) {
+function paragraph(text: string, className?: string) {
   const el = document.createElement('p');
   el.textContent = text;
   if (className) el.className = className;
@@ -154,7 +194,8 @@ function render() {
           quote.textContent =
             item.target.anchor?.quote ||
             item.target.text ||
-            item.target.selector;
+            item.target.selector ||
+            '';
           li.append(quote);
         }
         if (item.replacement) {
@@ -256,7 +297,7 @@ function render() {
   $('recovery').hidden = !snapshot.recovery.length;
   post('drafts', { items: snapshot.drafts });
 }
-function edit(draft) {
+function edit(draft: Draft) {
   editing = draft.item.id;
   $('edit-form').hidden = false;
   $('edit-comment').value = draft.item.comment || '';
@@ -285,7 +326,7 @@ $('edit-form').onsubmit = (event) => {
     $('edit-form').hidden = true;
     error();
   } catch (e) {
-    error(e.message);
+    error(errorMessage(e));
   }
 };
 $('cancel-edit').onclick = () => {
@@ -300,7 +341,7 @@ function renderHistory() {
     for (const entry of entries) {
       const article = document.createElement('article');
       article.className = 'entry';
-      if (entry.text !== undefined) article.append(paragraph(entry.text));
+      if ('text' in entry) article.append(paragraph(entry.text));
       else {
         article.append(
           paragraph(
@@ -337,7 +378,7 @@ function renderHistory() {
 async function sync() {
   if (syncing) return syncing;
   syncing = (async () => {
-    const updated = await api();
+    const updated = await api<SessionSnapshot>();
     const first = !session;
     const reconnected =
       !!session && session.surface.origin !== updated.surface.origin;
@@ -366,7 +407,7 @@ async function sync() {
     return session;
   })()
     .catch((e) => {
-      error(e.message);
+      error(errorMessage(e));
       $('presence').textContent = 'Disconnected';
       throw e;
     })
@@ -375,9 +416,11 @@ async function sync() {
     });
   return syncing;
 }
-async function deliver(clientId) {
+async function deliver(clientId: string) {
   canWrite(true);
-  await review.deliver(clientId, (value) => api('events', 'POST', value));
+  await review.deliver(clientId, (value) =>
+    api<ReviewEvent>('events', 'POST', value),
+  );
   error();
   await sync();
 }
@@ -394,7 +437,7 @@ $('send').onclick = async () => {
     const clientId = review.begin(loadedRevision);
     await deliver(clientId);
   } catch (e) {
-    error(e.message);
+    error(errorMessage(e));
   }
 };
 $('message').oninput = () => {
@@ -406,16 +449,16 @@ $('message').oninput = () => {
   } catch (e) {
     unsavedMessage = true;
     $('send').disabled = true;
-    error(`Draft could not be saved. Keep this tab open. ${e.message}`);
+    error(`Draft could not be saved. Keep this tab open. ${errorMessage(e)}`);
     $('draft-status').textContent = 'Not saved';
   }
 };
 $('verify-message').onclick = () => {
   try {
     canWrite();
-    review.setMessage($('message').value, loadedRevision);
+    review.setMessage($('message').value, loadedRevision ?? null);
   } catch (e) {
-    error(e.message);
+    error(errorMessage(e));
   }
 };
 $('toggle-review').onclick = () => openTray($('tray').hidden);
@@ -429,14 +472,14 @@ $('annotate').onclick = () => {
     $('frame').focus();
     post('pick');
   } catch (e) {
-    error(e.message);
+    error(errorMessage(e));
   }
 };
 $('refresh').onclick = async () => {
   try {
     if (bridgeReady) {
       const requestId = crypto.randomUUID();
-      const flushed = new Promise((resolve, reject) => {
+      const flushed = new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {
           flushCall = null;
           reject(
@@ -466,7 +509,7 @@ $('refresh').onclick = async () => {
     if (reloadInPlace) post('reload');
     else $('frame').src = session.surface.frameUrl;
   } catch (e) {
-    error(e.message);
+    error(errorMessage(e));
   }
 };
 $('end').onclick = async () => {
@@ -476,13 +519,13 @@ $('end').onclick = async () => {
     await api('end', 'POST', {});
     await sync();
   } catch (e) {
-    error(e.message);
+    error(errorMessage(e));
   }
 };
 $('wait-command').textContent = `humagent wait ${id} --timeout 50 --lease 600`;
 $('copy-command').onclick = async () => {
   try {
-    await navigator.clipboard.writeText($('wait-command').textContent);
+    await navigator.clipboard.writeText($('wait-command').textContent || '');
     $('copy-command').textContent = 'Copied';
   } catch {
     error('Select and copy the command manually.');
@@ -524,7 +567,7 @@ window.addEventListener('message', async (event) => {
     event.data?.humagent !== 1
   )
     return;
-  const msg = event.data;
+  const msg = event.data as PageMessage;
   if (msg.method === 'hello') {
     latestDocument = msg.documentId;
     if (writable) {
@@ -536,7 +579,7 @@ window.addEventListener('message', async (event) => {
           documentId = latestDocument;
         }
       } catch (e) {
-        if (documentId === latestDocument) error(e.message);
+        if (documentId === latestDocument) error(errorMessage(e));
         return;
       }
     }
@@ -574,13 +617,15 @@ window.addEventListener('message', async (event) => {
     return;
   }
   if (
-    !['stage', 'state', 'readState'].includes(msg.method) ||
+    (msg.method !== 'stage' &&
+      msg.method !== 'state' &&
+      msg.method !== 'readState') ||
     typeof msg.id !== 'string'
   )
     return;
   try {
     canWrite();
-    let result;
+    let result: StageResult | StateResult;
     if (msg.method === 'stage') {
       result = review.stage(msg.params.item, msg.revision, msg.id);
       openTray();
@@ -588,13 +633,13 @@ window.addEventListener('message', async (event) => {
     } else {
       const saved =
         msg.method === 'readState'
-          ? await api()
-          : await api('state', 'PUT', msg.params);
+          ? await api<StateResult>()
+          : await api<StateResult>('state', 'PUT', msg.params);
       result = { state: saved.state, stateVersion: saved.stateVersion };
       session.state = result.state;
       session.stateVersion = result.stateVersion;
     }
-    $('frame').contentWindow.postMessage(
+    $('frame').contentWindow!.postMessage(
       {
         humagent: 1,
         channel: session.surface.channel,
@@ -605,14 +650,14 @@ window.addEventListener('message', async (event) => {
       session.surface.origin,
     );
   } catch (e) {
-    error(e.message);
-    $('frame').contentWindow.postMessage(
+    error(errorMessage(e));
+    $('frame').contentWindow!.postMessage(
       {
         humagent: 1,
         channel: session.surface.channel,
         method: 'result',
         id: msg.id,
-        error: e.message,
+        error: errorMessage(e),
       },
       session.surface.origin,
     );
@@ -625,7 +670,7 @@ async function listen() {
         headers: { 'x-humagent-session': capability },
       });
       if (!response.ok) throw new Error('Disconnected');
-      const reader = response.body.getReader();
+      const reader = response.body!.getReader();
       try {
         while (!(await reader.read()).done) await sync();
       } finally {
@@ -636,7 +681,7 @@ async function listen() {
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 }
-await new Promise((resolve) => {
+await new Promise<void>((resolve) => {
   if (!navigator.locks) {
     error(
       'This browser cannot safely coordinate review tabs. Use a current browser.',
@@ -651,17 +696,17 @@ await new Promise((resolve) => {
       try {
         review = createReview(localStorage, id, render);
       } catch (e) {
-        error(e.message);
+        error(errorMessage(e));
         writable = false;
       }
       resolve();
       if (lock)
-        await new Promise((release) =>
-          window.addEventListener('pagehide', release, { once: true }),
+        await new Promise<void>((release) =>
+          window.addEventListener('pagehide', () => release(), { once: true }),
         );
     })
     .catch((e) => {
-      error(e.message);
+      error(errorMessage(e));
       resolve();
     });
 });
@@ -670,7 +715,7 @@ window.addEventListener('storage', (event) => {
     try {
       review?.reload();
     } catch (e) {
-      error(e.message);
+      error(errorMessage(e));
     }
   }
 });

@@ -4,12 +4,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRuntime } from '../dist/runtime/server.js';
 import { MAX_BYTES } from '../dist/runtime/protocol.js';
-import { fixture } from './fixtures.mjs';
+import { fixture } from './fixtures.ts';
 
 const dir = fixture('control-routes');
 const root = path.join(dir, 'artifacts');
 fs.mkdirSync(root);
-let runtime;
+let runtime: Awaited<ReturnType<typeof createRuntime>>;
 let targetNumber = 0;
 
 beforeAll(async () => {
@@ -21,7 +21,18 @@ afterAll(async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-function request(route, { method = 'GET', headers = {}, body } = {}) {
+function request(
+  route: string,
+  {
+    method = 'GET',
+    headers = {},
+    body,
+  }: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: BodyInit;
+  } = {},
+) {
   return runtime.app.request(runtime.origin + route, {
     method,
     headers: {
@@ -34,7 +45,12 @@ function request(route, { method = 'GET', headers = {}, body } = {}) {
   });
 }
 
-function jsonRequest(route, method, data, headers = {}) {
+function jsonRequest(
+  route: string,
+  method: string,
+  data: unknown,
+  headers: Record<string, string> = {},
+) {
   return request(route, {
     method,
     headers: { 'content-type': 'application/json', ...headers },
@@ -42,9 +58,9 @@ function jsonRequest(route, method, data, headers = {}) {
   });
 }
 
-async function json(response, status, error) {
+async function json(response: Response, status: number, error?: string) {
   assert.equal(response.status, status);
-  assert.match(response.headers.get('content-type'), /^application\/json\b/);
+  assert.match(response.headers.get('content-type')!, /^application\/json\b/);
   assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
   const value = await response.json();
@@ -62,7 +78,7 @@ async function open() {
   return { ...session, targetPath: target };
 }
 
-function chunks(value, size = 4096) {
+function chunks(value: string, size = 4096) {
   const bytes = new TextEncoder().encode(value);
   return new ReadableStream({
     start(controller) {
@@ -81,13 +97,17 @@ test('control routes enforce host, origin, and credential boundaries', async () 
     authorization: '',
     'x-humagent-session': key,
   };
-  for (const host of ['', 'evil.example', 'localhost:1234'])
+  for (const host of ['', 'evil.example', 'localhost:1234'] as const)
     await json(
       await request('/health', { headers: { host } }),
       403,
       'FORBIDDEN',
     );
-  for (const origin of ['https://evil.example', 'null', 'http://127.0.0.1:1'])
+  for (const origin of [
+    'https://evil.example',
+    'null',
+    'http://127.0.0.1:1',
+  ] as const)
     await json(
       await request('/health', { headers: { origin } }),
       403,
@@ -137,7 +157,7 @@ test('control routes enforce host, origin, and credential boundaries', async () 
   assert.equal('viewKey' in snapshot, false);
   assert.equal('lease' in snapshot, false);
   assert.equal('acknowledged' in snapshot, false);
-  for (const action of ['wait', 'ack', 'reply', 'renew'])
+  for (const action of ['wait', 'ack', 'reply', 'renew'] as const)
     await json(
       await jsonRequest(
         `/api/sessions/${first.session}/${action}`,
@@ -189,10 +209,10 @@ test('control routes return the expected content and method errors', async () =>
     ['/workspace', /^text\/html/],
     ['/app.js', /^text\/javascript/],
     ['/app.css', /^text\/css/],
-  ]) {
+  ] as const) {
     const response = await request(route);
     assert.equal(response.status, 200);
-    assert.match(response.headers.get('content-type'), type);
+    assert.match(response.headers.get('content-type')!, type);
     assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
     assert.ok((await response.text()).length > 0);
     await json(await request(route, { method: 'POST' }), 405, 'METHOD');
@@ -206,10 +226,14 @@ test('control routes return the expected content and method errors', async () =>
     [`/api/sessions/${session.session}/events`, 'GET'],
     [`/api/sessions/${session.session}/unknown`, 'GET'],
     ['/api/sessions/missing', 'GET'],
-  ])
+  ] as const)
     await json(await request(route, { method }), 404, 'NOT_FOUND');
   const listing = await json(await request('/api/sessions'), 200);
-  assert.ok(listing.sessions.some((entry) => entry.id === session.session));
+  assert.ok(
+    listing.sessions.some(
+      (entry: { id: string }) => entry.id === session.session,
+    ),
+  );
   assert.ok(Array.isArray(listing.errors));
 });
 
@@ -229,16 +253,19 @@ test('HEAD retains route-specific methods after authentication', async () => {
     [`/api/sessions/${session.session}/stream`, 404, sessionHeaders],
     ['/api/sessions', 401, { authorization: '' }],
     [`/api/sessions/${session.session}`, 401, { authorization: '' }],
-  ]) {
+  ] as const) {
     const response = await request(route, { method: 'HEAD', headers });
     assert.equal(response.status, status, `HEAD ${route}`);
-    assert.match(response.headers.get('content-type'), /^application\/json\b/);
+    assert.match(response.headers.get('content-type')!, /^application\/json\b/);
     assert.equal(await response.text(), '');
   }
 });
 
 test('JSON requests enforce content type, syntax, object shape, and streamed byte limits', async () => {
-  for (const headers of [{}, { 'content-type': 'text/plain' }])
+  for (const headers of [{}, { 'content-type': 'text/plain' }] as Record<
+    string,
+    string
+  >[])
     await json(
       await request('/api/open', { method: 'POST', headers, body: '{}' }),
       415,
@@ -249,7 +276,7 @@ test('JSON requests enforce content type, syntax, object shape, and streamed byt
     ['', 'INVALID_JSON'],
     ['[]', 'INVALID_INPUT'],
     ['null', 'INVALID_INPUT'],
-  ])
+  ] as const)
     await json(
       await request('/api/open', {
         method: 'POST',
@@ -404,7 +431,10 @@ test('route receipts preserve target, revision, and individual event ownership',
   );
   const after = await json(await request(base), 200);
   assert.deepEqual(
-    after.events.map(({ id, status }) => ({ id, status })),
+    after.events.map(({ id, status }: { id: string; status: string }) => ({
+      id,
+      status,
+    })),
     [
       { id: sent.id, status: 'completed' },
       { id: newer.id, status: 'queued' },

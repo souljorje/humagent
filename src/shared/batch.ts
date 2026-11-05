@@ -1,32 +1,65 @@
-import { cloneJson } from './json.js';
+import { cloneJson, type ObjectValue } from './json.js';
+
+export type ReviewTarget = ObjectValue & {
+  id?: string;
+  selector?: string;
+  tag?: string;
+  text?: string;
+  url?: string;
+  revision?: string;
+  anchorId?: string;
+  anchor?: { quote: string; prefix: string; suffix: string };
+};
+export interface ReviewItem {
+  id: string;
+  target?: ReviewTarget;
+  comment?: string;
+  replacement?: { before: string; after: string };
+  intent?: string;
+  values?: ObjectValue;
+}
+export type DraftItem = Omit<ReviewItem, 'id'>;
+export interface Input {
+  protocol: 2;
+  clientId: string;
+  revision: string;
+  payload: { message?: string; items: ReviewItem[] };
+}
 
 export const PROTOCOL = 2;
 export const MAX_BYTES = 256 * 1024;
 export const MAX_ITEMS = 100;
 
 export class ReviewError extends Error {
-  constructor(message, code = 'INVALID_INPUT', status = 400) {
+  code: string;
+  status: number;
+  constructor(message: string, code = 'INVALID_INPUT', status = 400) {
     super(message);
     this.code = code;
     this.status = status;
   }
 }
-function require(value, message) {
+function require(value: unknown, message: string): asserts value {
   if (!value) throw new ReviewError(message);
 }
-function object(value) {
+function object(value: unknown): asserts value is ObjectValue {
   require(value &&
     typeof value === 'object' &&
     !Array.isArray(value), 'Expected an object');
 }
-function text(value, name, limit = 4000, empty = false) {
+function text(
+  value: unknown,
+  name: string,
+  limit = 4000,
+  empty = false,
+): asserts value is string {
   require(typeof value === 'string' &&
     (empty || value.trim().length > 0) &&
     value.length <= limit, `Invalid ${name}`);
 }
 
 /** Validate one immutable batch. The wire protocol is independent of the storage format. */
-export function batch(raw) {
+export function batch(raw: unknown): Input {
   const original = cloneJson(raw);
   object(original);
   if (new TextEncoder().encode(JSON.stringify(original)).length > MAX_BYTES)
@@ -79,19 +112,22 @@ export function batch(raw) {
   }
   return {
     protocol: PROTOCOL,
-    clientId: value.clientId,
-    revision: value.revision,
-    payload: p,
+    clientId: original.clientId,
+    revision: original.revision,
+    payload: p as unknown as Input['payload'],
   };
 }
 
 /** Object key order does not change request identity. Array order still matters. */
-export function fingerprint(value) {
+export function fingerprint(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(fingerprint).join(',')}]`;
   if (value && typeof value === 'object')
     return `{${Object.keys(value)
       .sort()
-      .map((key) => `${JSON.stringify(key)}:${fingerprint(value[key])}`)
+      .map(
+        (key) =>
+          `${JSON.stringify(key)}:${fingerprint((value as Record<string, unknown>)[key])}`,
+      )
       .join(',')}}`;
-  return JSON.stringify(value);
+  return JSON.stringify(value) ?? 'undefined';
 }

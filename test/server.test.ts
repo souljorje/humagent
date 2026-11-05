@@ -1,14 +1,28 @@
 import { test, beforeAll, afterAll } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { fixture } from './fixtures.mjs';
+import { fixture } from './fixtures.ts';
 import path from 'node:path';
 import http from 'node:http';
 import net from 'node:net';
+import type { AddressInfo } from 'node:net';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createRuntime } from '../dist/runtime/server.js';
 import { targetOf, safeFile } from '../dist/runtime/surfaces.js';
+
+type Runtime = Awaited<ReturnType<typeof createRuntime>>;
+type ServerAddress = Pick<Runtime, 'origin' | 'token'>;
+type Feedback = Extract<
+  NonNullable<ReturnType<Runtime['store']['take']>>,
+  { status: 'feedback' }
+>;
+type WaitResult = Feedback | { status: 'timeout' | 'ended' | 'interrupted' };
+interface NodeReady extends ServerAddress {
+  type: 'ready';
+  version: string;
+}
+type ChildMessage = NodeReady | { id: number; value: number | boolean };
 
 const dir = fixture('http');
 const root = path.join(dir, 'artifacts');
@@ -19,7 +33,7 @@ fs.writeFileSync(
   '<!doctype html><html><body><h1>Hello</h1><script>const literal="</body>";</script></body></html>',
 );
 fs.writeFileSync(path.join(root, 'app.js'), 'window.works=true;');
-let runtime;
+let runtime: Awaited<ReturnType<typeof createRuntime>>;
 beforeAll(async () => {
   runtime = await createRuntime({ directory: path.join(dir, 'state') });
 });
@@ -27,7 +41,12 @@ afterAll(async () => {
   await runtime.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });
-async function api(route, method = 'GET', data, headers = {}) {
+async function api(
+  route: string,
+  method = 'GET',
+  data?: unknown,
+  headers: Record<string, string> = {},
+) {
   const res = await fetch(runtime.origin + route, {
     method,
     headers: {
@@ -57,7 +76,7 @@ test('opens isolated local surface and injects before literal body text', async 
   assert.ok(!html.includes(runtime.token));
   assert.ok(!html.includes(new URL(s.url).hash.slice(1)));
   assert.match(
-    page.headers.get('content-security-policy'),
+    page.headers.get('content-security-policy')!,
     /connect-src 'none'/,
   );
   assert.match(
@@ -70,7 +89,10 @@ test('fetching sibling HTML preserves its bytes and the active file revision', a
   fs.writeFileSync(path.join(root, 'fragment.html'), fragment);
   const s = await opened();
   const before = (await api(`/api/sessions/${s.session}`)).data;
-  for (const headers of [{}, { 'sec-fetch-dest': 'empty' }]) {
+  for (const headers of [{}, { 'sec-fetch-dest': 'empty' }] as Record<
+    string,
+    string
+  >[]) {
     const response = await fetch(before.surface.origin + '/fragment.html', {
       headers,
     });
@@ -266,9 +288,9 @@ test('proxy preserves paths, JSON API and WebSocket upgrade; rejects external re
     );
     socket.end(Buffer.from([0x88, 0x00]));
   });
-  await new Promise((r) => app.listen(0, '127.0.0.1', r));
+  await new Promise<void>((r) => app.listen(0, '127.0.0.1', r));
   try {
-    const target = `http://127.0.0.1:${app.address().port}/nested`;
+    const target = `http://127.0.0.1:${(app.address() as AddressInfo).port}/nested`;
     const s = (await api('/api/open', 'POST', { target })).data;
     const view = (await api(`/api/sessions/${s.session}`)).data;
     assert.match(
@@ -284,7 +306,7 @@ test('proxy preserves paths, JSON API and WebSocket upgrade; rejects external re
         .status,
       502,
     );
-    await new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       const req = http.request(view.surface.origin + '/hmr', {
         headers: {
           connection: 'Upgrade',
@@ -315,10 +337,10 @@ test('dynamic app snapshots and submissions do not refetch or change revisions',
     res.writeHead(offline ? 503 : 200, { 'content-type': 'text/html' });
     res.end(`<h1>Dynamic page ${requests}</h1>`);
   });
-  await new Promise((resolve) => app.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => app.listen(0, '127.0.0.1', resolve));
   try {
     const result = await api('/api/open', 'POST', {
-      target: `http://127.0.0.1:${app.address().port}/dynamic`,
+      target: `http://127.0.0.1:${(app.address() as AddressInfo).port}/dynamic`,
     });
     const id = result.data.session;
     const first = (await api(`/api/sessions/${id}`)).data;
@@ -327,8 +349,8 @@ test('dynamic app snapshots and submissions do not refetch or change revisions',
     });
     const revision = runtime.store.get(id).revision;
     const count = requests;
-    const changes = [];
-    const changed = (session) => {
+    const changes: string[] = [];
+    const changed = (session: string) => {
       if (session === id) changes.push(session);
     };
     runtime.store.on('change', changed);
@@ -359,32 +381,38 @@ test('dynamic app snapshots and submissions do not refetch or change revisions',
 });
 test('the default workspace keeps its origin across restarts and occupied ports', async () => {
   const directory = fixture('workspace-port');
-  let first, second, blocker;
+  let first: Runtime | null = null,
+    second: Runtime | null = null,
+    blocker: http.Server | null = null;
   try {
     first = await createRuntime({ directory });
     const origin = first.origin;
     await first.close();
     first = null;
     blocker = http.createServer();
-    await new Promise((resolve) =>
-      blocker.listen(Number(new URL(origin).port), '127.0.0.1', resolve),
+    await new Promise<void>((resolve) =>
+      blocker!.listen(Number(new URL(origin).port), '127.0.0.1', resolve),
     );
     await assert.rejects(() => createRuntime({ directory }), {
       code: 'EADDRINUSE',
     });
-    await new Promise((resolve) => blocker.close(resolve));
+    await new Promise<void>((resolve) => blocker!.close(() => resolve()));
     blocker = null;
     second = await createRuntime({ directory });
     assert.equal(second.origin, origin);
   } finally {
     if (first) await first.close();
     if (second) await second.close();
-    if (blocker) await new Promise((resolve) => blocker.close(resolve));
+    if (blocker)
+      await new Promise<void>((resolve) => blocker!.close(() => resolve()));
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
 
-async function until(condition, label) {
+async function until(
+  condition: () => boolean | Promise<boolean>,
+  label: string,
+) {
   const deadline = Date.now() + 3000;
   while (!(await condition())) {
     if (Date.now() >= deadline)
@@ -393,7 +421,7 @@ async function until(condition, label) {
   }
 }
 
-function nodeRuntime(directory) {
+function nodeRuntime(directory: string) {
   const script = `
     import { createRuntime } from ${JSON.stringify(new URL('../dist/runtime/server.js', import.meta.url).href)};
     const runtime = await createRuntime({ directory: process.argv[1] });
@@ -415,18 +443,25 @@ function nodeRuntime(directory) {
     },
   );
   let stderr = '';
-  child.stderr.setEncoding('utf8');
-  child.stderr.on('data', (chunk) => (stderr += chunk));
-  let resolveReady, rejectReady, resolveExit;
-  const ready = new Promise((resolve, reject) => {
+  child.stderr!.setEncoding('utf8');
+  child.stderr!.on('data', (chunk) => (stderr += chunk));
+  type Exit = { code: number | null; signal: NodeJS.Signals | null };
+  let resolveReady!: (ready: NodeReady) => void,
+    rejectReady!: (error: Error) => void,
+    resolveExit!: (exit: Exit) => void;
+  const ready = new Promise<NodeReady>((resolve, reject) => {
     resolveReady = resolve;
     rejectReady = reject;
   });
-  const exited = new Promise((resolve) => (resolveExit = resolve));
-  const pending = new Map();
+  const exited = new Promise<Exit>((resolve) => (resolveExit = resolve));
+  const pending = new Map<
+    number,
+    { resolve(value: number | boolean): void; reject(error: Error): void }
+  >();
   let nextId = 0;
-  child.on('message', (message) => {
-    if (message.type === 'ready') resolveReady(message);
+  child.on('message', (raw) => {
+    const message = raw as ChildMessage;
+    if ('type' in message) resolveReady(message);
     else {
       const reply = pending.get(message.id);
       if (reply) {
@@ -444,10 +479,16 @@ function nodeRuntime(directory) {
     resolveExit({ code, signal });
   });
   ready.catch(() => {});
-  function call(action) {
+  function call<M extends 'listeners' | 'close'>(
+    action: M,
+  ): Promise<M extends 'listeners' ? number : boolean> {
     return new Promise((resolve, reject) => {
       const id = ++nextId;
-      pending.set(id, { resolve, reject });
+      pending.set(id, {
+        resolve: (value) =>
+          resolve(value as M extends 'listeners' ? number : boolean),
+        reject,
+      });
       child.send({ id, action }, (error) => {
         if (error && pending.delete(id)) reject(error);
       });
@@ -456,12 +497,12 @@ function nodeRuntime(directory) {
   return { child, ready, exited, call };
 }
 
-async function within(promise, label) {
-  let timer;
+async function within<T>(promise: Promise<T>, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       promise,
-      new Promise((_, reject) => {
+      new Promise<never>((_, reject) => {
         timer = setTimeout(
           () => reject(new Error(`Timed out waiting for ${label}`)),
           3000,
@@ -473,9 +514,12 @@ async function within(promise, label) {
   }
 }
 
-function pendingWait(server, id) {
-  let request;
-  const response = new Promise((resolve, reject) => {
+function pendingWait(server: ServerAddress, id: string) {
+  let request!: http.ClientRequest;
+  const response = new Promise<{
+    status: number | undefined;
+    data: WaitResult;
+  }>((resolve, reject) => {
     request = http.request(
       `${server.origin}/api/sessions/${id}/wait`,
       {
@@ -509,16 +553,24 @@ function pendingWait(server, id) {
   return { request, response };
 }
 
-function pendingStream(server, id, headers = {}) {
-  let request;
-  const ready = new Promise((resolve, reject) => {
+function pendingStream(
+  server: ServerAddress,
+  id: string,
+  headers: Record<string, string> = {},
+) {
+  let request!: http.ClientRequest;
+  const ready = new Promise<{
+    response: http.IncomingMessage;
+    ended: Promise<string>;
+    contents(): string;
+  }>((resolve, reject) => {
     request = http.get(
       `${server.origin}/api/sessions/${id}/stream`,
       { headers: { authorization: `Bearer ${server.token}`, ...headers } },
       (response) => {
         let contents = '';
-        let finish;
-        const ended = new Promise((done) => (finish = done));
+        let finish!: (result: string) => void;
+        const ended = new Promise<string>((done) => (finish = done));
         response.setEncoding('utf8');
         response.on('data', (chunk) => {
           contents += chunk;
@@ -536,7 +588,7 @@ function pendingStream(server, id, headers = {}) {
   return { request, ready };
 }
 
-async function openDistinct(server, name) {
+async function openDistinct(server: ServerAddress, name: string) {
   const target = path.join(root, `${name}.html`);
   fs.writeFileSync(target, '<!doctype html><h1>Disconnect test</h1>');
   const response = await fetch(`${server.origin}/api/open`, {
@@ -551,10 +603,10 @@ async function openDistinct(server, name) {
   return { ...(await response.json()), targetPath: target };
 }
 
-async function checkHostResponses(server) {
+async function checkHostResponses(server: ServerAddress) {
   const address = new URL(server.origin);
   const missing = await within(
-    new Promise((resolve, reject) => {
+    new Promise<string>((resolve, reject) => {
       let data = '';
       const socket = net.createConnection(
         { host: address.hostname, port: Number(address.port) },
@@ -579,7 +631,11 @@ async function checkHostResponses(server) {
 
   for (const host of ['', '[::1', 'bad host', 'evil.example']) {
     const result = await within(
-      new Promise((resolve, reject) => {
+      new Promise<{
+        status: number | undefined;
+        type: string | undefined;
+        body: string;
+      }>((resolve, reject) => {
         const request = http.request(
           `${server.origin}/health`,
           {
@@ -606,7 +662,7 @@ async function checkHostResponses(server) {
       `host response for ${JSON.stringify(host)}`,
     );
     assert.equal(result.status, 403, `host ${JSON.stringify(host)}`);
-    assert.match(result.type, /^application\/json\b/);
+    assert.match(result.type!, /^application\/json\b/);
     assert.equal(JSON.parse(result.body).error, 'FORBIDDEN');
   }
 }
@@ -681,7 +737,7 @@ test('disconnecting an SSE client removes its listener and a replacement receive
     const stream = await within(first.ready, 'first SSE connection');
     assert.equal(stream.response.statusCode, 200);
     assert.match(
-      stream.response.headers['content-type'],
+      stream.response.headers['content-type']!,
       /^text\/event-stream/,
     );
     await until(
@@ -731,7 +787,9 @@ test('disconnecting an SSE client removes its listener and a replacement receive
 
 test('shutdown completes pending waits and SSE clients and releases the state directory', async () => {
   const directory = fixture('shutdown');
-  let server, waiter, stream;
+  let server!: Runtime,
+    waiter: ReturnType<typeof pendingWait> | undefined,
+    stream: ReturnType<typeof pendingStream> | undefined;
   try {
     server = await createRuntime({ directory });
     const session = await openDistinct(server, 'shutdown-clients');
@@ -780,7 +838,7 @@ test('Node transport cleans up disconnected waits and streams and shuts down pen
       node.call('listeners'),
       'Node listener count',
     );
-    const countIs = (count) => async () =>
+    const countIs = (count: number) => async () =>
       (await within(node.call('listeners'), 'Node listener count')) === count;
 
     firstWait = pendingWait(server, id);

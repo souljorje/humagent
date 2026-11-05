@@ -1,7 +1,39 @@
 import { context, isNativeInteractiveControl } from './targets.js';
+import type { Bootstrap } from '../shared/bridge.js';
+import type { DraftItem, ReviewTarget } from '../shared/batch.js';
+import type { Availability, Draft, StageResult } from '../shared/review.js';
+import { errorMessage } from '../shared/errors.js';
+
+interface ReviewBridge {
+  boot: Bootstrap;
+  stage(item: DraftItem): Promise<StageResult>;
+  notice(message: string): void;
+  availability(items: Availability[]): void;
+  done(): void;
+}
+type Controls = Record<string, HTMLElement> & {
+  note: HTMLTextAreaElement;
+  after: HTMLTextAreaElement;
+  editor: HTMLFormElement;
+  comment: HTMLButtonElement;
+  replace: HTMLButtonElement;
+  close: HTMLButtonElement;
+  cancel: HTMLButtonElement;
+  add: HTMLButtonElement;
+};
+interface Capture {
+  target: ReviewTarget & { anchorId: string };
+  before: string;
+}
 
 /** The page owns selection geometry. The workspace owns every persisted draft. */
-export function createPageReview({ boot, stage, notice, availability, done }) {
+export function createPageReview({
+  boot,
+  stage,
+  notice,
+  availability,
+  done,
+}: ReviewBridge) {
   const host = document.createElement('div');
   host.dataset.humagentUi = '';
   const shadow = host.attachShadow({ mode: 'open' });
@@ -31,26 +63,27 @@ export function createPageReview({ boot, stage, notice, availability, done }) {
     <p id="local-error" role="alert" hidden></p><div class="actions"><button class="primary" id="add" type="submit">Add to review</button><button id="cancel" type="button">Cancel</button></div></form>
   </section>`;
   (document.body || document.documentElement).append(host);
-  const $ = (id) => shadow.getElementById(id);
-  let captured = null,
-    replacement = false,
+  const $ = <K extends keyof Controls>(id: K): Controls[K] =>
+    shadow.getElementById(id) as Controls[K];
+  let captured: Capture | null = null;
+  let replacement = false,
     picking = false,
-    candidates = [],
+    candidates: Element[] = [],
     cursor = 0,
     saving = false,
-    drafts = [],
+    drafts: Draft[] = [],
     scheduled = false,
     lastAvailability = '';
-  const anchors = new Map(),
-    bound = new Map();
-  let returnFocus;
-  const ignored = (el) =>
+  const anchors = new Map<string, Element>(),
+    bound = new Map<string, Element | null>();
+  let returnFocus: Element | null;
+  const ignored = (el: EventTarget | null) =>
     !(el instanceof Element) ||
     el.closest('[data-humagent-ui],script,style,head') ||
     el === document.documentElement;
-  const exactText = (el) => el.textContent || '';
-  const normalizedText = (el) => context(el).text;
-  const nativeEvent = (event) =>
+  const exactText = (el: Element) => el.textContent || '';
+  const normalizedText = (el: Element) => context(el).text;
+  const nativeEvent = (event: Event) =>
     event.composedPath().some(isNativeInteractiveControl);
   function flush() {
     if (
@@ -65,11 +98,11 @@ export function createPageReview({ boot, stage, notice, availability, done }) {
       flush();
       return true;
     } catch (error) {
-      notice(error.message);
+      notice(errorMessage(error));
       return false;
     }
   }
-  function highlight(el) {
+  function highlight(el: Element | undefined) {
     if (!el?.isConnected) {
       $('highlight').hidden = true;
       return;
@@ -90,12 +123,13 @@ export function createPageReview({ boot, stage, notice, availability, done }) {
     if (
       captured &&
       !drafts.some(
-        (draft) => draft.item.target?.anchorId === captured.target.anchorId,
+        (draft) => draft.item.target?.anchorId === captured!.target.anchorId,
       )
     )
       anchors.delete(captured.target.anchorId);
     captured = null;
-    if (returnFocus?.isConnected) returnFocus.focus?.({ preventScroll: true });
+    if (returnFocus instanceof HTMLElement && returnFocus.isConnected)
+      returnFocus.focus({ preventScroll: true });
   }
   function fitPanel() {
     const rect = $('panel').getBoundingClientRect();
@@ -111,14 +145,14 @@ export function createPageReview({ boot, stage, notice, availability, done }) {
     close();
     done();
   }
-  function show(el, range) {
-    if (ignored(el) || !canReplaceCapture()) return;
+  function show(el: EventTarget | null, range?: Range) {
+    if (!(el instanceof Element) || ignored(el) || !canReplaceCapture()) return;
     const before = range ? range.toString() : exactText(el);
     if (before.length > 50000) {
       notice('Select a smaller section (maximum 50,000 characters).');
       return;
     }
-    const target = {
+    const target: Capture['target'] = {
       ...context(el),
       url: boot.sourceUrl,
       revision: boot.revision,
@@ -182,7 +216,7 @@ export function createPageReview({ boot, stage, notice, availability, done }) {
       return false;
     const range = selection.getRangeAt(0).cloneRange();
     const node = range.commonAncestorContainer;
-    const el = node.nodeType === 1 ? node : node.parentElement;
+    const el = node instanceof Element ? node : node.parentElement;
     if (ignored(el) || isNativeInteractiveControl(el)) return false;
     show(el, range);
     return true;
@@ -190,8 +224,9 @@ export function createPageReview({ boot, stage, notice, availability, done }) {
   for (const [id, replace] of [
     ['comment', false],
     ['replace', true],
-  ])
+  ] as const)
     $(id).onclick = () => {
+      if (!captured) return;
       replacement = replace;
       $('editor').hidden = false;
       $('original-wrap').hidden = !replace;
@@ -215,15 +250,17 @@ export function createPageReview({ boot, stage, notice, availability, done }) {
     };
     saving = true;
     const disabled = [
-      ...shadow.querySelectorAll('#panel button,#panel textarea'),
-    ].map((el) => [el, el.disabled]);
+      ...shadow.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement>(
+        '#panel button,#panel textarea',
+      ),
+    ].map((el) => [el, el.disabled] as const);
     for (const [el] of disabled) el.disabled = true;
     try {
       await stage(item);
       saving = false;
       close();
     } catch (error) {
-      $('local-error').textContent = error.message;
+      $('local-error').textContent = errorMessage(error);
       $('local-error').hidden = false;
     } finally {
       saving = false;
@@ -257,10 +294,10 @@ export function createPageReview({ boot, stage, notice, availability, done }) {
     },
     true,
   );
-  function cursorAt(offset) {
+  function cursorAt(offset: number) {
     if (!candidates.length) return;
     cursor = (cursor + offset + candidates.length) % candidates.length;
-    const el = candidates[cursor];
+    const el = candidates[cursor]!;
     el.scrollIntoView({ block: 'nearest' });
     highlight(el);
     $('picker-name').textContent =
@@ -296,7 +333,7 @@ export function createPageReview({ boot, stage, notice, availability, done }) {
     },
     true,
   );
-  function resolve(draft) {
+  function resolve(draft: Draft): Element | null {
     const target = draft.item.target;
     if (
       !target ||
@@ -312,7 +349,7 @@ export function createPageReview({ boot, stage, notice, availability, done }) {
         ? el
         : null;
     }
-    let el = anchors.get(target.anchorId);
+    let el = target.anchorId ? anchors.get(target.anchorId) : undefined;
     if (el && !el.isConnected) {
       bound.set(draft.item.id, null);
       return null;
@@ -323,14 +360,14 @@ export function createPageReview({ boot, stage, notice, availability, done }) {
           ? document.querySelectorAll(
               `[data-humagent-id="${CSS.escape(target.id)}"],#${CSS.escape(target.id)}`,
             )
-          : document.querySelectorAll(target.selector);
+          : document.querySelectorAll(target.selector || '');
         if (matches.length !== 1) return null;
         el = matches[0];
       } catch {
         return null;
       }
     }
-    if (ignored(el) || normalizedText(el) !== target.text) return null;
+    if (!el || ignored(el) || normalizedText(el) !== target.text) return null;
     if (target.anchor && !exactText(el).includes(target.anchor.quote))
       return null;
     bound.set(draft.item.id, el);
@@ -339,7 +376,7 @@ export function createPageReview({ boot, stage, notice, availability, done }) {
   function position() {
     scheduled = false;
     $('markers').replaceChildren();
-    const available = [];
+    const available: Availability[] = [];
     drafts.forEach((draft, index) => {
       if (!draft.item.target) return;
       const el = resolve(draft);
@@ -399,7 +436,7 @@ export function createPageReview({ boot, stage, notice, availability, done }) {
   return {
     cancel,
     flush,
-    setDrafts(items) {
+    setDrafts(items: Draft[]) {
       drafts = items;
       const ids = new Set(items.map((draft) => draft.item.id));
       const references = new Set(

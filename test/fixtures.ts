@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const local = fileURLToPath(new URL('../.local/', import.meta.url));
 
-export function fixture(name) {
+export function fixture(name: string) {
   fs.mkdirSync(local, { recursive: true });
   return fs.mkdtempSync(path.join(local, `test-${name}-`));
 }

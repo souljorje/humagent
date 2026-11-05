@@ -57,7 +57,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: release-candidate
-      - run: node test/install.mjs
+      - run: node test/install.ts
   runners:
     needs: check
     runs-on: ubuntu-24.04

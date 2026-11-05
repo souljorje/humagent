@@ -1,7 +1,7 @@
-export function selector(el) {
+export function selector(el: Element | null) {
   if (!el || !el.tagName) return '';
   const parts = [];
-  let node = el;
+  let node: Element | null = el;
   while (node && node.nodeType === 1 && parts.length < 5) {
     let part = node.tagName.toLowerCase();
     if (node.id) {
@@ -9,10 +9,10 @@ export function selector(el) {
       parts.unshift(part);
       break;
     }
-    const parent = node.parentElement;
+    const parent: HTMLElement | null = node.parentElement;
     if (parent) {
       const same = [...parent.children].filter(
-        (x) => x.tagName === node.tagName,
+        (x) => x.tagName === node!.tagName,
       );
       if (same.length > 1)
         part += ':nth-of-type(' + (same.indexOf(node) + 1) + ')';
@@ -22,8 +22,8 @@ export function selector(el) {
   }
   return parts.join(' > ');
 }
-export function isNativeInteractiveControl(el) {
-  if (!el || !el.closest) return false;
+export function isNativeInteractiveControl(el: EventTarget | null): boolean {
+  if (!(el instanceof Element)) return false;
   if (
     el.closest(
       "a[href],button,input,select,textarea,option,optgroup,label,summary,[contenteditable]:not([contenteditable='false'])",
@@ -36,19 +36,24 @@ export function isNativeInteractiveControl(el) {
   if (!widget) return false;
   return true;
 }
-export function context(el) {
+export function context(el: Element) {
   return {
     id: el.getAttribute('data-humagent-id') || el.id || '',
     selector: selector(el),
     tag: el.tagName.toLowerCase(),
-    text: (el.innerText || el.textContent || '')
+    text: ((el instanceof HTMLElement && el.innerText) || el.textContent || '')
       .trim()
       .replace(/\s+/g, ' ')
       .slice(0, 4000),
   };
 }
 
-export function buildContext(text, start, end, pad = 32) {
+export function buildContext(
+  text: string,
+  start: number,
+  end: number,
+  pad = 32,
+) {
   return {
     prefix: text.slice(Math.max(0, start - pad), start),
     quote: text.slice(start, end),

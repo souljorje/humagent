@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
-import { fixture } from './fixtures.mjs';
+import { fixture } from './fixtures.ts';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -21,9 +21,9 @@ test('Bun CLI preserves runtime and origin through an agent loop and restart', a
   fs.mkdirSync(artifacts);
   const source = path.join(artifacts, 'index.html');
   fs.writeFileSync(source, '<!doctype html><h1>CLI test</h1>');
-  const env = { ...process.env };
+  const env: NodeJS.ProcessEnv = { ...process.env };
   delete env.HUMAGENT_PORT;
-  const run = async (...args) => {
+  const run = async (...args: string[]) => {
     const { stdout } = await execute(
       process.execPath,
       [cli, ...args, '--home', home],
@@ -139,7 +139,7 @@ test('Bun CLI preserves runtime and origin through an agent loop and restart', a
 test('CLI provides help and version without starting a server', () => {
   const home = fixture('help');
   try {
-    const run = (args) =>
+    const run = (args: string[]) =>
       execFileSync(process.execPath, [cli, ...args, '--home', home], {
         encoding: 'utf8',
       });
@@ -196,7 +196,7 @@ test('CLI rejects Node versions below 24', () => {
 test('skill setup is repeatable and preserves edits', () => {
   const directory = fixture('skill');
   try {
-    const run = (...args) =>
+    const run = (...args: string[]) =>
       JSON.parse(
         execFileSync(
           process.execPath,

@@ -2,23 +2,45 @@ import { cloneJson } from '../shared/json.js';
 import { fingerprint } from '../shared/batch.js';
 import { createForms } from './forms.js';
 import { createPageReview } from './review.js';
+import type {
+  Bootstrap,
+  PageMessage,
+  Requests,
+  RequestResult,
+  WorkspaceMessage,
+} from '../shared/bridge.js';
+import type { FormState, Submission } from '../shared/review.js';
+import type { DraftItem } from '../shared/batch.js';
+import { errorMessage } from '../shared/errors.js';
 
 if (window.parent === window.top) {
-  const boot = window.__HUMAGENT__;
-  if (!boot || window.parent === window)
+  if (!window.__HUMAGENT__ || window.parent === window)
     throw new Error('Humagent SDK requires an attached workspace');
-  let state = {},
-    stateVersion = 0,
+  const boot: Bootstrap = window.__HUMAGENT__;
+  let state: FormState = {};
+  let stateVersion = 0,
     initialized = false,
     ended = false,
-    resolveReady;
-  const ready = new Promise((resolve) => {
+    resolveReady!: () => void;
+  const ready = new Promise<void>((resolve) => {
     resolveReady = resolve;
   });
-  const pending = new Map(),
-    stages = new Map();
+  const pending = new Map<
+    string,
+    {
+      resolve(value: RequestResult): void;
+      reject(error: Error): void;
+      timer: ReturnType<typeof setInterval>;
+      promise: Promise<RequestResult>;
+    }
+  >();
+  const stages = new Map<string, string>();
   let serial = Promise.resolve();
-  function send(method, params = {}, id) {
+  function send(
+    method: PageMessage['method'],
+    params: PageMessage['params'] = {},
+    id?: string,
+  ) {
     parent.postMessage(
       {
         humagent: 1,
@@ -33,11 +55,17 @@ if (window.parent === window.top) {
       boot.parentOrigin,
     );
   }
-  function request(method, params, id = crypto.randomUUID()) {
+  function request<M extends keyof Requests>(
+    method: M,
+    params: Requests[M]['params'],
+    id: string = crypto.randomUUID(),
+  ): Promise<Requests[M]['result']> {
     if (ended) return Promise.reject(new Error('Review session has ended'));
-    if (pending.has(id)) return pending.get(id).promise;
-    let resolve, reject;
-    const promise = new Promise((yes, no) => {
+    if (pending.has(id))
+      return pending.get(id)!.promise as Promise<Requests[M]['result']>;
+    let resolve!: (value: Requests[M]['result']) => void,
+      reject!: (error: Error) => void;
+    const promise = new Promise<Requests[M]['result']>((yes, no) => {
       resolve = yes;
       reject = no;
     });
@@ -54,14 +82,19 @@ if (window.parent === window.top) {
         );
       }
     }, 5000);
-    pending.set(id, { resolve, reject, timer, promise });
+    pending.set(id, {
+      resolve: (result) => resolve(result as Requests[M]['result']),
+      reject,
+      timer,
+      promise,
+    });
     send(method, params, id);
     return promise;
   }
-  function notice(message) {
+  function notice(message: string) {
     send('notice', { message });
   }
-  function updateState(update) {
+  function updateState(update: (state: FormState) => FormState) {
     const operation = serial
       .catch(() => {})
       .then(async () => {
@@ -79,7 +112,7 @@ if (window.parent === window.top) {
     serial = operation;
     return operation;
   }
-  async function stage(item) {
+  async function stage(item: DraftItem) {
     const captured = cloneJson(item);
     await ready;
     const key = fingerprint(captured);
@@ -89,7 +122,7 @@ if (window.parent === window.top) {
     stages.delete(key);
     return result;
   }
-  async function submit(value) {
+  async function submit(value: Submission) {
     const captured = cloneJson(value);
     if (!captured || typeof captured !== 'object' || Array.isArray(captured))
       throw new Error('submit expects an object');
@@ -115,7 +148,7 @@ if (window.parent === window.top) {
   });
 
   window.addEventListener('message', async (event) => {
-    const data = event.data;
+    const data = event.data as WorkspaceMessage;
     if (
       event.source !== parent ||
       event.origin !== boot.parentOrigin ||
@@ -128,7 +161,7 @@ if (window.parent === window.top) {
       if (!call) return;
       pending.delete(data.id);
       clearInterval(call.timer);
-      if (data.error) call.reject(new Error(data.error));
+      if (data.error !== undefined) call.reject(new Error(data.error));
       else call.resolve(data.result);
       return;
     }
@@ -157,7 +190,7 @@ if (window.parent === window.top) {
         await serial.catch(() => {});
         send('flushed', { ok: true }, data.id);
       } catch (error) {
-        send('flushed', { error: error.message }, data.id);
+        send('flushed', { error: errorMessage(error) }, data.id);
       }
     }
     if (data.method === 'reload') location.reload();

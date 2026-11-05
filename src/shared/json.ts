@@ -1,7 +1,10 @@
-export function cloneJson(value) {
-  const ancestors = new WeakSet();
+export type Json = null | boolean | number | string | Json[] | ObjectValue;
+export type ObjectValue = { [key: string]: Json };
 
-  function check(item, depth) {
+export function cloneJson<T>(value: T): T {
+  const ancestors = new WeakSet<object>();
+
+  function check(item: unknown, depth: number): Json {
     if (depth >= 24) throw new Error('JSON is nested too deeply');
     if (item === null || typeof item === 'string' || typeof item === 'boolean')
       return item;
@@ -24,7 +27,7 @@ export function cloneJson(value) {
       throw new Error('JSON arrays cannot have holes or extra properties');
     }
     ancestors.add(item);
-    const copy = array ? [] : {};
+    const copy: Json[] | ObjectValue = array ? [] : {};
     for (const key of keys) {
       if (array && key === 'length') continue;
       if (
@@ -40,14 +43,14 @@ export function cloneJson(value) {
         throw new Error('JSON arrays cannot have extra properties');
       }
       const descriptor = Object.getOwnPropertyDescriptor(item, key);
-      if (!descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) {
         throw new Error('JSON properties must be enumerable data values');
       }
-      copy[key] = check(descriptor.value, depth + 1);
+      (copy as ObjectValue)[key] = check(descriptor.value, depth + 1);
     }
     ancestors.delete(item);
     return copy;
   }
 
-  return check(value, 0);
+  return check(value, 0) as T;
 }

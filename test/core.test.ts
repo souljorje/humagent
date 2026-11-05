@@ -1,13 +1,13 @@
 import { test, afterAll } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { fixture } from './fixtures.mjs';
+import { fixture } from './fixtures.ts';
 import path from 'node:path';
 import { Store } from '../dist/runtime/store.js';
 import { input, jsonValue } from '../dist/runtime/protocol.js';
 import { buildContext } from '../dist/sdk/targets.js';
 import { cloneJson } from '../dist/shared/json.js';
-const directories = [];
+const directories: string[] = [];
 afterAll(() =>
   directories.forEach((dir) =>
     fs.rmSync(dir, { recursive: true, force: true }),
@@ -97,6 +97,7 @@ test('receipt completes only leased events, not newer input', () => {
   const { store, id } = setup();
   store.send(id, message());
   const batch = store.take(id, 'agent');
+  assert.ok(batch?.status === 'feedback');
   store.send(id, message('two'));
   store.acknowledge(id, batch.receipt, 'Applied');
   assert.deepEqual(
@@ -115,7 +116,9 @@ test('lease excludes competing consumers and expires into redelivery', () => {
   const { store, id } = setup();
   store.send(id, message());
   const first = store.take(id, 'a', 1000, Date.now() - 2000);
+  assert.ok(first?.status === 'feedback');
   const second = store.take(id, 'b');
+  assert.ok(second?.status === 'feedback');
   assert.equal(first.events[0].id, second.events[0].id);
   assert.equal(second.events[0].deliveries, 2);
   assert.throws(() => store.take(id, 'c'), /leased/);
@@ -128,6 +131,7 @@ test('restart retains an outstanding lease and pending event', () => {
   const { store, id, dir } = setup();
   store.send(id, message());
   const batch = store.take(id, 'agent');
+  assert.ok(batch?.status === 'feedback');
   const resumed = new Store(dir);
   assert.throws(() => resumed.take(id, 'other'), /leased/);
   resumed.acknowledge(id, batch.receipt);
@@ -137,9 +141,10 @@ test('renewal validates receipt and extends its lease', () => {
   const { store, id } = setup();
   store.send(id, message());
   const batch = store.take(id, 'agent', 1000);
+  assert.ok(batch?.status === 'feedback');
   assert.throws(() => store.renew(id, undefined));
   store.renew(id, batch.receipt, 10000);
-  assert.ok(store.get(id).lease.expiresAt > batch.leaseExpiresAt);
+  assert.ok(store.get(id).lease!.expiresAt > batch.leaseExpiresAt);
 });
 test('ending a session rejects writes but delivers previously queued work', () => {
   const { store, id } = setup();
@@ -148,8 +153,9 @@ test('ending a session rejects writes but delivers previously queued work', () =
   assert.throws(() => store.send(id, message('new')), /ended/);
   assert.throws(() => store.saveState(id, 0, {}), /ended/);
   const batch = store.take(id, 'agent');
+  assert.ok(batch?.status === 'feedback');
   store.acknowledge(id, batch.receipt);
-  assert.equal(store.take(id, 'agent').status, 'ended');
+  assert.equal(store.take(id, 'agent')?.status, 'ended');
 });
 test('corrupt state is not silently replaced with an empty store', () => {
   const { dir } = setup();
@@ -228,7 +234,7 @@ test('corruption in one session does not hide other sessions', () => {
   }
 });
 test('SDK JSON validation rejects lossy values before copying', () => {
-  const cyclic = {};
+  const cyclic: { self?: unknown } = {};
   cyclic.self = cyclic;
   const hidden = {};
   Object.defineProperty(hidden, 'secret', { value: 1 });

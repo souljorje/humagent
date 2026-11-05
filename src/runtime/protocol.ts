@@ -1,29 +1,11 @@
 /** Wire contract. Task-specific intents are data, never executable handlers. */
 import { batch, ReviewError } from '../shared/batch.js';
+import type { Input } from '../shared/batch.js';
+import type { Json, ObjectValue } from '../shared/json.js';
+export type { Input, ReviewItem } from '../shared/batch.js';
+export type { Json, ObjectValue } from '../shared/json.js';
 export { PROTOCOL, MAX_BYTES } from '../shared/batch.js';
 import { MAX_BYTES } from '../shared/batch.js';
-export type Json =
-  | null
-  | boolean
-  | number
-  | string
-  | Json[]
-  | { [key: string]: Json };
-export type ObjectValue = { [key: string]: Json };
-export interface ReviewItem {
-  id: string;
-  target?: ObjectValue;
-  comment?: string;
-  replacement?: { before: string; after: string };
-  intent?: string;
-  values?: ObjectValue;
-}
-export interface Input {
-  protocol: 2;
-  clientId: string;
-  revision: string;
-  payload: { message?: string; items: ReviewItem[] };
-}
 export interface Event extends Input {
   id: string;
   createdAt: string;
@@ -130,7 +112,7 @@ export function boundedObject(value: unknown): asserts value is ObjectValue {
 }
 export function input(value: unknown): Input {
   try {
-    return batch(value) as Input;
+    return batch(value);
   } catch (error) {
     if (error instanceof ReviewError)
       throw new Failure(error.status, error.code, error.message);

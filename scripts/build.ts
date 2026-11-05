@@ -10,11 +10,11 @@ execFileSync(
   ['node_modules/typescript/bin/tsc', '-p', 'tsconfig.json'],
   { cwd: root, stdio: 'inherit' },
 );
-for (const directory of ['ui', 'sdk']) {
+for (const directory of ['ui', 'examples']) {
   cpSync(
     new URL(`../src/${directory}/`, import.meta.url),
     new URL(`../dist/${directory}/`, import.meta.url),
-    { recursive: true },
+    { recursive: true, filter: (source) => !source.endsWith('.ts') },
   );
 }
 chmodSync(new URL('../dist/cli/index.js', import.meta.url), 0o755);

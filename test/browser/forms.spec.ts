@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures.mjs';
+import { test, expect, type Feedback } from './fixtures.ts';
 
 for (const lost of ['HTTP response', 'bridge acknowledgment'])
   test(`form persistence recovers a lost ${lost}`, async ({
@@ -45,20 +45,18 @@ for (const lost of ['HTTP response', 'bridge acknowledgment'])
       .locator('input[name="outcome"]')
       .fill('Survive the lost response');
     await expect
-      .poll(
-        () => workspace.store.get(plan.session).state.forms?.launch?.outcome,
-      )
+      .poll(() => workspace.forms(plan.session).launch?.outcome)
       .toBe('Survive the lost response');
     if (lost === 'bridge acknowledgment')
       await expect
         .poll(() => review.evaluate(() => window.droppedStateAcknowledgment))
         .toBe(true);
     const documentId = await review.evaluate(
-      () => window.__HUMAGENT__.documentId,
+      () => window.__HUMAGENT__!.documentId,
     );
     await page.locator('#refresh').click();
     await expect
-      .poll(() => review.evaluate(() => window.__HUMAGENT__.documentId), {
+      .poll(() => review.evaluate(() => window.__HUMAGENT__!.documentId), {
         timeout: 15000,
       })
       .not.toBe(documentId);
@@ -68,9 +66,7 @@ for (const lost of ['HTTP response', 'bridge acknowledgment'])
     );
     await review.frame.locator('input[name="outcome"]').fill('A later edit');
     await expect
-      .poll(
-        () => workspace.store.get(plan.session).state.forms?.launch?.outcome,
-      )
+      .poll(() => workspace.forms(plan.session).launch?.outcome)
       .toBe('A later edit');
   });
 
@@ -79,8 +75,8 @@ test('form submission captures values before delayed persistence', async ({
   plan,
   review,
 }) => {
-  let release;
-  const delayed = new Promise((resolve) => {
+  let release!: () => void;
+  const delayed = new Promise<void>((resolve) => {
     release = resolve;
   });
   let requests = 0;
@@ -96,7 +92,7 @@ test('form submission captures values before delayed persistence', async ({
   await review.frame.locator('input[name="outcome"]').fill('Later value');
   release();
   await expect(page.locator('.draft')).toHaveCount(1);
-  expect((await review.state()).drafts[0].item.values.outcome).toBe(
+  expect((await review.state()).drafts[0].item.values!.outcome).toBe(
     'Submitted value',
   );
 });
@@ -124,7 +120,7 @@ test('form values survive reload and staged values remain a separate snapshot', 
     .locator('input[name="outcome"]')
     .fill('A later form value.');
   await expect
-    .poll(() => workspace.store.get(plan.session).state.forms?.launch?.outcome)
+    .poll(() => workspace.forms(plan.session).launch?.outcome)
     .toBe('A later form value.');
   await page.reload();
   await review.ready();
@@ -134,7 +130,7 @@ test('form values survive reload and staged values remain a separate snapshot', 
   await expect(
     review.frame.locator('input[value="platform-first"]'),
   ).toBeChecked();
-  expect((await review.state()).drafts[0].item.values.outcome).toBe(
+  expect((await review.state()).drafts[0].item.values!.outcome).toBe(
     'A preserved outcome.',
   );
   await page.locator('#send').click();
@@ -177,10 +173,14 @@ test('SDK and forms stage beside annotations and one batch reaches the waiting a
   await review.addComment('h1', 'Keep it short.');
   await page.locator('#message').fill('Review everything together.');
   expect(workspace.store.get(plan.session).events).toHaveLength(0);
-  const waiting = workspace.api(`/api/sessions/${plan.session}/wait`, 'POST', {
-    consumer: 'test',
-    timeoutMs: 10000,
-  });
+  const waiting = workspace.api<Feedback>(
+    `/api/sessions/${plan.session}/wait`,
+    'POST',
+    {
+      consumer: 'test',
+      timeoutMs: 10000,
+    },
+  );
   await page.locator('#send').click();
   const receipt = await waiting;
   expect(receipt.events).toHaveLength(1);
@@ -203,7 +203,7 @@ for (const reload of [false, true])
     review,
     workspace,
   }) => {
-    const requests = [];
+    const requests: unknown[] = [];
     await page.route(
       `**/api/sessions/${plan.session}/events`,
       async (route) => {
@@ -239,7 +239,7 @@ for (const reload of [false, true])
     await expect(page.locator('#outbox')).toBeHidden();
     expect(requests[1]).toEqual(requests[0]);
     expect(workspace.store.get(plan.session).events).toHaveLength(1);
-    expect((await review.state()).drafts[0].item.values.decision).toBe('new');
+    expect((await review.state()).drafts[0].item.values!.decision).toBe('new');
     await expect(page.locator('#message')).toHaveValue('A new instruction');
     await page.locator('#send').click();
     await expect
@@ -254,7 +254,7 @@ test('SDK rejects lossy values and failed browser persistence without staging su
   workspace,
 }) => {
   const count = await review.evaluate(async () => {
-    const cyclic = {};
+    const cyclic: { self?: unknown } = {};
     cyclic.self = cyclic;
     let rejected = 0;
     for (const value of [
@@ -269,6 +269,8 @@ test('SDK rejects lossy values and failed browser persistence without staging su
       Array(1),
     ]) {
       try {
+        // Exercise runtime rejection of values excluded by the SDK's TypeScript contract.
+        // @ts-expect-error Deliberately invalid JSON values.
         await window.humagent.submit({ intent: 'invalid', values: { value } });
       } catch {
         rejected++;
@@ -291,7 +293,7 @@ test('SDK rejects lossy values and failed browser persistence without staging su
         values: { safe: true },
       });
     } catch (e) {
-      return e.message;
+      return e instanceof Error ? e.message : String(e);
     }
   });
   expect(failure).toContain('Storage full');
@@ -337,7 +339,7 @@ test('generated mini-app stays local until Send all', async ({
 }) => {
   const opened = await review.open(workspace.file('calculator.html'));
   await review.frame.locator('#tasks').evaluate((el) => {
-    el.value = '120';
+    (el as HTMLInputElement).value = '120';
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await expect(review.frame.locator('#hours')).toHaveText('16.0 hours');

@@ -382,11 +382,13 @@ async function main() {
       'plan.html',
       'calculator.html',
       'existing.html',
+      'calculator.js',
+      'existing.js',
       'example.css',
     ]) {
       const to = path.join(destination, file);
       if (!fs.existsSync(to))
-        fs.copyFileSync(new URL(`../../examples/${file}`, import.meta.url), to);
+        fs.copyFileSync(new URL(`../examples/${file}`, import.meta.url), to);
     }
     target = path.join(destination, `${name}.html`);
   }

@@ -1,10 +1,21 @@
 import { batch, fingerprint, MAX_ITEMS } from '../shared/batch.js';
 import { cloneJson } from '../shared/json.js';
+import type { Input, ReviewItem } from '../shared/batch.js';
+import type {
+  ReviewState,
+  PendingBatch,
+  StageResult,
+} from '../shared/review.js';
+import { errorMessage } from '../shared/errors.js';
 
 /** One persisted record commits drafts and the immutable outbox together. */
-export function createReview(storage, sessionId, changed = () => {}) {
+export function createReview(
+  storage: Pick<Storage, 'getItem' | 'setItem'>,
+  sessionId: string,
+  changed: () => void = () => {},
+) {
   const key = `humagent:review:${sessionId}`;
-  const empty = () => ({
+  const empty = (): ReviewState => ({
     format: 2,
     drafts: [],
     message: { text: '', revision: null, token: '' },
@@ -12,9 +23,10 @@ export function createReview(storage, sessionId, changed = () => {}) {
     staged: {},
     recovery: [],
   });
-  let state;
-  const flights = new Map();
-  const read = (name) => {
+  let state: ReviewState;
+  type Confirmation = { clientId: string; id: string };
+  const flights = new Map<string, Promise<Confirmation | undefined>>();
+  const read = (name: string): ReviewState | null => {
     const raw = storage.getItem(name);
     return raw === null ? null : JSON.parse(raw);
   };
@@ -47,21 +59,21 @@ export function createReview(storage, sessionId, changed = () => {}) {
     state = next;
   }
   load();
-  function commit(update) {
+  function commit(update: (next: ReviewState) => void) {
     const next = structuredClone(state);
     update(next);
     storage.setItem(key, JSON.stringify(next));
     state = next;
     changed();
   }
-  const locked = (id) =>
+  const locked = (id: string) =>
     state.outbox.some((entry) => entry.draftIds.includes(id));
   const messageLocked = () =>
     state.outbox.some(
       (entry) =>
         entry.messageToken && entry.messageToken === state.message.token,
     );
-  function mutable(id) {
+  function mutable(id: string) {
     if (locked(id))
       throw new Error(
         'This item belongs to an unconfirmed batch. Retry that batch first.',
@@ -69,7 +81,11 @@ export function createReview(storage, sessionId, changed = () => {}) {
     if (!state.drafts.some((draft) => draft.item.id === id))
       throw new Error('Draft no longer exists');
   }
-  function stage(item, revision, requestId = crypto.randomUUID()) {
+  function stage(
+    item: unknown,
+    revision: string,
+    requestId: string = crypto.randomUUID(),
+  ): StageResult {
     const captured = cloneJson(item);
     const signature = fingerprint({ item: captured, revision });
     const previous = state.staged[requestId];
@@ -87,15 +103,15 @@ export function createReview(storage, sessionId, changed = () => {}) {
       protocol: 2,
       clientId: requestId,
       revision,
-      payload: { items: [{ ...captured, id }] },
+      payload: { items: [{ ...(captured as Record<string, unknown>), id }] },
     });
     commit((next) => {
-      next.drafts.push({ item: value.payload.items[0], revision });
+      next.drafts.push({ item: value.payload.items[0]!, revision });
       next.staged[requestId] = { id, signature };
     });
     return { draftId: id, status: 'draft' };
   }
-  function begin(revision) {
+  function begin(revision: string) {
     const drafts = state.drafts.filter((d) => !locked(d.item.id));
     const message = messageLocked() ? null : state.message;
     const stale = drafts.filter((d) => d.revision !== revision);
@@ -112,7 +128,7 @@ export function createReview(storage, sessionId, changed = () => {}) {
         ...(message?.text.trim() ? { message: message.text } : {}),
       },
     });
-    const entry = {
+    const entry: PendingBatch = {
       batch: value,
       draftIds: drafts.map((d) => d.item.id),
       messageToken: message?.text.trim() ? message.token : '',
@@ -120,14 +136,17 @@ export function createReview(storage, sessionId, changed = () => {}) {
     commit((next) => next.outbox.push(entry));
     return value.clientId;
   }
-  async function deliver(clientId, send) {
+  async function deliver(
+    clientId: string,
+    send: (batch: Input) => Promise<Confirmation>,
+  ) {
     if (flights.has(clientId)) return flights.get(clientId);
     const operation = (async () => {
       const entry = state.outbox.find((e) => e.batch.clientId === clientId);
       if (!entry) return;
       const uncertain = !!entry.uncertain;
       commit((next) => {
-        const pending = next.outbox.find((e) => e.batch.clientId === clientId);
+        const pending = next.outbox.find((e) => e.batch.clientId === clientId)!;
         pending.uncertain = true;
         pending.rejected = false;
       });
@@ -135,13 +154,17 @@ export function createReview(storage, sessionId, changed = () => {}) {
       try {
         result = await send(cloneJson(entry.batch));
       } catch (error) {
+        const rejected =
+          error instanceof Error &&
+          'rejected' in error &&
+          error.rejected === true;
         commit((next) => {
           const pending = next.outbox.find(
             (e) => e.batch.clientId === clientId,
-          );
-          pending.error = error.message;
-          pending.rejected = !!error.rejected && !uncertain;
-          pending.uncertain = uncertain || !error.rejected;
+          )!;
+          pending.error = errorMessage(error);
+          pending.rejected = rejected && !uncertain;
+          pending.uncertain = uncertain || !rejected;
         });
         throw error;
       }
@@ -177,14 +200,14 @@ export function createReview(storage, sessionId, changed = () => {}) {
     stage,
     begin,
     deliver,
-    setMessage(text, revision) {
+    setMessage(text: string, revision: string | null) {
       commit((next) => {
         next.message = { text, revision, token: crypto.randomUUID() };
       });
     },
-    edit(id, item) {
+    edit(id: string, item: ReviewItem) {
       mutable(id);
-      const draft = state.drafts.find((d) => d.item.id === id);
+      const draft = state.drafts.find((d) => d.item.id === id)!;
       const value = batch({
         protocol: 2,
         clientId: 'edit',
@@ -192,16 +215,17 @@ export function createReview(storage, sessionId, changed = () => {}) {
         payload: { items: [{ ...cloneJson(item), id }] },
       });
       commit((next) => {
-        next.drafts.find((d) => d.item.id === id).item = value.payload.items[0];
+        next.drafts.find((d) => d.item.id === id)!.item =
+          value.payload.items[0]!;
       });
     },
-    remove(id) {
+    remove(id: string) {
       mutable(id);
       commit((next) => {
         next.drafts = next.drafts.filter((d) => d.item.id !== id);
       });
     },
-    move(id, offset) {
+    move(id: string, offset: number) {
       mutable(id);
       commit((next) => {
         const index = next.drafts.findIndex((d) => d.item.id === id);
@@ -210,10 +234,10 @@ export function createReview(storage, sessionId, changed = () => {}) {
           Math.min(next.drafts.length - 1, index + offset),
         );
         const [draft] = next.drafts.splice(index, 1);
-        next.drafts.splice(position, 0, draft);
+        next.drafts.splice(position, 0, draft!);
       });
     },
-    release(clientId) {
+    release(clientId: string) {
       const entry = state.outbox.find((e) => e.batch.clientId === clientId);
       if (!entry?.rejected || entry.uncertain || flights.has(clientId))
         throw new Error('Retry unconfirmed input before changing it.');
@@ -228,7 +252,7 @@ export function createReview(storage, sessionId, changed = () => {}) {
       commit((next) => {
         if (entry.messageToken)
           next.message = {
-            text: entry.batch.payload.message,
+            text: entry.batch.payload.message!,
             revision: entry.batch.revision,
             token: entry.messageToken,
           };

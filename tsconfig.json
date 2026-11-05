@@ -4,7 +4,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
-    "allowJs": true,
+    "moduleDetection": "force",
     "declaration": true,
     "outDir": "dist",
     "rootDir": "src",
@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true
   },
-  "include": ["src/**/*.ts", "src/shared/**/*.js"]
+  "include": ["src/**/*.ts"]
 }

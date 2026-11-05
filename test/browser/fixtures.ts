@@ -1,20 +1,67 @@
-import { test as base, expect } from '@playwright/test';
+import {
+  test as base,
+  expect,
+  type Frame,
+  type FrameLocator,
+} from '@playwright/test';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { createRuntime } from '../../dist/runtime/server.js';
-import { fixture } from '../fixtures.mjs';
+import { fixture } from '../fixtures.ts';
+import type { AddressInfo } from 'node:net';
+import type { SessionSnapshot } from '../../dist/runtime/server.js';
+import type { ReviewState, FormState } from '../../src/shared/review.js';
+import type { ObjectValue } from '../../src/shared/json.js';
 
-export const test = base.extend({
+type Runtime = Awaited<ReturnType<typeof createRuntime>>;
+export type Feedback = Extract<
+  NonNullable<ReturnType<Runtime['store']['take']>>,
+  { status: 'feedback' }
+>;
+interface Opened {
+  session: string;
+  url: string;
+}
+interface Workspace {
+  file(name?: string): string;
+  origin: string;
+  store: Runtime['store'];
+  forms(sessionId: string): Record<string, ObjectValue>;
+  restart(): Promise<void>;
+  api<T = SessionSnapshot>(
+    route: string,
+    method?: string,
+    data?: unknown,
+  ): Promise<T>;
+}
+interface Review {
+  frame: FrameLocator;
+  evaluate: Frame['evaluate'];
+  ready(): Promise<void>;
+  addComment(selector: string, comment: string): Promise<void>;
+  replace(selector: string, replacement: string): Promise<void>;
+  state(): Promise<ReviewState>;
+  open(target?: string): Promise<Opened>;
+}
+interface Fixtures {
+  workspace: Workspace;
+  review: Review;
+  plan: Opened;
+  app: { origin: string; dynamicRequests: number };
+  pageErrors: void;
+}
+
+export const test = base.extend<Fixtures>({
   workspace: async ({ request }, use) => {
     const directory = fixture('browser');
     const state = path.join(directory, 'state');
-    let runtime;
+    let runtime!: Runtime;
     try {
       fs.cpSync(
-        fileURLToPath(new URL('../../examples/', import.meta.url)),
+        fileURLToPath(new URL('../../dist/examples/', import.meta.url)),
         path.join(directory, 'examples'),
         { recursive: true },
       );
@@ -27,11 +74,18 @@ export const test = base.extend({
         get store() {
           return runtime.store;
         },
+        forms(sessionId) {
+          return (runtime.store.get(sessionId).state as FormState).forms || {};
+        },
         async restart() {
           await runtime.close();
           runtime = await createRuntime({ directory: state });
         },
-        async api(route, method = 'GET', data) {
+        async api<T = SessionSnapshot>(
+          route: string,
+          method = 'GET',
+          data?: unknown,
+        ): Promise<T> {
           const response = await request.fetch(runtime.origin + route, {
             method,
             headers: {
@@ -58,22 +112,27 @@ export const test = base.extend({
   },
 
   review: async ({ page, workspace }, use) => {
-    const evaluate = (fn, argument) => {
+    const attachedFrame = () => {
       const frame = page
         .frames()
         .find((frame) => frame.parentFrame() === page.mainFrame());
       expect(frame, 'Attached surface frame').toBeDefined();
-      return frame.evaluate(fn, argument);
+      return frame!;
     };
     const ready = async () => {
       await expect(page.locator('#bridge-status')).toHaveText(
         'Interface connected',
       );
-      await expect.poll(() => evaluate(() => !!window.humagent)).toBe(true);
+      await expect
+        .poll(() => attachedFrame().evaluate(() => !!window.humagent))
+        .toBe(true);
     };
     await use({
       frame: page.frameLocator('#frame'),
-      evaluate,
+      get evaluate() {
+        const frame = attachedFrame();
+        return frame.evaluate.bind(frame);
+      },
       ready,
       async addComment(selector, comment) {
         await page
@@ -99,11 +158,11 @@ export const test = base.extend({
         ).toBeHidden();
       },
       async replace(selector, replacement) {
-        await evaluate((selector) => {
-          const element = document.querySelector(selector),
+        await attachedFrame().evaluate((selector) => {
+          const element = document.querySelector(selector)!,
             range = document.createRange();
           range.selectNodeContents(element);
-          const selection = document.getSelection();
+          const selection = document.getSelection()!;
           selection.removeAllRanges();
           selection.addRange(range);
           element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
@@ -131,12 +190,14 @@ export const test = base.extend({
           JSON.parse(
             localStorage.getItem(
               `humagent:review:${new URL(location.href).searchParams.get('session')}`,
-            ),
+            )!,
           ),
         );
       },
       async open(target = workspace.file()) {
-        const opened = await workspace.api('/api/open', 'POST', { target });
+        const opened = await workspace.api<Opened>('/api/open', 'POST', {
+          target,
+        });
         await page.goto(opened.url);
         await ready();
         return opened;
@@ -165,27 +226,35 @@ export const test = base.extend({
         res.end(
           `<h1>Dynamic ${dynamicRequests}</h1><form id="dynamic" data-humagent-intent="review"><input name="choice" value="keep"><button type="submit">Send</button></form>`,
         );
-      } else if (['/a', '/b', '/c'].includes(req.url)) {
+      } else if (['/a', '/b', '/c'].includes(req.url || '')) {
         res.end(
-          `<h1>Page ${req.url.slice(1)}</h1><a href="/b">Next page</a><form id="route" data-humagent-intent="review" data-humagent-persist><input name="note"></form>`,
+          `<h1>Page ${req.url!.slice(1)}</h1><a href="/b">Next page</a><form id="route" data-humagent-intent="review" data-humagent-persist><input name="note"></form>`,
         );
       } else {
         const name =
-          req.url === '/example.css' ? 'example.css' : 'existing.html';
+          req.url === '/example.css'
+            ? 'example.css'
+            : req.url === '/existing.js'
+              ? 'existing.js'
+              : 'existing.html';
         res.setHeader(
           'content-type',
-          name.endsWith('.css') ? 'text/css' : 'text/html',
+          name.endsWith('.css')
+            ? 'text/css'
+            : name.endsWith('.js')
+              ? 'text/javascript'
+              : 'text/html',
         );
         res.end(fs.readFileSync(workspace.file(name)));
       }
     });
     try {
-      await new Promise((resolve, reject) => {
+      await new Promise<void>((resolve, reject) => {
         server.once('error', reject);
         server.listen(0, '127.0.0.1', resolve);
       });
       await use({
-        origin: `http://127.0.0.1:${server.address().port}`,
+        origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
         get dynamicRequests() {
           return dynamicRequests;
         },
@@ -199,7 +268,7 @@ export const test = base.extend({
 
   pageErrors: [
     async ({ page }, use) => {
-      const errors = [];
+      const errors: string[] = [];
       page.on('pageerror', (error) => errors.push(error.message));
       await use();
       expect.soft(errors, 'Unhandled browser errors').toEqual([]);

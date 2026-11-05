@@ -1,7 +1,15 @@
-function controls(form) {
+import type { ObjectValue } from '../shared/json.js';
+import type { FormState, StageResult, Submission } from '../shared/review.js';
+import { errorMessage } from '../shared/errors.js';
+
+type FormControl = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+function controls(form: HTMLFormElement): FormControl[] {
   return [...form.elements].filter(
-    (el) =>
-      el.name &&
+    (el): el is FormControl =>
+      (el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLSelectElement) &&
+      !!el.name &&
       !el.matches(':disabled') &&
       ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) &&
       ![
@@ -15,9 +23,9 @@ function controls(form) {
       ].includes(el.type),
   );
 }
-export function formValues(form) {
-  const result = Object.create(null),
-    groups = new Map();
+export function formValues(form: HTMLFormElement): ObjectValue {
+  const result: ObjectValue = Object.create(null);
+  const groups = new Map<string, FormControl[]>();
   for (const el of controls(form)) {
     if (['__proto__', 'prototype', 'constructor'].includes(el.name))
       throw new Error('Reserved field name');
@@ -26,31 +34,57 @@ export function formValues(form) {
     groups.set(el.name, group);
   }
   for (const [name, group] of groups) {
-    if (group.every((el) => el.type === 'checkbox'))
+    if (
+      group.every(
+        (el): el is HTMLInputElement =>
+          el instanceof HTMLInputElement && el.type === 'checkbox',
+      )
+    )
       result[name] =
         group.length === 1
-          ? group[0].checked
+          ? group[0]!.checked
           : group.filter((el) => el.checked).map((el) => el.value);
-    else if (group.every((el) => el.type === 'radio'))
+    else if (
+      group.every(
+        (el): el is HTMLInputElement =>
+          el instanceof HTMLInputElement && el.type === 'radio',
+      )
+    )
       result[name] = group.find((el) => el.checked)?.value ?? null;
     else {
       const values = group.flatMap((el) =>
-        el.tagName === 'SELECT' && el.multiple
+        el instanceof HTMLSelectElement && el.multiple
           ? [...el.selectedOptions].map((o) => o.value)
           : [el.value],
       );
       result[name] =
-        group.length === 1 && !group[0].multiple ? values[0] : values;
+        group.length === 1 && !('multiple' in group[0]! && group[0]!.multiple)
+          ? values[0]!
+          : values;
     }
   }
   return result;
 }
 
 /** Form values use the same ordered state queue. Staged decisions are separate snapshots. */
-export function createForms({ getState, updateState, submit, notice }) {
-  const timers = new Map();
+interface FormBridge {
+  getState(): FormState;
+  updateState(update: (state: FormState) => FormState): Promise<void>;
+  submit(value: Submission): Promise<StageResult>;
+  notice(message: string): void;
+}
+export function createForms({
+  getState,
+  updateState,
+  submit,
+  notice,
+}: FormBridge) {
+  const timers = new Map<
+    HTMLFormElement,
+    { timer: ReturnType<typeof setTimeout> }
+  >();
   function restore() {
-    for (const form of document.querySelectorAll(
+    for (const form of document.querySelectorAll<HTMLFormElement>(
       'form[data-humagent-intent][data-humagent-persist][id]',
     )) {
       const values = getState().forms?.[form.id];
@@ -59,25 +93,26 @@ export function createForms({ getState, updateState, submit, notice }) {
       for (const el of controls(form)) {
         const value = values[el.name];
         if (value === undefined) continue;
-        if (el.type === 'checkbox')
+        if (el instanceof HTMLInputElement && el.type === 'checkbox')
           el.checked = Array.isArray(value)
             ? value.includes(el.value)
             : value === true;
-        else if (el.type === 'radio') el.checked = value === el.value;
-        else if (el.multiple) {
+        else if (el instanceof HTMLInputElement && el.type === 'radio')
+          el.checked = value === el.value;
+        else if (el instanceof HTMLSelectElement && el.multiple) {
           for (const option of el.options)
             option.selected =
               Array.isArray(value) && value.includes(option.value);
         } else if (Array.isArray(value)) {
           const index = seen.get(el.name) || 0;
-          el.value = value[index] ?? '';
+          el.value = String(value[index] ?? '');
           seen.set(el.name, index + 1);
-        } else el.value = value ?? '';
+        } else el.value = String(value ?? '');
       }
       form.dispatchEvent(new Event('input', { bubbles: true }));
     }
   }
-  function persist(form) {
+  function persist(form: HTMLFormElement) {
     const pending = timers.get(form);
     clearTimeout(pending?.timer);
     const values = formValues(form);
@@ -93,14 +128,18 @@ export function createForms({ getState, updateState, submit, notice }) {
   }
   for (const type of ['input', 'change'])
     document.addEventListener(type, (event) => {
-      const form = event.target.closest?.(
+      if (!(event.target instanceof Element)) return;
+      const form = event.target.closest<HTMLFormElement>(
         'form[data-humagent-intent][data-humagent-persist][id]',
       );
       if (!form) return;
       clearTimeout(timers.get(form)?.timer);
       timers.set(form, {
         timer: setTimeout(
-          () => persist(form).catch((error) => notice(error.message)),
+          () =>
+            persist(form).catch((error: unknown) =>
+              notice(errorMessage(error)),
+            ),
           type === 'input' ? 250 : 50,
         ),
       });
@@ -109,12 +148,16 @@ export function createForms({ getState, updateState, submit, notice }) {
     'submit',
     async (event) => {
       const form = event.target;
-      if (!form.matches?.('form[data-humagent-intent]')) return;
+      if (
+        !(form instanceof HTMLFormElement) ||
+        !form.matches('form[data-humagent-intent]')
+      )
+        return;
       event.preventDefault();
       event.stopImmediatePropagation();
       if (form.dataset.humagentSending) return;
       form.dataset.humagentSending = 'true';
-      let output = form.querySelector('[data-humagent-status]');
+      let output = form.querySelector<HTMLElement>('[data-humagent-status]');
       if (!output) {
         output = document.createElement('output');
         output.dataset.humagentStatus = '';
@@ -124,7 +167,7 @@ export function createForms({ getState, updateState, submit, notice }) {
       }
       try {
         const captured = {
-          intent: form.dataset.humagentIntent,
+          intent: form.dataset.humagentIntent!,
           message: form.dataset.humagentMessage || '',
           values: formValues(form),
         };
@@ -133,8 +176,8 @@ export function createForms({ getState, updateState, submit, notice }) {
         await submit(captured);
         output.textContent = 'Added to review';
       } catch (error) {
-        output.textContent = error.message;
-        notice(error.message);
+        output.textContent = errorMessage(error);
+        notice(errorMessage(error));
       } finally {
         delete form.dataset.humagentSending;
       }
