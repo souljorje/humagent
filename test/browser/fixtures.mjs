@@ -4,7 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
-import { createRuntime } from '../../dist/server.js';
+import { createRuntime } from '../../dist/runtime/server.js';
 import { fixture } from '../fixtures.mjs';
 
 export const test = base.extend({

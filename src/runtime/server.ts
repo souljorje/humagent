@@ -17,7 +17,7 @@ import {
 } from './surfaces.js';
 import { writeJson } from './storage.js';
 
-const WEB = fileURLToPath(new URL('../web/', import.meta.url));
+const UI = fileURLToPath(new URL('../ui/', import.meta.url));
 const equal = (a: unknown, b: string) =>
   typeof a === 'string' &&
   Buffer.byteLength(a) === Buffer.byteLength(b) &&
@@ -212,7 +212,7 @@ export async function createRuntime(options: RuntimeOptions) {
     app.all(route, (c) => {
       ensure(c.req.method === 'GET', 'Method not allowed', 'METHOD', 405);
       const name = route === '/workspace' ? 'index.html' : route.slice(1);
-      return new Response(fs.readFileSync(path.join(WEB, name)), {
+      return new Response(fs.readFileSync(path.join(UI, name)), {
         headers: {
           'content-type': name.endsWith('.js')
             ? 'text/javascript'

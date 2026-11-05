@@ -59,10 +59,12 @@ try {
   assert.deepEqual(packaged.dependencies, pkg.dependencies);
   assert.equal(packaged.engines.node, '>=24');
   for (const file of [
-    'web/index.html',
-    'web/sdk.js',
-    'web/json.js',
-    'web/targets.js',
+    'dist/ui/index.html',
+    'dist/ui/app.js',
+    'dist/ui/app.css',
+    'dist/sdk/sdk.js',
+    'dist/sdk/json.js',
+    'dist/sdk/targets.js',
     'examples/plan.html',
     'skills/humagent/SKILL.md',
     'docs/CLI.md',

@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const execute = promisify(execFile);
-const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+const cli = fileURLToPath(new URL('../dist/cli/index.js', import.meta.url));
 const pkg = JSON.parse(
   fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 );

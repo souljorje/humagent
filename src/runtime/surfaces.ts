@@ -7,7 +7,7 @@ import { gunzipSync, inflateSync, brotliDecompressSync } from 'node:zlib';
 import { ensure, Failure, type Target } from './protocol.js';
 import type { Store } from './store.js';
 
-const WEB = fileURLToPath(new URL('../web/', import.meta.url));
+const SDK = fileURLToPath(new URL('../sdk/', import.meta.url));
 const LIMIT = 8 * 1024 * 1024;
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -251,7 +251,7 @@ export async function startSurface(
           'content-type': 'text/javascript',
           'cache-control': 'no-store',
         });
-        return res.end(await fs.readFile(path.join(WEB, name)));
+        return res.end(await fs.readFile(path.join(SDK, name)));
       }
       if (target.kind === 'file') {
         ensure(

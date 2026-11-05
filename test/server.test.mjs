@@ -7,8 +7,8 @@ import http from 'node:http';
 import net from 'node:net';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { createRuntime } from '../dist/server.js';
-import { targetOf, safeFile } from '../dist/surfaces.js';
+import { createRuntime } from '../dist/runtime/server.js';
+import { targetOf, safeFile } from '../dist/runtime/surfaces.js';
 
 const dir = fixture('http');
 const root = path.join(dir, 'artifacts');
@@ -386,7 +386,7 @@ async function until(condition, label) {
 
 function nodeRuntime(directory) {
   const script = `
-    import { createRuntime } from ${JSON.stringify(new URL('../dist/server.js', import.meta.url).href)};
+    import { createRuntime } from ${JSON.stringify(new URL('../dist/runtime/server.js', import.meta.url).href)};
     const runtime = await createRuntime({ directory: process.argv[1] });
     process.send({ type: 'ready', origin: runtime.origin, token: runtime.token, version: process.versions.node });
     process.on('message', async ({ id, action }) => {

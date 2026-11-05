@@ -9,21 +9,20 @@
     "node": ">=24"
   },
   "bin": {
-    "humagent": "dist/cli.js"
+    "humagent": "dist/cli/index.js"
   },
   "exports": {
     ".": {
-      "types": "./dist/server.d.ts",
-      "import": "./dist/server.js"
+      "types": "./dist/runtime/server.d.ts",
+      "import": "./dist/runtime/server.js"
     },
     "./protocol": {
-      "types": "./dist/protocol.d.ts",
-      "import": "./dist/protocol.js"
+      "types": "./dist/runtime/protocol.d.ts",
+      "import": "./dist/runtime/protocol.js"
     }
   },
   "files": [
     "dist",
-    "web",
     "skills",
     "examples",
     "docs/CLI.md",
@@ -38,9 +37,9 @@
   },
   "scripts": {
     "build": "bun scripts/build.mjs",
-    "lint": "bunx --bun --no-install oxlint src web scripts test",
-    "format": "bunx --bun --no-install oxfmt src web test scripts tsconfig.json package.json",
-    "format:check": "bunx --bun --no-install oxfmt --check src web test scripts tsconfig.json package.json",
+    "lint": "bunx --bun --no-install oxlint src scripts test",
+    "format": "bunx --bun --no-install oxfmt src test scripts tsconfig.json package.json",
+    "format:check": "bunx --bun --no-install oxfmt --check src test scripts tsconfig.json package.json",
     "typecheck": "bun ./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
     "test": "bun run build && bun test ./test/*.test.mjs --timeout 15000",
     "test:browser": "bun run build && bun run test:browser:built",

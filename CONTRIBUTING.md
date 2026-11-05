@@ -13,10 +13,17 @@ git clone https://github.com/souljorje/humagent.git
 cd humagent
 bun install --frozen-lockfile
 bun run build
-bun dist/cli.js demo
+bun dist/cli/index.js demo
 ```
 
-The server and CLI are in `src/`. Browser modules are in `web/`. Tests are in `test/`.
+Source files belong to one package:
+
+- `src/cli/` contains commands and process startup.
+- `src/runtime/` contains the server, sessions, persistence, and surface serving.
+- `src/ui/` contains the browser interface.
+- `src/sdk/` contains the injected bridge, forms, and element targeting.
+
+The build compiles TypeScript and copies browser assets into `dist/`. Tests are in `test/`.
 
 ## Checks
 
@@ -27,7 +34,7 @@ bun run lint
 bun run check
 ```
 
-Run browser tests after changes to `web/` or the browser SDK:
+Run browser tests after changes to `src/ui/` or `src/sdk/`:
 
 ```sh
 bunx --no-install playwright install chromium

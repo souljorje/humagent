@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fixture } from './fixtures.mjs';
 import path from 'node:path';
-import { Store } from '../dist/store.js';
-import { input, jsonValue } from '../dist/protocol.js';
-import { buildContext } from '../web/targets.js';
-import { cloneJson } from '../web/json.js';
+import { Store } from '../dist/runtime/store.js';
+import { input, jsonValue } from '../dist/runtime/protocol.js';
+import { buildContext } from '../dist/sdk/targets.js';
+import { cloneJson } from '../dist/sdk/json.js';
 const directories = [];
 afterAll(() =>
   directories.forEach((dir) =>

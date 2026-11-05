@@ -4,9 +4,9 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { createRuntime } from './server.js';
-import { ensure } from './protocol.js';
-import { version, runtimeName, runtimeVersion } from './version.js';
+import { createRuntime } from '../runtime/server.js';
+import { ensure } from '../runtime/protocol.js';
+import { version, runtimeName, runtimeVersion } from '../runtime/version.js';
 
 const HELP = `Humagent ${version}
 Work with your agent through a page, prototype, or local application.
@@ -305,7 +305,7 @@ async function main() {
     );
     const file = path.join(destination, 'SKILL.md');
     const skill = fs.readFileSync(
-      new URL('../skills/humagent/SKILL.md', import.meta.url),
+      new URL('../../skills/humagent/SKILL.md', import.meta.url),
       'utf8',
     );
     if (fs.existsSync(file)) {
@@ -337,9 +337,9 @@ async function main() {
       serverRunning: await alive(r),
       serverVersion: r?.version ?? null,
       filesPresent: [
-        '../web/index.html',
-        '../web/sdk.js',
-        '../skills/humagent/SKILL.md',
+        '../ui/index.html',
+        '../sdk/sdk.js',
+        '../../skills/humagent/SKILL.md',
       ].every((p) => fs.existsSync(new URL(p, import.meta.url))),
     });
     return;
@@ -386,7 +386,7 @@ async function main() {
     ]) {
       const to = path.join(destination, file);
       if (!fs.existsSync(to))
-        fs.copyFileSync(new URL(`../examples/${file}`, import.meta.url), to);
+        fs.copyFileSync(new URL(`../../examples/${file}`, import.meta.url), to);
     }
     target = path.join(destination, `${name}.html`);
   }

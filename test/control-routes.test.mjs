@@ -2,8 +2,8 @@ import { test, beforeAll, afterAll } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRuntime } from '../dist/server.js';
-import { MAX_BYTES } from '../dist/protocol.js';
+import { createRuntime } from '../dist/runtime/server.js';
+import { MAX_BYTES } from '../dist/runtime/protocol.js';
 import { fixture } from './fixtures.mjs';
 
 const dir = fixture('control-routes');
