@@ -2,7 +2,7 @@
 
 Preserve application behavior. Keep task-specific requests as data, not backend handlers.
 
-## Runtime and checks
+## Runtime
 
 Use Bun 1.4.4 for development, dependencies, builds, and tests. Keep `bun.lock` and frozen installation in CI.
 
@@ -11,12 +11,23 @@ Use TypeScript for application code, examples, scripts, and tests. Compile brows
 Published JavaScript must run on Node.js 24+ and Bun 1.4.4+. Keep the Node shebang for npm/npx compatibility.
 Child servers must use the CLI's runtime executable. npm users must not need Bun.
 
-Run `bun run check` after code changes. Run `bun run test:browser` after browser changes.
+Keep temporary output in `.local/`.
+
+## Validation
+
+Run `bun run check` after each implementation increment.
+Fix failures before continuing.
+
+After UI, SDK, or browser interaction changes, run `bun run test:browser:built` after `bun run check`.
+Test both an existing app and a generated mini-app.
+
+For runtime, build, dependency, or package changes, run `bun run check:release` before requesting review.
 
 Run `bun pm pack` before `bun run test:install`.
-Test both an existing app and a generated mini-app. Report checks that cannot run in the change summary.
 
-Keep temporary output in `.local/`.
+Before requesting review, report executed commands, results, and checks that could not run.
+Do not claim unexecuted checks passed.
+Require all Check workflow jobs to pass before merging.
 
 ## Data and permissions
 

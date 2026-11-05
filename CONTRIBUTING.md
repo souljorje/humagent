@@ -30,23 +30,25 @@ Scripts and tests remain in `scripts/` and `test/`. The main check also checks t
 
 ## Checks
 
-Run lint and the main check after code changes:
+Run the main check after each implementation increment:
 
 ```sh
-bun run lint
 bun run check
 ```
 
-Run browser tests after changes to `src/ui/` or `src/sdk/`:
+The main check runs formatting, lint, build, type checks, and unit tests.
+Fix failures before continuing.
+
+After UI, SDK, or browser interaction changes, run browser tests against the checked build:
 
 ```sh
 bunx --no-install playwright install chromium
-bun run test:browser
+bun run test:browser:built
 ```
 
 Set `HUMAGENT_BROWSER_PATH` to use an installed Chromium binary. Test output stays in `.local/`.
 
-Run release checks before a release:
+Run release checks before review of runtime, build, dependency, or package changes, and before a release:
 
 ```sh
 bun run check:release
@@ -62,6 +64,7 @@ CI tests installation on Linux, macOS, and Windows.
 - State the user-visible effect.
 - List the checks that you ran.
 - Note any remaining limits.
+- Require all Check workflow jobs to pass before merging.
 - Do not commit archives, test output, or `.local/`.
 
 ## Documentation
