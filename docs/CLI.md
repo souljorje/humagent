@@ -30,7 +30,10 @@ humagent ack SESSION --receipt RECEIPT
 humagent renew SESSION --receipt RECEIPT --lease 600
 ```
 
-Use the session ID from `open`. `wait` reserves a batch of events and returns its receipt.
+Use the session ID from `open`. `wait` reserves queued events and returns their receipt.
+
+Each **Send all** action creates one protocol v2 event. Its `payload` contains an optional `message` and ordered `items`.
+One receipt can cover several review events. Process each event's overall instruction and items together.
 
 | Option | Seconds | Default |
 | --- | --- | --- |
@@ -44,7 +47,8 @@ Use the session ID from `open`. `wait` reserves a batch of events and returns it
 | `ended` | Stop waiting. Reopen only on request. |
 | `interrupted` | Check server status before resuming. |
 
-`reply --receipt` completes only that batch. Without a receipt, a reply completes no events. `ack` completes a batch without replying.
+`reply --receipt` completes only the events in that receipt. Without a receipt, a reply completes no events.
+`ack` completes the receipt's events without replying.
 
 Renew before the lease expires. Events remain stored and can arrive again after expiry. Check event IDs before repeating consequential actions.
 
@@ -78,6 +82,9 @@ Use the same data directory across commands.
 | Problem | Action |
 | --- | --- |
 | No agent listening | Ask the agent to run `wait`. Queued input remains available. |
+| Feedback remains a draft | Open Review and choose Send all. Forms and SDK calls only stage feedback. |
+| Review is open in another tab | Close the editing tab, then reload the other tab. |
+| Unsupported old feedback | Export browser feedback for reference. Start a new session with a new data directory. |
 | Agent turn ended | Send the agent a new message. |
 | Browser did not open | Open the printed URL on the same computer. |
 | Older server running | Run `humagent stop`. Repeat `open`. |

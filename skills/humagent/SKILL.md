@@ -22,7 +22,8 @@ Keep task-specific interactions in page code.
 For structured input, use named controls in a form with `data-humagent-intent`.
 Use a stable form ID and `data-humagent-persist` for nonsensitive values that must survive refresh.
 
-Keep local interactions independent of model calls. Custom mini-apps can send explicit requests through `window.humagent.submit()`.
+Keep local interactions independent of model calls. Custom mini-apps can stage structured feedback through `window.humagent.submit()`.
+Forms and SDK calls add drafts to the review tray. The human chooses **Send all** to deliver them.
 See the [SDK guide](https://github.com/souljorje/humagent/blob/main/docs/SDK.md).
 
 ## Open and wait
@@ -42,7 +43,10 @@ Repeat `wait` after a timeout while review remains active. Stop when the session
 
 ## Apply input
 
-Read the full batch. Preserve `edit.after` exactly. Interpret comments and submission intents using the task context.
+Read every review event in the receipt. Process each event's `payload.message` and ordered `payload.items` together.
+Preserve `replacement.before` and `replacement.after` exactly. An empty `replacement.after` proposes deletion.
+Interpret `comment`, `intent`, and `values` using the task context. Field presence describes each item.
+Each event represents one **Send all** action. A receipt can contain several events.
 
 Targets describe rendered content, not guaranteed source lines. Read current source before editing. Reconcile newer changes. Humagent does not apply edits itself.
 
@@ -58,13 +62,15 @@ Check the result. Send a reply:
 humagent reply SESSION --receipt RECEIPT --message "Describe changes and remaining limits."
 ```
 
-The receipt completes only its batch. A reply without a receipt does not acknowledge work. Use `ack --receipt` to complete work without a reply.
+The receipt completes only its reserved events. A reply without a receipt does not acknowledge work.
+Use `ack --receipt` to complete work without a reply.
 
 Run `wait` again to continue. Save important results in the task's source files.
 
 ## Limits
 
-Propose edit captures text replacements, not rich-text formatting. Humagent preserves its own drafts and explicit form state, not all application memory.
+Replacement proposals capture exact text. They do not change rendered content or provide rich-text formatting.
+Humagent preserves review drafts and explicit form values. Other application memory can reset on refresh.
 
 File access stays within the shared artifact directory. Never replace application source with serialized DOM.
 

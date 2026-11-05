@@ -3,7 +3,7 @@
 [![Check](https://github.com/souljorje/humagent/actions/workflows/check.yml/badge.svg)](https://github.com/souljorje/humagent/actions/workflows/check.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Collaborate with AI-agent in HTML: make edits, leave comments, generate interactive plans.
+Review local pages with your AI agent. Collect comments, exact replacement proposals, and structured decisions, then send one review.
 
 ```mermaid
 flowchart TB
@@ -11,8 +11,8 @@ flowchart TB
   A["AI agent"]
   H["Human"]
   A -->|"creates or connects"| I
-  I -->|"feedback"| A
-  H -->|"interact, edit, annotate"| I
+  I -->|"Send all: one review batch"| A
+  H -->|"interact and add feedback"| I
 ```
 
 Works with your harness. Runs on your computer. Needs no account or API key.
@@ -54,6 +54,10 @@ Use `humagent open http://127.0.0.1:3000` for a local app.
 3. Ask your agent:
 
 > Read `.agents/skills/humagent/SKILL.md`. Wait for feedback from the open page.
+
+4. Select text or use **Annotate** to add feedback. Use **Review** to inspect drafts, then choose **Send all**.
+
+The page stays interactive. Replacement proposals do not change its text. Your agent edits source after receiving the review.
 
 [Commands](docs/CLI.md) · [Forms and SDK](docs/SDK.md) · [Security and limits](docs/SECURITY.md)
 

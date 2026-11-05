@@ -3,9 +3,9 @@
 <form id="workload" data-humagent-intent="interpret_scenario" data-humagent-message="Interpret this hypothetical scenario. Do not treat it as measured evidence." data-humagent-persist>
 <div class="grid"><label class="card field">Tasks each week<input name="tasks" id="tasks" type="range" min="10" max="150" value="60"><output id="task-count">60</output></label><label class="card field">Minutes saved per task<input name="minutes" id="minutes" type="range" min="1" max="30" value="8"><output id="minute-count">8</output></label></div>
 <section id="preview"><span class="eyebrow">HYPOTHETICAL TIME SAVED / WEEK</span><div class="metric" id="hours">8.0 hours</div><p class="muted">Simple arithmetic, not a business forecast. Implementation and review costs are excluded.</p></section>
-<button type="submit">Discuss this scenario ↗</button>
+<button type="submit">Add scenario to review</button>
 </form>
 <script>
 const update=()=>{document.getElementById('task-count').textContent=tasks.value;document.getElementById('minute-count').textContent=minutes.value;document.getElementById('hours').textContent=(tasks.value*minutes.value/60).toFixed(1)+' hours';};
-const tasks=document.getElementById('tasks'),minutes=document.getElementById('minutes');document.addEventListener('input',update);window.addEventListener('humagent:ready',update);update();
+const tasks=document.getElementById('tasks'),minutes=document.getElementById('minutes');document.addEventListener('input',update);update();
 </script></body></html>
