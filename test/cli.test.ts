@@ -164,20 +164,15 @@ test('CLI provides help and version without starting a server', () => {
 });
 test('CLI rejects Node versions below 24', () => {
   const home = fixture('node-version');
-  const bootstrap = `
-    import { pathToFileURL } from 'node:url';
-    const [, version, cli, home] = process.argv;
-    Object.defineProperty(process.versions, 'node', { value: version });
-    process.argv = [process.execPath, cli, 'doctor', '--home', home, '--json'];
-    await import(pathToFileURL(cli).href);
-  `;
+  const bootstrap = fileURLToPath(
+    new URL('./helpers/node-version.ts', import.meta.url),
+  );
   try {
     for (const version of ['22.0.0', '23.0.0', '24.0.0', '25.0.0']) {
-      const result = spawnSync(
-        'node',
-        ['--input-type=module', '--eval', bootstrap, version, cli, home],
-        { encoding: 'utf8', timeout: 10000 },
-      );
+      const result = spawnSync('node', [bootstrap, version, cli, home], {
+        encoding: 'utf8',
+        timeout: 10000,
+      });
       assert.ifError(result.error);
       const output = JSON.parse(result.stdout);
       if (Number(version.split('.')[0]) < 24) {

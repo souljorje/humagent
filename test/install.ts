@@ -116,15 +116,16 @@ try {
       `Runtime dependency resolved outside the installation: ${name}`,
     );
   }
-  await execute(
-    process.execPath,
-    [
-      '--input-type=module',
-      '--eval',
-      "import assert from 'node:assert/strict'; import {createRuntime} from 'humagent'; import {PROTOCOL} from 'humagent/protocol'; assert.equal(typeof createRuntime, 'function'); assert.equal(PROTOCOL, 2);",
-    ],
-    { cwd: temporary, env, timeout: 10000 },
+  const importCheck = path.join(temporary, 'package-imports.ts');
+  fs.copyFileSync(
+    new URL('./helpers/package-imports.ts', import.meta.url),
+    importCheck,
   );
+  await execute(process.execPath, [importCheck], {
+    cwd: temporary,
+    env,
+    timeout: 10000,
+  });
   assert.equal((await run('--version')).version, pkg.version);
   const opened = await run('demo', 'plan', '--no-open');
   const snapshot = await run('status', opened.session);

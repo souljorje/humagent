@@ -6,6 +6,7 @@ import { gunzipSync, inflateSync, brotliDecompressSync } from 'node:zlib';
 import { ensure, Failure, type Target } from './protocol.js';
 import type { Store } from './store.js';
 import { browserAsset } from './assets.js';
+import type { Bootstrap } from '../shared/bridge.js';
 
 const LIMIT = 8 * 1024 * 1024;
 const MIME: Record<string, string> = {
@@ -156,11 +157,14 @@ export async function sourceRevision(target: Target) {
       : await fetchDocument(new URL(target.value)),
   );
 }
-function inject(html: string, bootstrap: object) {
+function initializeFrame(bootstrap: Bootstrap) {
+  if (parent === top) window.__HUMAGENT__ = bootstrap;
+}
+function inject(html: string, bootstrap: Bootstrap) {
   // Insert after the initial doctype, not a regex-matched </body> inside a script.
   const prefix = /^\s*<!doctype[^>]*>/i.exec(html)?.[0] ?? '';
   const encoded = JSON.stringify(bootstrap).replaceAll('<', '\\u003c');
-  return `${prefix}<script>if (parent === top) window.__HUMAGENT__=${encoded}</script><script type="module" src="/__humagent/sdk/sdk.js"></script>${html.slice(prefix.length)}`;
+  return `${prefix}<script>(${initializeFrame.toString()})(${encoded})</script><script type="module" src="/__humagent/sdk/sdk.js"></script>${html.slice(prefix.length)}`;
 }
 export interface Surface {
   origin: string;

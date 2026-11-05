@@ -8,6 +8,7 @@ import net from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { createRuntime } from '../dist/runtime/server.js';
 import { targetOf, safeFile } from '../dist/runtime/surfaces.js';
 
@@ -422,26 +423,12 @@ async function until(
 }
 
 function nodeRuntime(directory: string) {
-  const script = `
-    import { createRuntime } from ${JSON.stringify(new URL('../dist/runtime/server.js', import.meta.url).href)};
-    const runtime = await createRuntime({ directory: process.argv[1] });
-    process.send({ type: 'ready', origin: runtime.origin, token: runtime.token, version: process.versions.node });
-    process.on('message', async ({ id, action }) => {
-      if (action === 'listeners') {
-        process.send({ id, value: runtime.store.listenerCount('change') });
-      } else if (action === 'close') {
-        await runtime.close();
-        process.send({ id, value: true }, () => process.disconnect());
-      }
-    });
-  `;
-  const child = spawn(
-    'node',
-    ['--input-type=module', '--eval', script, directory],
-    {
-      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
-    },
+  const script = fileURLToPath(
+    new URL('./helpers/node-runtime.ts', import.meta.url),
   );
+  const child = spawn('node', [script, directory], {
+    stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+  });
   let stderr = '';
   child.stderr!.setEncoding('utf8');
   child.stderr!.on('data', (chunk) => (stderr += chunk));
