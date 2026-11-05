@@ -44,7 +44,7 @@ bun run check:release
 
 The release check builds, tests, packs, and verifies the package. It also checks an npm install without Bun.
 
-Install pnpm 10.11.0 for `bun run test:runners`. CI also runs package and install checks on Linux, macOS, and Windows.
+CI tests installation on Linux, macOS, and Windows.
 
 ## Pull requests
 
@@ -62,6 +62,9 @@ Keep user guides focused on installation, common use, and troubleshooting. Put m
 
 ## Release
 
-Maintainers run the GitHub **Release** workflow from `main` with the package version. Set `publish: true` to publish to npm and create a GitHub release.
+Run the GitHub **Release** workflow from `main` with the version in `package.json`.
+Set `publish: true` to publish the verified archive to npm and create a GitHub release.
+Use `publish: false` to run verification only.
 
-Configure [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) for `release.yml` and the `npm` environment. For the first release, set the `NPM_TOKEN` repository secret if trusted publishing is unavailable.
+Configure [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) for `release.yml` and the `npm` environment.
+Enable `npm publish` in the trusted publisher settings.
