@@ -43,7 +43,7 @@
     "test": "bun run build && bun test ./test/*.test.ts --timeout 15000",
     "test:browser": "bun run build && bun run test:browser:built",
     "test:browser:built": "playwright test --config test/playwright.config.ts",
-    "check": "bun run format:check && bun run build && bun run typecheck && bun test ./test/*.test.ts --timeout 15000",
+    "check": "bun run format:check && bun run lint && bun run build && bun run typecheck && bun test ./test/*.test.ts --timeout 15000",
     "prepack": "bun run build",
     "test:install": "node test/install.ts",
     "test:runners": "bun test/runners.ts",
