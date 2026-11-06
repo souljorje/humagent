@@ -434,6 +434,8 @@ $('send').onclick = async () => {
         'Save the overall instruction before sending. Edit it to retry browser storage.',
       );
     await sync();
+    if (!$('edit-form').hidden)
+      throw new Error('Save or cancel your feedback edit before sending.');
     if (!bridgeReady || loadedRevision !== session.revision)
       throw new Error('Refresh and inspect stale feedback before sending.');
     const clientId = review.begin(loadedRevision);

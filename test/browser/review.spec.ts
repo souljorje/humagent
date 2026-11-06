@@ -232,6 +232,68 @@ test('draft editing and non-drag reordering retain IDs and marker numbers', asyn
   expect((await review.state()).drafts[0].item.id).toBe(ids[1]);
 });
 
+for (const trigger of ['button', 'Control+Enter', 'Meta+Enter'])
+  test(`sending waits for unfinished draft edits via ${trigger}`, async ({
+    page,
+    plan,
+    review,
+    workspace,
+  }) => {
+    await review.addComment('h1', 'Original comment');
+    await page
+      .locator('.draft')
+      .getByRole('button', { name: 'Edit', exact: true })
+      .click();
+    await page.locator('#edit-comment').fill('Updated comment');
+    if (trigger === 'button') await page.locator('#send').click();
+    else await page.locator('#edit-comment').press(trigger);
+    await expect(page.locator('#error')).toContainText('Save or cancel');
+    await expect(page.locator('#edit-comment')).toHaveValue('Updated comment');
+    expect(workspace.store.get(plan.session).events).toHaveLength(0);
+    expect((await review.state()).drafts[0].item.comment).toBe(
+      'Original comment',
+    );
+
+    const cancelled = trigger === 'button';
+    if (cancelled) await page.locator('#cancel-edit').click();
+    else
+      await page
+        .getByRole('button', { name: 'Save feedback', exact: true })
+        .click();
+    await page.locator('#send').click();
+    await expect
+      .poll(() => workspace.store.get(plan.session).events.length)
+      .toBe(1);
+    expect(
+      workspace.store.get(plan.session).events[0].payload.items[0].comment,
+    ).toBe(cancelled ? 'Original comment' : 'Updated comment');
+  });
+
+for (const attribute of ['data-humagent-id', 'id'])
+  test(`reused targets become unavailable when ${attribute} changes`, async ({
+    page,
+    plan: _plan,
+    review,
+  }) => {
+    await review.evaluate((attribute) => {
+      const heading = document.querySelector('h1')!;
+      heading.removeAttribute('data-humagent-id');
+      heading.removeAttribute('id');
+      heading.setAttribute(attribute, 'original-target');
+    }, attribute);
+    await review.addComment('h1', 'Keep my original target');
+    await expect(review.frame.locator('.marker')).toHaveCount(1);
+    const target = (await review.state()).drafts[0].item.target;
+    await review.evaluate((attribute) => {
+      document.querySelector('h1')!.setAttribute(attribute, 'different-target');
+    }, attribute);
+    await expect(page.locator('.draft-status')).toContainText(
+      'Target unavailable',
+    );
+    await expect(review.frame.locator('.marker')).toHaveCount(0);
+    expect((await review.state()).drafts[0].item.target).toEqual(target);
+  });
+
 test('removed targets remain unavailable instead of binding to replacements', async ({
   page,
   plan: _plan,

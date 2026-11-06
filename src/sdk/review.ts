@@ -356,18 +356,12 @@ export function createPageReview({
       anchor && typeof anchor === 'object' && !Array.isArray(anchor)
         ? anchor.quote
         : undefined;
-    if (bound.has(draft.item.id)) {
-      const el = bound.get(draft.item.id);
-      return el?.isConnected &&
-        normalizedText(el) === target.text &&
-        (!anchor || exactText(el).includes(String(quote)))
-        ? el
-        : null;
-    }
-    let el =
-      typeof target.anchorId === 'string'
+    let el = bound.has(draft.item.id)
+      ? bound.get(draft.item.id)
+      : typeof target.anchorId === 'string'
         ? anchors.get(target.anchorId)
         : undefined;
+    if (el === null) return null;
     if (el && !el.isConnected) {
       bound.set(draft.item.id, null);
       return null;
@@ -385,7 +379,13 @@ export function createPageReview({
         return null;
       }
     }
-    if (!el || ignored(el) || normalizedText(el) !== target.text) return null;
+    if (!el || ignored(el)) return null;
+    const current = context(el);
+    if (
+      current.text !== target.text ||
+      (target.id !== undefined && current.id !== String(target.id))
+    )
+      return null;
     if (anchor && !exactText(el).includes(String(quote))) return null;
     bound.set(draft.item.id, el);
     return el;
