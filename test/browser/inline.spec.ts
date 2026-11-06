@@ -378,7 +378,7 @@ for (const change of ['node', 'element', 'text', 'relocation'])
       } else el.firstChild!.textContent = 'Application update';
     }, change);
     await expect(review.frame.locator('.marker:visible')).toHaveCount(0);
-    await page.locator('#toggle-review').click();
+    await review.expand();
     await expect(page.locator('#drafts')).toContainText('Target unavailable');
     await page.getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(review.frame.locator('h1')).toHaveText(

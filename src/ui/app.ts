@@ -41,6 +41,7 @@ let session: SessionSnapshot,
   annotating = false,
   connected = false,
   editorDirty = false,
+  manuallyToggled = false,
   flushCall: {
     id: string;
     finish(params: { error?: string; ok?: boolean }): void;
@@ -209,10 +210,8 @@ function render() {
   if (!review) return;
   const snapshot = review.snapshot();
   const count = snapshot.drafts.length;
-  $('pending-count').textContent = count ? String(count) : '';
-  $('toggle-review').dataset.tooltip = count
-    ? `${count} pending ${count === 1 ? 'item' : 'items'}`
-    : 'Review details';
+  $('pending-count').hidden = !count;
+  $('pending-count').textContent = count ? `Pending feedback (${count})` : '';
   $('annotate').setAttribute('aria-pressed', String(annotating));
   const mutable = writable && !session?.ended;
   renderChanged(
@@ -384,8 +383,6 @@ function renderConnection() {
           ? 'Agent working'
           : 'No agent waiting';
   $('agent-state').textContent = state;
-  $('agent-indicator').setAttribute('aria-label', state);
-  $('agent-indicator').dataset.tooltip = state;
   $('agent-indicator').dataset.active = String(
     connected && !session?.ended && session?.agent !== 'idle',
   );
@@ -428,7 +425,11 @@ async function sync() {
     document.title = `${session.title} · Humagent`;
     $('end').disabled = session.ended || !writable;
     $('annotate').disabled = session.ended || !writable || !bridgeReady;
-    if (first) $('frame').src = session.surface.frameUrl;
+    if (first) {
+      $('frame').src = session.surface.frameUrl;
+      if (!manuallyToggled && !session.ended && session.agent === 'idle')
+        openTray();
+    }
     if (reconnected) {
       bridgeReady = false;
       error('The service restarted. Refresh the page to reconnect.');
@@ -505,8 +506,10 @@ $('verify-message').onclick = () => {
     error(errorMessage(e));
   }
 };
-$('toggle-review').onclick = () =>
+$('toggle-review').onclick = () => {
+  manuallyToggled = true;
   openTray($('toggle-review').getAttribute('aria-expanded') !== 'true');
+};
 let copyTimer: ReturnType<typeof setTimeout>;
 $('copy-command').onclick = async () => {
   clearTimeout(copyTimer);
@@ -583,6 +586,7 @@ document.addEventListener('keydown', (event) => {
     event.key === 'Escape' &&
     $('toggle-review').getAttribute('aria-expanded') === 'true'
   ) {
+    manuallyToggled = true;
     openTray(false);
     $('toggle-review').focus();
   }

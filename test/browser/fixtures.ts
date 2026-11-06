@@ -41,6 +41,7 @@ interface Review {
   frame: FrameLocator;
   evaluate: Frame['evaluate'];
   ready(): Promise<void>;
+  expand(open?: boolean): Promise<void>;
   addComment(selector: string, comment: string): Promise<void>;
   replace(selector: string, replacement: string): Promise<void>;
   state(): Promise<ReviewState>;
@@ -134,6 +135,12 @@ export const test = base.extend<Fixtures>({
         return frame.evaluate.bind(frame);
       },
       ready,
+      async expand(open = true) {
+        const toggle = page.locator('#toggle-review');
+        if ((await toggle.getAttribute('aria-expanded')) !== String(open))
+          await toggle.click();
+        await expect(toggle).toHaveAttribute('aria-expanded', String(open));
+      },
       async addComment(selector, comment) {
         if (
           (await page.locator('#annotate').getAttribute('aria-pressed')) !==

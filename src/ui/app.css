@@ -74,10 +74,6 @@ textarea:focus-visible {
   outline: 2px solid #eee;
   outline-offset: 2px;
 }
-#agent-indicator:focus-visible {
-  outline: 2px solid #eee;
-  outline-offset: 5px;
-}
 .icon {
   width: 42px;
   padding: 0;
@@ -135,9 +131,6 @@ textarea::placeholder {
   color: #222;
 }
 .bar-controls #toggle-review {
-  padding: 6px;
-  min-width: 32px;
-  font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
 #toggle-review svg {
@@ -177,6 +170,11 @@ textarea::placeholder {
   font-weight: 550;
   margin: 0;
 }
+.agent-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 #agent-state,
 #copy-status {
   font-size: 11px;
@@ -208,13 +206,15 @@ textarea::placeholder {
   border: 1px solid #aaa;
   border-radius: 50%;
   flex-shrink: 0;
-  margin: 0 2px;
 }
 #agent-indicator[data-active='true'] {
   background: #eee;
 }
-#pending-count:empty {
-  display: none;
+#pending-count {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
 }
 #expand-icon {
   display: flex;

@@ -19,7 +19,7 @@ test('shadow-root targets survive refresh and invalidate when their identity cha
   await page.reload();
   await review.ready();
   await review.addComment('#shadow-action', 'Keep this target');
-  await page.locator('#toggle-review').click();
+  await review.expand();
   await Promise.all([
     page.waitForEvent(
       'framenavigated',
@@ -186,6 +186,7 @@ test('commenting stays enabled, hover highlights, and confirmation creates a cli
   plan: _plan,
   review,
 }) => {
+  await review.expand(false);
   await expect(page.locator('#toggle-review')).toHaveAttribute(
     'aria-expanded',
     'false',
@@ -512,7 +513,7 @@ test('stale feedback remains visible and blocks sending after explicit refresh',
 }) => {
   await review.addComment('h1', 'Preserve this note.');
   fs.appendFileSync(workspace.file(), '<p>Changed source.</p>');
-  await page.locator('#toggle-review').click();
+  await review.expand();
   await expect(page.locator('#update')).toBeVisible();
   await review.evaluate(() => location.reload());
   await review.ready();
@@ -527,7 +528,6 @@ test('a message-only batch is valid and empty reviews cannot send', async ({
   plan,
   workspace,
 }) => {
-  await page.locator('#toggle-review').click();
   await expect(page.locator('#send')).toBeDisabled();
   await page.locator('#message').fill('An overall instruction.');
   await page.locator('#send').click();
@@ -597,7 +597,7 @@ test('the floating bar expands within desktop and narrow screens', async ({
   review,
 }) => {
   await review.addComment('h1', 'Review the spacing and heading.');
-  await page.locator('#toggle-review').click();
+  await review.expand();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
     await expect(page.locator('#tray')).toBeVisible();

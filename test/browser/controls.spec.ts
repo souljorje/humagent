@@ -121,6 +121,7 @@ test('popover follows its click point through scrolling and flips within viewpor
   plan: _plan,
   review,
 }) => {
+  await review.expand(false);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await review.evaluate(() => {
     document.body.style.minHeight = '2500px';

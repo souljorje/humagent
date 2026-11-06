@@ -321,6 +321,7 @@ test('form serialization handles repeated fields and excludes private or disable
   workspace,
 }) => {
   await review.open();
+  await review.expand(false);
   await review.evaluate(() => {
     const form = document.createElement('form');
     form.dataset.humagentIntent = 'controls';

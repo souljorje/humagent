@@ -227,7 +227,7 @@ test('default restarts retain drafts, form values, and pending input', async ({
     .toBe('A preserved outcome.');
   const blockedEvents = `**/api/sessions/${plan.session}/events`;
   await page.route(blockedEvents, (route) => route.abort());
-  await page.locator('#toggle-review').click();
+  await review.expand();
   await page.locator('#message').fill('Keep this unsent message.');
   await page.locator('#send').click();
   await expect(page.locator('#error')).toBeVisible();
