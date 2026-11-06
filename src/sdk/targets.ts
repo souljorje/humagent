@@ -22,19 +22,18 @@ export function selector(el: Element | null) {
   }
   return parts.join(' > ');
 }
-export function isNativeInteractiveControl(el: EventTarget | null): boolean {
-  if (!(el instanceof Element)) return false;
-  if (
-    el.closest(
-      "a[href],button,input,select,textarea,option,optgroup,label,summary,[contenteditable]:not([contenteditable='false'])",
-    )
-  )
-    return true;
-  const widget = el.closest(
-    "[role='link'],[role='button'],[role='checkbox'],[role='combobox'],[role='menuitem'],[role='menuitemcheckbox'],[role='menuitemradio'],[role='option'],[role='radio'],[role='switch'],[role='tab'],[role='treeitem'],[role='textbox'],[role='slider'],[role='spinbutton'],[role='listbox'],[role='grid']",
-  );
-  if (!widget) return false;
-  return true;
+const interactiveSelector =
+  "a[href],button,input,select,textarea,option,optgroup,label,summary,[contenteditable]:not([contenteditable='false']),[role='link'],[role='button'],[role='checkbox'],[role='combobox'],[role='menuitem'],[role='menuitemcheckbox'],[role='menuitemradio'],[role='option'],[role='radio'],[role='switch'],[role='tab'],[role='treeitem'],[role='textbox'],[role='slider'],[role='spinbutton'],[role='listbox'],[role='grid']";
+export function isNativeInteractiveControl(
+  target: EventTarget | null,
+): boolean {
+  let el = target;
+  while (el instanceof Element) {
+    if (el.closest(interactiveSelector)) return true;
+    const root = el.getRootNode();
+    el = root instanceof ShadowRoot ? root.host : null;
+  }
+  return false;
 }
 export function context(el: Element, text: string) {
   const shadowPath: string[] = [];

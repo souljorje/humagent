@@ -1,4 +1,5 @@
 import type { Draft } from '../shared/review.js';
+import { isNativeInteractiveControl } from './targets.js';
 
 interface Preview {
   draft: Draft;
@@ -282,4 +283,25 @@ export function selectedRun(range: Range) {
     start: node === range.startContainer ? range.startOffset : 0,
     end: node === range.endContainer ? range.endOffset : node.length,
   };
+}
+
+export function isEditableText(node: Node | null): node is Text {
+  if (
+    !(node instanceof Text) ||
+    !node.data.trim() ||
+    node.length > 50000 ||
+    !node.parentElement
+  )
+    return false;
+  let el: Element = node.parentElement;
+  while (true) {
+    if (
+      isNativeInteractiveControl(el) ||
+      el.closest('[data-humagent-ui],script,style,head')
+    )
+      return false;
+    const root = el.getRootNode();
+    if (!(root instanceof ShadowRoot)) return true;
+    el = root.host;
+  }
 }

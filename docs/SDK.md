@@ -103,6 +103,7 @@ Confirm or cancel unfinished feedback before sending. The first outside click fo
 Typing resets this sequence. Escape cancels immediately. Cancellation preserves previously saved feedback.
 
 Select text within one plain text run to edit it directly. Enter confirms, Shift+Enter adds a newline, and Escape cancels.
+Add an optional comment in the popover. Confirmation saves the text and comment together.
 Mixed-format selections and interactive controls remain comment targets. Repeated edits preserve the original text and item ID.
 Confirmed previews stay visible after Send until their batch is acknowledged. Deletion or a source revision change removes previews.
 Preview cleanup does not overwrite subsequent application changes. Humagent never saves rendered page content as source.

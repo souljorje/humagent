@@ -172,10 +172,9 @@ test('editors fit viewport edges and reduced motion disables transitions', async
         .locator('#panel')
         .evaluate((el) => getComputedStyle(el).transitionDuration),
     ).toBe('0s');
-    const target = await review.frame.locator('h1').boundingBox();
     const panel = await review.frame.locator('#panel').boundingBox();
-    if (width < 500)
-      expect(panel!.y).toBeGreaterThanOrEqual(target!.y + target!.height);
+    expect(panel!.x).toBeGreaterThanOrEqual(12);
+    expect(panel!.y).toBeGreaterThanOrEqual(12);
     await review.frame
       .getByRole('button', { name: 'Cancel', exact: true })
       .click();

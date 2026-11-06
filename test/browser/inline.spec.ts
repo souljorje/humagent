@@ -152,13 +152,13 @@ test('selected words edit in place, repeat edits keep evidence and IDs, and canc
   });
   await review.frame.locator('.marker').click();
   await expect(
-    review.frame.getByRole('button', { name: 'Confirm text edit' }),
+    review.frame.getByRole('button', { name: 'Save', exact: true }),
   ).toBeDisabled();
   await editor.fill('Unconfirmed');
   await editor.press('Escape');
   await expect(review.frame.locator('h1')).toHaveText('Final wording');
   await review.frame.locator('.marker').click();
-  await review.frame.getByRole('button', { name: 'Delete text edit' }).click();
+  await review.frame.getByRole('button', { name: 'Delete comment' }).click();
   await expect(review.frame.locator('h1')).toHaveText(before);
   expect(fs.readFileSync(workspace.file(), 'utf8')).toBe(source);
 });
@@ -268,6 +268,7 @@ test('cursor and text edits work in open shadow roots and restore application cu
   });
   const target = review.frame.locator('#shadow-text');
   await page.locator('#annotate').click();
+  await target.hover({ position: { x: 300, y: 5 } });
   await expect
     .poll(() => target.evaluate((el) => getComputedStyle(el).cursor))
     .toContain('data:image/svg+xml');

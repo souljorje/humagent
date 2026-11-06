@@ -1,6 +1,10 @@
 import { context, isNativeInteractiveControl } from './targets.js';
 import { createReviewView } from './review-view.js';
-import { createTextEditing, selectedRun } from './text-editing.js';
+import {
+  createTextEditing,
+  selectedRun,
+  isEditableText,
+} from './text-editing.js';
 import { createCommentCursor } from './comment-cursor.js';
 import type {
   Bootstrap,
@@ -26,6 +30,11 @@ interface Capture {
   before: string;
   el: Element;
   draft?: Draft;
+  point: Point;
+}
+interface Point {
+  x: number;
+  y: number;
 }
 
 /** The page owns geometry and temporary editors. The parent owns saved feedback. */
@@ -51,6 +60,7 @@ export function createPageReview(bridge: ReviewBridge) {
   let candidates: Element[] = [],
     cursor = -1;
   let outsideClicks = 0;
+  let activeInput: HTMLElement | null = null;
   const text = createTextEditing({
     resolve,
     input,
@@ -58,11 +68,20 @@ export function createPageReview(bridge: ReviewBridge) {
     cancel,
     invalidate: schedule,
   });
+  function canEditText(node: Node | null): node is Text {
+    if (!writable || !isEditableText(node)) return false;
+    const existing = text.existing(node);
+    return (
+      !existing ||
+      (drafts.some((draft) => draft.item.id === existing.item.id) &&
+        !locked.has(existing.item.id))
+    );
+  }
   const commentCursor = createCommentCursor((root) => {
     observer.observe(root, observation);
     observed.add(root);
     shadowRoots.add(root);
-  });
+  }, canEditText);
   const ignored = (el: EventTarget | null) =>
     !(el instanceof Element) ||
     el.closest('[data-humagent-ui],script,style,head') ||
@@ -95,10 +114,19 @@ export function createPageReview(bridge: ReviewBridge) {
     writable && (!captured?.draft || !locked.has(captured.draft.item.id));
   function changed() {
     if (!captured || !isEditor()) return false;
-    if (replacement) return text.value !== text.initial;
-    return captured.draft
+    const commentChanged = captured.draft
       ? $('note').value !== (captured.draft.item.comment || '')
       : !!$('note').value;
+    return commentChanged || (replacement && text.value !== text.initial);
+  }
+  function validInput() {
+    return replacement
+      ? text.connected &&
+          text.value.length <= 50000 &&
+          (!!captured?.draft ||
+            text.value !== captured?.before ||
+            !!$('note').value.trim())
+      : !!$('note').value.trim();
   }
   function input() {
     outsideClicks = 0;
@@ -110,16 +138,11 @@ export function createPageReview(bridge: ReviewBridge) {
       lastDirty = dirty;
       bridge.editing(dirty);
     }
-    const valid = replacement
-      ? text.connected && changed() && text.value.length <= 50000
-      : !!$('note').value.trim();
+    const valid = validInput();
     $('confirm').disabled = saving || !mutable() || !valid;
     $('save').disabled =
       saving || !mutable() || !valid || (!!captured?.draft && !changed());
     $('remove').disabled = saving || !mutable();
-    $('inline-confirm').disabled = saving || !mutable() || !valid;
-    $('inline-remove').disabled = saving || !mutable();
-    $('inline-remove').hidden = !captured?.draft;
     $('note').readOnly = saving || !mutable();
     text.setReadOnly(saving || !mutable());
     $('editor-status').hidden = mutable();
@@ -128,7 +151,7 @@ export function createPageReview(bridge: ReviewBridge) {
       : 'Read only';
     for (const textarea of [$('note')]) {
       textarea.style.height = 'auto';
-      textarea.style.height = `${Math.min(160, textarea.scrollHeight)}px`;
+      textarea.style.height = `${Math.min(136, textarea.scrollHeight)}px`;
     }
     schedule();
   }
@@ -140,10 +163,12 @@ export function createPageReview(bridge: ReviewBridge) {
     if (saving || changed()) {
       if (!saving && ++outsideClicks >= 2) close();
       else {
-        const editor = text.element || $('note');
+        const editor = activeInput?.isConnected
+          ? activeInput
+          : text.element || $('note');
         editor.focus({ preventScroll: true });
         if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
-          const surface = text.element || $('panel');
+          const surface = $('panel');
           surface.getAnimations().forEach((animation) => animation.cancel());
           surface.animate(
             [
@@ -163,7 +188,7 @@ export function createPageReview(bridge: ReviewBridge) {
   }
   function close(force = false) {
     if (saving && !force) return;
-    $('panel').hidden = $('inline-panel').hidden = true;
+    $('panel').hidden = true;
     text.close();
     text.reconcile(previews);
     outsideClicks = 0;
@@ -173,6 +198,7 @@ export function createPageReview(bridge: ReviewBridge) {
     )
       anchors.delete(String(captured.target.anchorId));
     captured = null;
+    activeInput = null;
     hovered = undefined;
     if (
       returnFocus?.isConnected &&
@@ -208,21 +234,46 @@ export function createPageReview(bridge: ReviewBridge) {
     }
     schedule();
   }
-  function showEditor() {
+  function showEditor(focus = true) {
     if (!captured) return;
-    replacement = false;
     $('panel').hidden = false;
     const existing = captured.draft?.item;
     $('note').value = existing?.comment || '';
+    $('note').placeholder = replacement
+      ? 'Add a comment (optional)…'
+      : 'Add a comment…';
+    $('confirm').setAttribute(
+      'aria-label',
+      replacement ? 'Confirm text edit' : 'Add comment',
+    );
     $('confirm').hidden = !!existing;
     $('actions').hidden = !existing;
     $('remove').hidden = !existing;
     $('local-error').hidden = true;
     updateEditor();
     position();
-    $('note').focus({ preventScroll: true });
+    if (focus) $('note').focus({ preventScroll: true });
   }
-  function show(el: EventTarget | null, range?: Range) {
+  function anchor(el: Element, point?: Point): Point {
+    const rect = el.getBoundingClientRect();
+    return point
+      ? { x: point.x - rect.left, y: point.y - rect.top }
+      : { x: rect.width / 2, y: rect.height / 2 };
+  }
+  function clickPoint(event: MouseEvent): Point | undefined {
+    return (event.isTrusted && event.detail > 0) ||
+      event.clientX ||
+      event.clientY
+      ? { x: event.clientX, y: event.clientY }
+      : undefined;
+  }
+  function center(el: Element | undefined): Point | undefined {
+    const rect = el?.getBoundingClientRect();
+    return rect?.width
+      ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+      : undefined;
+  }
+  function show(el: EventTarget | null, range?: Range, point?: Point) {
     if (!(el instanceof Element) || ignored(el) || !writable || outside())
       return;
     const before = range ? range.toString() : exactText(el);
@@ -253,10 +304,17 @@ export function createPageReview(bridge: ReviewBridge) {
     }
     anchors.set(String(target.anchorId), el);
     watchRoots(el);
-    captured = { target, before, el };
+    captured = { target, before, el, point: anchor(el, point) };
+    replacement = false;
     showEditor();
   }
-  function showText(node: Text, start: number, end: number, draft?: Draft) {
+  function showText(
+    node: Text,
+    start: number,
+    end: number,
+    draft?: Draft,
+    point?: Point,
+  ) {
     const el = node.parentElement!;
     const existing = draft || text.existing(node);
     if (
@@ -283,15 +341,22 @@ export function createPageReview(bridge: ReviewBridge) {
     };
     anchors.set(String(target.anchorId), el);
     watchRoots(el);
-    captured = { target, before, el, draft: existing };
+    captured = {
+      target,
+      before,
+      el,
+      draft: existing,
+      point: anchor(el, point),
+    };
     replacement = true;
     text.open(node, start, end, before);
-    $('inline-panel').hidden = false;
-    $('inline-error').hidden = true;
-    updateEditor();
-    position();
+    activeInput = text.element!;
+    text.element!.onfocus = () => {
+      activeInput = text.element!;
+    };
+    showEditor(false);
   }
-  function edit(draftId: string) {
+  function edit(draftId: string, point?: Point) {
     const draft = drafts.find((d) => d.item.id === draftId);
     if (!draft || outside()) return;
     const el = resolve(draft);
@@ -303,28 +368,33 @@ export function createPageReview(bridge: ReviewBridge) {
     }
     if (draft.item.replacement) {
       const node = text.nodeFor(draft, el);
-      if (node) showText(node, 0, node.length, draft);
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      if (node)
+        showText(
+          node,
+          0,
+          node.length,
+          draft,
+          point || center(markers.get(draftId)),
+        );
       return;
     }
     close();
     returnFocus = markers.get(draftId) || document.activeElement;
+    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     captured = {
       target: draft.item.target!,
       before: exactText(el),
       el,
       draft,
+      point: anchor(el, point || center(markers.get(draftId))),
     };
-    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    replacement = false;
     showEditor();
   }
-  function selectedText() {
+  function selectedText(point?: Point) {
     const selection = document.getSelection();
-    if (
-      !selection ||
-      selection.isCollapsed ||
-      !selection.rangeCount ||
-      !selection.toString().trim()
-    )
+    if (!selection || !selection.rangeCount || !selection.toString().trim())
       return false;
     let range = selection.getRangeAt(0).cloneRange();
     // Native Selection ranges are retargeted at shadow hosts in some browsers.
@@ -347,33 +417,37 @@ export function createPageReview(bridge: ReviewBridge) {
     const node = range.commonAncestorContainer;
     const el = node instanceof Element ? node : node.parentElement;
     if (ignored(el)) return false;
+    if (!point) {
+      const endpoint = range.cloneRange();
+      endpoint.collapse(
+        (selection as Selection & { direction?: string }).direction ===
+          'backward' ||
+          (selection.focusNode === range.startContainer &&
+            selection.focusOffset === range.startOffset),
+      );
+      const rect = endpoint.getBoundingClientRect();
+      if (rect.height) point = { x: rect.left, y: rect.bottom };
+    }
     const run = selectedRun(range);
-    if (run && !isNativeInteractiveControl(el))
-      showText(run.node, run.start, run.end);
-    else show(el, range);
+    if (run && isEditableText(run.node)) {
+      if (canEditText(run.node))
+        showText(run.node, run.start, run.end, undefined, point);
+    } else show(el, range, point);
     return true;
   }
   $('cancel').onclick = cancel;
   $('note').oninput = input;
-  $('inline-cancel').onclick = cancel;
-  $('inline-confirm').onclick = () => {
-    if (!$('inline-confirm').disabled) void save();
+  $('note').onfocus = () => {
+    activeInput = $('note');
   };
-  $('inline-remove').onclick = () => void save(true);
   async function save(remove = false) {
     if (!captured || saving || !mutable()) return;
-    if (
-      !remove &&
-      (replacement
-        ? !text.connected || !changed() || text.value.length > 50000
-        : !$('note').value.trim())
-    )
-      return;
+    if (!remove && (!validInput() || (!!captured.draft && !changed()))) return;
     if (
       !captured.el.isConnected ||
       !matchesTarget(captured.el, captured.target)
     ) {
-      const output = replacement ? $('inline-error') : $('local-error');
+      const output = $('local-error');
       output.textContent =
         'Target changed. Cancel this edit and inspect the page.';
       output.hidden = false;
@@ -387,18 +461,14 @@ export function createPageReview(bridge: ReviewBridge) {
       else if (current.draft)
         await bridge.edit({
           draftId: current.draft.item.id,
-          comment: replacement
-            ? current.draft.item.comment || ''
-            : $('note').value,
+          comment: $('note').value,
           ...(replacement ? { after: text.value } : {}),
         });
       else
         await stage({
           target: current.target,
-          ...(!replacement && $('note').value
-            ? { comment: $('note').value }
-            : {}),
-          ...(replacement
+          ...($('note').value.trim() ? { comment: $('note').value } : {}),
+          ...(replacement && text.value !== current.before
             ? {
                 replacement: {
                   before: current.before,
@@ -410,7 +480,7 @@ export function createPageReview(bridge: ReviewBridge) {
       saving = false;
       close();
     } catch (error) {
-      const output = replacement ? $('inline-error') : $('local-error');
+      const output = $('local-error');
       output.textContent = errorMessage(error);
       output.hidden = false;
     } finally {
@@ -427,7 +497,13 @@ export function createPageReview(bridge: ReviewBridge) {
   document.addEventListener(
     'pointermove',
     (event) => {
-      if (!enabled || captured || ignored(event.target)) return;
+      if (!enabled) return;
+      if (ownEvent(event)) {
+        commentCursor.clear();
+        return;
+      }
+      commentCursor.move(event.clientX, event.clientY);
+      if (captured || ignored(event.target)) return;
       hovered = event
         .composedPath()
         .find((item) => item instanceof Element && !ignored(item)) as
@@ -439,6 +515,7 @@ export function createPageReview(bridge: ReviewBridge) {
     { passive: true },
   );
   document.addEventListener('pointerleave', () => {
+    commentCursor.clear();
     if (!captured) {
       hovered = undefined;
       schedule();
@@ -476,11 +553,12 @@ export function createPageReview(bridge: ReviewBridge) {
       event.preventDefault();
       event.stopImmediatePropagation();
       const selection = document.getSelection();
-      if (selection && !selection.isCollapsed && selection.toString().trim())
-        return;
+      if (selection?.toString().trim()) return;
       show(
         event.composedPath().find((item) => item instanceof Element) ||
           event.target,
+        undefined,
+        clickPoint(event),
       );
     },
     true,
@@ -493,7 +571,7 @@ export function createPageReview(bridge: ReviewBridge) {
       !ignored(event.target) &&
       !isNativeInteractiveControl(event.target)
     )
-      setTimeout(selectedText, 0);
+      setTimeout(() => selectedText(clickPoint(event)), 0);
   });
   document.addEventListener('keyup', (event) => {
     if (enabled && !captured && event.shiftKey && !ownEvent(event))
@@ -599,9 +677,9 @@ export function createPageReview(bridge: ReviewBridge) {
     scheduled = false;
     text.reconcile(previews);
     if (text.element && !text.connected) {
-      $('inline-confirm').disabled = true;
-      $('inline-error').hidden = false;
-      $('inline-error').textContent =
+      $('confirm').disabled = $('save').disabled = true;
+      $('local-error').hidden = false;
+      $('local-error').textContent =
         'Target changed. Cancel this edit and inspect the page.';
     }
     const available: Availability[] = [];
@@ -635,11 +713,7 @@ export function createPageReview(bridge: ReviewBridge) {
     const highlight = target?.isConnected
       ? target.getBoundingClientRect()
       : null;
-    const panel = !$('panel').hidden
-      ? $('panel')
-      : !$('inline-panel').hidden
-        ? $('inline-panel')
-        : null;
+    const panel = !$('panel').hidden ? $('panel') : null;
     const panelRect = panel?.getBoundingClientRect();
     const visible = new Set(layouts.map((layout) => layout.draft.item.id));
     for (const [id, marker] of markers) marker.hidden = !visible.has(id);
@@ -649,7 +723,8 @@ export function createPageReview(bridge: ReviewBridge) {
         marker = document.createElement('button');
         marker.className = 'marker';
         marker.dataset.draftId = draft.item.id;
-        marker.onclick = () => edit(draft.item.id);
+        marker.onclick = (event) =>
+          edit(draft.item.id, clickPoint(event) || center(marker));
         markers.set(draft.item.id, marker);
         $('markers').append(marker);
       }
@@ -675,25 +750,24 @@ export function createPageReview(bridge: ReviewBridge) {
       $('highlight').style.width = `${highlight.width}px`;
       $('highlight').style.height = `${highlight.height}px`;
     }
-    if (panel && panelRect && highlight) {
+    if (panel && panelRect && highlight && captured) {
       const viewportHeight = window.visualViewport?.height || innerHeight;
-      const fitsRight =
-        highlight.right + 10 + panelRect.width <= innerWidth - 12;
-      const fitsLeft = highlight.left - 10 - panelRect.width >= 12;
-      const x = fitsRight
-        ? highlight.right + 10
-        : fitsLeft
-          ? highlight.left - panelRect.width - 10
-          : Math.max(
-              12,
-              Math.min(highlight.left, innerWidth - panelRect.width - 12),
-            );
+      const point = {
+        x: highlight.left + captured.point.x,
+        y: highlight.top + captured.point.y,
+      };
+      const preferredX =
+        point.x + 10 + panelRect.width <= innerWidth - 12
+          ? point.x + 10
+          : point.x - panelRect.width - 10;
+      const x = Math.max(
+        12,
+        Math.min(preferredX, innerWidth - panelRect.width - 12),
+      );
       const preferredY =
-        fitsRight || fitsLeft
-          ? highlight.top - 12
-          : highlight.bottom + 10 + panelRect.height <= viewportHeight - 12
-            ? highlight.bottom + 10
-            : highlight.top - panelRect.height - 10;
+        point.y + 10 + panelRect.height <= viewportHeight - 12
+          ? point.y + 10
+          : point.y - panelRect.height - 10;
       const y = Math.max(
         12,
         Math.min(preferredY, viewportHeight - panelRect.height - 12),
@@ -747,7 +821,16 @@ export function createPageReview(bridge: ReviewBridge) {
     childList: true,
     characterData: true,
     attributes: true,
-    attributeFilter: ['class', 'style', 'id', 'data-humagent-id', 'hidden'],
+    attributeFilter: [
+      'class',
+      'style',
+      'id',
+      'data-humagent-id',
+      'hidden',
+      'role',
+      'contenteditable',
+      'href',
+    ],
   };
   observer.observe(document.body || document.documentElement, observation);
   function watchRoots(el: Element) {

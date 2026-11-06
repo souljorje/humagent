@@ -178,12 +178,10 @@ export const test = base.extend<Fixtures>({
           .fill(replacement);
         await page
           .frameLocator('#frame')
-          .getByRole('button', { name: 'Confirm text edit', exact: true })
+          .getByRole('button', { name: /^(Confirm text edit|Save)$/ })
           .click();
         await expect(
-          page
-            .frameLocator('#frame')
-            .getByRole('dialog', { name: 'Edit text controls' }),
+          page.frameLocator('#frame').getByRole('dialog', { name: 'Feedback' }),
         ).toBeHidden();
       },
       async state() {
