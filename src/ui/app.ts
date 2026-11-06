@@ -538,17 +538,31 @@ $('end').onclick = async () => {
     error(errorMessage(e));
   }
 };
+let blockedClick = false;
 document.addEventListener(
-  'click',
+  'pointerdown',
   (event) => {
-    if (!editorDirty) return;
+    blockedClick = editorDirty;
+    if (!blockedClick) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     post('outside');
   },
   true,
 );
+document.addEventListener(
+  'click',
+  (event) => {
+    if (!blockedClick && !editorDirty) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (!blockedClick) post('outside');
+    blockedClick = false;
+  },
+  true,
+);
 document.addEventListener('keydown', (event) => {
+  blockedClick = false;
   if (event.key === 'Escape') {
     openTray(false);
     $('toggle-review').focus();

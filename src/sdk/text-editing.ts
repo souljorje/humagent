@@ -6,6 +6,9 @@ interface Preview {
   target: Element;
   before: string;
   written: string;
+  observer: MutationObserver;
+  writes: number;
+  owned: boolean;
 }
 interface Editing {
   node: Text;
@@ -21,8 +24,10 @@ export function createTextEditing(hooks: {
   input(): void;
   confirm(): void;
   cancel(): void;
+  invalidate(): void;
 }) {
   const previews = new Map<string, Preview>();
+  const nodes = new WeakMap<Text, Preview>();
   const unavailable = new Set<string>();
   let editing: Editing | undefined;
   function plainText(node: Node): string {
@@ -32,14 +37,38 @@ export function createTextEditing(hooks: {
     return [...node.childNodes].map(plainText).join('');
   }
 
+  function mutations(
+    preview: Preview,
+    records = preview.observer.takeRecords(),
+  ) {
+    const own = Math.min(preview.writes, records.length);
+    preview.writes -= own;
+    if (records.length > own && preview.owned) {
+      preview.owned = false;
+      hooks.invalidate();
+    }
+  }
   function valid(preview: Preview) {
-    return preview.node.isConnected && preview.node.data === preview.written;
+    mutations(preview);
+    return (
+      preview.owned &&
+      ((preview.node.isConnected &&
+        preview.node.parentNode === preview.target) ||
+        (editing?.node === preview.node &&
+          editing.element.parentNode === preview.target)) &&
+      preview.node.data === preview.written
+    );
+  }
+  function forget(id: string, preview: Preview) {
+    preview.observer.disconnect();
+    nodes.delete(preview.node);
+    previews.delete(id);
   }
   function canonicalText(node: Node): string {
     if (editing?.element === node) return editing.before;
     if (node instanceof Text) {
-      for (const preview of previews.values())
-        if (preview.node === node && valid(preview)) return preview.before;
+      const preview = nodes.get(node);
+      if (preview && valid(preview)) return preview.before;
       return node.data;
     }
     return [...node.childNodes].map(canonicalText).join('');
@@ -64,12 +93,12 @@ export function createTextEditing(hooks: {
       if (editing?.node === preview.node) continue;
       if (!wanted.has(id)) {
         if (valid(preview)) preview.node.data = preview.before;
-        previews.delete(id);
+        forget(id, preview);
       } else if (!valid(preview) || !hooks.resolve(wanted.get(id)!)) {
         // Never bind the same feedback to a framework's replacement node.
         unavailable.add(id);
         if (valid(preview)) preview.node.data = preview.before;
-        previews.delete(id);
+        forget(id, preview);
       }
     }
     for (const id of unavailable) if (!wanted.has(id)) unavailable.delete(id);
@@ -93,14 +122,27 @@ export function createTextEditing(hooks: {
         unavailable.add(draft.item.id);
         continue;
       }
-      previews.set(draft.item.id, {
+      const preview: Preview = previous || {
         draft,
         node,
         target,
         before: replacement.before,
         written: replacement.after,
-      });
-      if (node.data !== replacement.after) node.data = replacement.after;
+        observer: new MutationObserver((records) =>
+          mutations(preview, records),
+        ),
+        writes: 0,
+        owned: true,
+      };
+      if (!previous) preview.observer.observe(node, { characterData: true });
+      preview.draft = draft;
+      preview.written = replacement.after;
+      previews.set(draft.item.id, preview);
+      nodes.set(node, preview);
+      if (node.data !== replacement.after) {
+        preview.writes++;
+        node.data = replacement.after;
+      }
     }
   }
   return {
@@ -124,7 +166,9 @@ export function createTextEditing(hooks: {
       return editing?.initial ?? '';
     },
     get connected() {
-      return !!editing?.element.isConnected;
+      if (!editing?.element.isConnected) return false;
+      const preview = nodes.get(editing.node);
+      return !preview || valid(preview);
     },
     open(node: Text, start: number, end: number, before: string) {
       close();
@@ -154,30 +198,39 @@ export function createTextEditing(hooks: {
         hooks.input();
       });
       element.addEventListener('change', (event) => event.stopPropagation());
-      function newline() {
+      function insert(value: string) {
+        if (element.contentEditable !== 'plaintext-only') return;
         const selection = getSelection();
         if (!selection?.rangeCount) return;
         const range = selection.getRangeAt(0);
         if (!element.contains(range.commonAncestorContainer)) return;
         range.deleteContents();
-        const line = document.createTextNode('\n');
+        const line = document.createTextNode(value);
         range.insertNode(line);
         if (!element.querySelector('[data-humagent-placeholder]')) {
           const end = document.createElement('br');
           end.dataset.humagentPlaceholder = '';
           element.append(end);
         }
-        range.setStart(line, 1);
+        range.setStart(line, line.length);
         range.collapse(true);
         selection.removeAllRanges();
         selection.addRange(range);
         hooks.input();
       }
+      element.addEventListener('paste', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        insert(
+          event.clipboardData?.getData('text/plain').replace(/\r\n/g, '\n') ||
+            '',
+        );
+      });
       element.addEventListener('beforeinput', (event) => {
         if (event.isComposing) return;
         if (event.inputType === 'insertLineBreak') {
           event.preventDefault();
-          newline();
+          insert('\n');
         } else if (event.inputType === 'insertParagraph') {
           event.preventDefault();
           hooks.confirm();
@@ -191,7 +244,7 @@ export function createTextEditing(hooks: {
           hooks.cancel();
         } else if (event.key === 'Enter') {
           event.preventDefault();
-          if (event.shiftKey) newline();
+          if (event.shiftKey) insert('\n');
           else hooks.confirm();
         }
       });

@@ -56,6 +56,7 @@ export function createPageReview(bridge: ReviewBridge) {
     input,
     confirm: () => void save(),
     cancel,
+    invalidate: schedule,
   });
   const commentCursor = createCommentCursor((root) => {
     observer.observe(root, observation);

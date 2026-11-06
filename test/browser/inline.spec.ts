@@ -1,6 +1,77 @@
 import fs from 'node:fs';
 import { test, expect } from './fixtures.ts';
 
+for (const existing of [false, true])
+  test(`acknowledgment preserves same-value application writes in ${existing ? 'an existing app' : 'a mini-app'}`, async ({
+    page,
+    review,
+    workspace,
+    app,
+  }) => {
+    const opened = await review.open(existing ? app.origin : workspace.file());
+    await review.replace('h1', 'Application wording');
+    await page.locator('#send').click();
+    await expect(review.frame.locator('.marker')).toHaveCount(0);
+    await review.evaluate(() => {
+      document.querySelector('h1')!.firstChild!.nodeValue =
+        'Application wording';
+    });
+    const received = workspace.store.take(opened.session, 'same-value-test');
+    if (received?.status !== 'feedback') throw new Error('Expected feedback');
+    workspace.store.acknowledge(opened.session, received.receipt);
+    await expect(page.locator('#activity')).toHaveText('Completed');
+    await expect(review.frame.locator('h1')).toHaveText('Application wording');
+  });
+
+test('native paste preserves trailing newlines exactly', async ({
+  page,
+  plan: _plan,
+  review,
+}) => {
+  await review.replace('h1', 'Preview');
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await review.evaluate(async () =>
+    navigator.clipboard.writeText('First\nSecond\n'),
+  );
+  await review.frame.locator('.marker').click();
+  const editor = review.frame.getByRole('textbox', {
+    name: 'Edit text',
+    exact: true,
+  });
+  await editor.press(process.platform === 'darwin' ? 'Meta+V' : 'Control+V');
+  await editor.press('Enter');
+  await expect(editor).toHaveCount(0);
+  expect((await review.state()).drafts[0].item.replacement?.after).toBe(
+    'First\nSecond\n',
+  );
+});
+
+test('physical clicks on disabled Send dismiss edits without sending', async ({
+  page,
+  plan,
+  review,
+  workspace,
+}) => {
+  await review.replace('h1', 'Saved preview');
+  await review.frame.locator('.marker').click();
+  const editor = review.frame.getByRole('textbox', {
+    name: 'Edit text',
+    exact: true,
+  });
+  await editor.fill('Unconfirmed edit');
+  await expect(page.locator('#send')).toBeDisabled();
+  const box = (await page.locator('#send').boundingBox())!;
+  const click = () =>
+    page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await click();
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveText('Unconfirmed edit');
+  await click();
+  await expect(editor).toHaveCount(0);
+  await expect(review.frame.locator('h1')).toHaveText('Saved preview');
+  expect(workspace.store.get(plan.session).events).toHaveLength(0);
+});
+
 test('acknowledgment removes an uncertain preview while retry still confirms its immutable batch', async ({
   page,
   plan,
@@ -284,7 +355,7 @@ test('mixed formatting remains a comment target and single runs preserve element
   );
 });
 
-for (const change of ['node', 'element', 'text'])
+for (const change of ['node', 'element', 'text', 'relocation'])
   test(`application ${change} changes are never overwritten by preview cleanup`, async ({
     page,
     plan: _plan,
@@ -299,13 +370,19 @@ for (const change of ['node', 'element', 'text'])
         const next = el.cloneNode(false);
         next.textContent = 'Application update';
         el.replaceWith(next);
+      } else if (change === 'relocation') {
+        const next = document.createElement('h1');
+        next.append(el.firstChild!);
+        el.replaceWith(next);
       } else el.firstChild!.textContent = 'Application update';
     }, change);
     await expect(review.frame.locator('.marker:visible')).toHaveCount(0);
     await page.locator('#toggle-review').click();
     await expect(page.locator('#drafts')).toContainText('Target unavailable');
     await page.getByRole('button', { name: 'Remove', exact: true }).click();
-    await expect(review.frame.locator('h1')).toHaveText('Application update');
+    await expect(review.frame.locator('h1')).toHaveText(
+      change === 'relocation' ? 'Local preview' : 'Application update',
+    );
   });
 
 test('newline and IME input do not confirm early, and source revision changes remove previews', async ({
