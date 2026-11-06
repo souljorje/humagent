@@ -54,6 +54,8 @@ for (const lost of ['HTTP response', 'bridge acknowledgment'])
     const documentId = await review.evaluate(
       () => window.__HUMAGENT__!.documentId,
     );
+    if (await page.locator('#tray').isHidden())
+      await page.locator('#toggle-review').click();
     await page.locator('#refresh').click();
     await expect
       .poll(() => review.evaluate(() => window.__HUMAGENT__!.documentId), {
@@ -186,13 +188,10 @@ test('SDK and forms stage beside annotations and one batch reaches the waiting a
   expect(receipt.events).toHaveLength(1);
   expect(receipt.events[0].payload.items).toHaveLength(3);
   expect(receipt.events[0].payload.message).toBe('Review everything together.');
-  await workspace.api(`/api/sessions/${plan.session}/reply`, 'POST', {
+  await workspace.api(`/api/sessions/${plan.session}/ack`, 'POST', {
     receipt: receipt.receipt,
-    message: 'Updated. Nothing was executed.',
   });
-  await expect(page.locator('#activity')).toContainText(
-    'Nothing was executed.',
-  );
+  await expect(page.locator('#activity')).toContainText('Completed');
   expect(workspace.store.get(plan.session).events[0].status).toBe('completed');
 });
 
@@ -233,9 +232,7 @@ for (const reload of [false, true])
       window.humagent.submit({ intent: 'review', values: { decision: 'new' } }),
     );
     await page.locator('#message').fill('A new instruction');
-    await page
-      .getByRole('button', { name: 'Retry batch', exact: true })
-      .click();
+    await page.getByRole('button', { name: 'Retry send', exact: true }).click();
     await expect(page.locator('#outbox')).toBeHidden();
     expect(requests[1]).toEqual(requests[0]);
     expect(workspace.store.get(plan.session).events).toHaveLength(1);
@@ -340,7 +337,7 @@ test('form serialization handles repeated fields and excludes private or disable
   expect(workspace.store.list()[0].events).toHaveLength(0);
 });
 
-test('generated mini-app stays local until Send all', async ({
+test('generated mini-app stays local until Send', async ({
   page,
   review,
   workspace,
@@ -380,8 +377,8 @@ test('an accepted batch can be confirmed after the session ends', async ({
   await expect(page.locator('#error')).toBeVisible();
   await page.unroute(pattern);
   await workspace.api(`/api/sessions/${plan.session}/end`, 'POST', {});
-  await expect(page.locator('#presence')).toHaveText('Ended');
-  await page.getByRole('button', { name: 'Retry batch' }).click();
+  await expect(page.locator('#activity')).toHaveText('Session ended');
+  await page.getByRole('button', { name: 'Retry send' }).click();
   await expect(page.locator('#outbox')).toBeHidden();
   expect(workspace.store.get(plan.session).events).toHaveLength(1);
 });

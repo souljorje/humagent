@@ -135,29 +135,30 @@ export const test = base.extend<Fixtures>({
       },
       ready,
       async addComment(selector, comment) {
-        await page
-          .frameLocator('#frame')
-          .locator(selector)
-          .click({ button: 'right' });
-        await page
-          .frameLocator('#frame')
-          .getByRole('button', { name: 'Comment', exact: true })
-          .click();
+        if (
+          (await page.locator('#annotate').getAttribute('aria-pressed')) !==
+          'true'
+        )
+          await page.locator('#annotate').click();
+        await page.frameLocator('#frame').locator(selector).click();
         await page
           .frameLocator('#frame')
           .getByLabel('Comment', { exact: true })
           .fill(comment);
         await page
           .frameLocator('#frame')
-          .getByRole('button', { name: 'Add to review', exact: true })
+          .getByRole('button', { name: 'Add comment', exact: true })
           .click();
         await expect(
-          page
-            .frameLocator('#frame')
-            .getByRole('dialog', { name: 'Add feedback' }),
+          page.frameLocator('#frame').getByRole('dialog', { name: 'Feedback' }),
         ).toBeHidden();
       },
       async replace(selector, replacement) {
+        if (
+          (await page.locator('#annotate').getAttribute('aria-pressed')) !==
+          'true'
+        )
+          await page.locator('#annotate').click();
         await attachedFrame().evaluate((selector) => {
           const element = document.querySelector(selector)!,
             range = document.createRange();
@@ -177,12 +178,10 @@ export const test = base.extend<Fixtures>({
           .fill(replacement);
         await page
           .frameLocator('#frame')
-          .getByRole('button', { name: 'Add to review', exact: true })
+          .getByRole('button', { name: 'Add replacement', exact: true })
           .click();
         await expect(
-          page
-            .frameLocator('#frame')
-            .getByRole('dialog', { name: 'Add feedback' }),
+          page.frameLocator('#frame').getByRole('dialog', { name: 'Feedback' }),
         ).toBeHidden();
       },
       async state() {

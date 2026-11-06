@@ -1,17 +1,20 @@
 import { createReview } from './review-state.js';
 import type { SessionSnapshot } from '../runtime/server.js';
 import type { Event as ReviewEvent } from '../runtime/protocol.js';
-import type { Draft, StageResult, StateResult } from '../shared/review.js';
-import type { PageMessage, WorkspaceMessage } from '../shared/bridge.js';
+import type { StageResult, StateResult } from '../shared/review.js';
+import type {
+  PageMessage,
+  WorkspaceMessage,
+  ReviewPresentation,
+  RequestResult,
+} from '../shared/bridge.js';
+import { icon } from '../shared/icons.js';
+import { fingerprint } from '../shared/batch.js';
 import { errorMessage } from '../shared/errors.js';
 
 type Controls = Record<string, HTMLElement> & {
   frame: HTMLIFrameElement;
   message: HTMLTextAreaElement;
-  'edit-form': HTMLFormElement;
-  'edit-comment': HTMLTextAreaElement;
-  'edit-after': HTMLTextAreaElement;
-  'edit-values': HTMLTextAreaElement;
   send: HTMLButtonElement;
   annotate: HTMLButtonElement;
   end: HTMLButtonElement;
@@ -32,12 +35,19 @@ let session: SessionSnapshot,
   bridgeReady = false,
   syncing: Promise<SessionSnapshot> | null,
   writable = false,
-  editing: string,
+  annotating = false,
+  editorDirty = false,
   flushCall: {
     id: string;
     finish(params: { error?: string; ok?: boolean }): void;
   } | null;
 const available = new Map<string, boolean>();
+const mutations = new Map<
+  string,
+  { signature: string; result: RequestResult }
+>();
+$('annotate').innerHTML = icon('comment');
+$('close-tray').innerHTML = icon('close');
 const rendered = new WeakMap<HTMLElement, string>();
 function renderChanged(element: HTMLElement, value: unknown, draw: () => void) {
   const key = JSON.stringify(value);
@@ -68,6 +78,7 @@ let unsavedMessage = false;
 function error(message = '') {
   $('error').textContent = message;
   $('error').hidden = !message;
+  if (message) openTray();
 }
 function openTray(open = true) {
   $('tray').hidden = !open;
@@ -157,11 +168,29 @@ function paragraph(text: string, className?: string) {
   if (className) el.className = className;
   return el;
 }
+function presentation(): ReviewPresentation {
+  const items = review?.snapshot().drafts || [];
+  return {
+    items,
+    locked: items.filter((d) => review.locked(d.item.id)).map((d) => d.item.id),
+    writable: writable && !session?.ended,
+  };
+}
+function resizeMessage() {
+  $('message').style.height = 'auto';
+  $('message').style.height = `${Math.min(136, $('message').scrollHeight)}px`;
+}
 function render() {
   if (!review) return;
   const snapshot = review.snapshot();
-  $('toggle-review').textContent = `Review (${snapshot.drafts.length})`;
-  $('empty').hidden = !!snapshot.drafts.length;
+  const count = snapshot.drafts.length;
+  $('toggle-review').innerHTML =
+    `${count ? `<span>${count}</span>` : ''}${icon('chevron')}`;
+  $('toggle-review').title = count
+    ? `${count} pending items`
+    : 'Review details';
+  $('empty').hidden = !!count || !!snapshot.outbox.length;
+  $('annotate').setAttribute('aria-pressed', String(annotating));
   const mutable = writable && !session?.ended;
   renderChanged(
     $('drafts'),
@@ -174,15 +203,15 @@ function render() {
       [...available],
     ],
     () => {
-      for (const [index, draft] of snapshot.drafts.entries()) {
-        const item = draft.item;
-        const li = document.createElement('li');
-        li.className = 'draft';
-        li.dataset.draftId = item.id;
+      for (const draft of snapshot.drafts) {
+        const item = draft.item,
+          locked = review.locked(item.id);
         const stale =
           draft.revision !== loadedRevision ||
           draft.revision !== session?.revision;
-        const locked = review.locked(item.id);
+        const li = document.createElement('li');
+        li.className = 'draft';
+        li.dataset.draftId = item.id;
         li.dataset.stale = String(stale);
         const title = document.createElement('div');
         title.className = 'draft-title';
@@ -191,14 +220,14 @@ function render() {
         );
         li.append(title);
         if (item.target) {
-          const quote = document.createElement('blockquote');
-          const anchor = item.target.anchor;
-          const captured =
-            anchor && typeof anchor === 'object' && !Array.isArray(anchor)
-              ? anchor.quote
-              : undefined;
+          const quote = document.createElement('blockquote'),
+            anchor = item.target.anchor;
           quote.textContent = String(
-            captured || item.target.text || item.target.selector || '',
+            (anchor && typeof anchor === 'object' && !Array.isArray(anchor)
+              ? anchor.quote
+              : '') ||
+              item.target.text ||
+              '',
           );
           li.append(quote);
         }
@@ -211,8 +240,15 @@ function render() {
         }
         if (item.comment) li.append(paragraph(item.comment));
         if (item.values) {
-          const values = document.createElement('pre');
-          values.textContent = JSON.stringify(item.values, null, 2);
+          const values = document.createElement('dl');
+          for (const [key, value] of Object.entries(item.values)) {
+            const label = document.createElement('dt'),
+              content = document.createElement('dd');
+            label.textContent = key;
+            content.textContent =
+              typeof value === 'string' ? value : JSON.stringify(value);
+            values.append(label, content);
+          }
           li.append(values);
         }
         li.append(
@@ -220,28 +256,28 @@ function render() {
             locked
               ? 'Awaiting confirmation'
               : stale
-                ? 'Stale revision — recreate or remove this item'
+                ? 'Stale revision. Recreate or remove this item.'
                 : available.get(item.id) === false
-                  ? 'Target unavailable — inspect before sending'
+                  ? 'Target unavailable. Inspect or remove this item.'
                   : 'Draft',
             'draft-status',
           ),
         );
         const actions = document.createElement('div');
         actions.className = 'actions';
+        if (item.target)
+          actions.append(
+            button(
+              'Edit',
+              () => {
+                $('frame').focus();
+                post('edit', { draftId: item.id });
+              },
+              !mutable || locked || stale || available.get(item.id) === false,
+            ),
+          );
         actions.append(
-          button('Edit', () => edit(draft), !mutable || locked),
           button('Remove', () => review.remove(item.id), !mutable || locked),
-          button(
-            'Move up',
-            () => review.move(item.id, -1),
-            !mutable || locked || index === 0,
-          ),
-          button(
-            'Move down',
-            () => review.move(item.id, 1),
-            !mutable || locked || index === snapshot.drafts.length - 1,
-          ),
         );
         li.append(actions);
         $('drafts').append(li);
@@ -251,14 +287,15 @@ function render() {
   if (!unsavedMessage && document.activeElement !== $('message'))
     $('message').value = snapshot.message.text;
   $('message').disabled = !mutable;
+  resizeMessage();
   $('message-stale').hidden =
     !snapshot.message.text.trim() ||
     review.messageLocked() ||
     snapshot.message.revision === loadedRevision;
   const drafts = snapshot.drafts.filter((d) => !review.locked(d.item.id));
   const hasMessage = !review.messageLocked() && !!snapshot.message.text.trim();
-  $('send').textContent = `Send all (${drafts.length})`;
   $('send').disabled =
+    editorDirty ||
     unsavedMessage ||
     !mutable ||
     !bridgeReady ||
@@ -266,6 +303,9 @@ function render() {
     drafts.some((d) => d.revision !== loadedRevision) ||
     (hasMessage && snapshot.message.revision !== loadedRevision) ||
     loadedRevision !== session?.revision;
+  $('send').title = editorDirty
+    ? 'Save or cancel your feedback first'
+    : 'Send feedback to your agent';
   $('outbox').hidden = !snapshot.outbox.length;
   renderChanged($('pending-batches'), [snapshot.outbox, writable], () => {
     for (const entry of snapshot.outbox) {
@@ -274,13 +314,13 @@ function render() {
       div.dataset.batchId = entry.batch.clientId;
       div.append(
         paragraph(
-          `${entry.batch.payload.items.length} feedback items${entry.batch.payload.message ? ' and an overall instruction' : ''}`,
+          `${entry.batch.payload.items.length} feedback items${entry.batch.payload.message ? ' and an instruction' : ''}`,
         ),
       );
-      if (entry.error) div.append(paragraph(entry.error, 'warning'));
+      if (entry.error) div.append(paragraph(entry.error));
       div.append(
         button(
-          'Retry batch',
+          'Retry send',
           () => deliver(entry.batch.clientId),
           !writable,
           true,
@@ -297,103 +337,56 @@ function render() {
       $('pending-batches').append(div);
     }
   });
-  post('drafts', { items: snapshot.drafts });
+  post('drafts', presentation());
 }
-function edit(draft: Draft) {
-  editing = draft.item.id;
-  $('edit-form').hidden = false;
-  $('edit-comment').value = draft.item.comment || '';
-  $('edit-original').hidden = !draft.item.replacement;
-  $('edit-replacement').hidden = !draft.item.replacement;
-  $('edit-original').textContent = draft.item.replacement?.before || '';
-  $('edit-after').value = draft.item.replacement?.after || '';
-  $('edit-structured').hidden = !draft.item.values;
-  $('edit-values').value = draft.item.values
-    ? JSON.stringify(draft.item.values, null, 2)
-    : '';
-  $('edit-comment').focus();
+function renderStatus() {
+  const event = session.events.at(-1);
+  $('activity').hidden = !event && !session.ended;
+  $('activity').textContent = session.ended
+    ? 'Session ended'
+    : !event
+      ? ''
+      : event.status === 'delivered'
+        ? 'Working'
+        : event.status === 'completed'
+          ? 'Completed'
+          : 'Sent';
 }
-$('edit-form').onsubmit = (event) => {
-  event.preventDefault();
-  try {
-    canWrite();
-    const item = review
-      .snapshot()
-      .drafts.find((d) => d.item.id === editing)?.item;
-    if (!item) throw new Error('Draft no longer exists');
-    item.comment = $('edit-comment').value;
-    if (item.replacement) item.replacement.after = $('edit-after').value;
-    if (item.values) item.values = JSON.parse($('edit-values').value);
-    review.edit(editing, item);
-    $('edit-form').hidden = true;
-    error();
-  } catch (e) {
-    error(errorMessage(e));
-  }
-};
-$('cancel-edit').onclick = () => {
-  $('edit-form').hidden = true;
-};
-function renderHistory() {
-  const entries = [
-    ...session.events.map((e) => ({ ...e, at: e.createdAt })),
-    ...session.replies,
-  ].sort((a, b) => a.at.localeCompare(b.at));
-  renderChanged($('transcript'), entries, () => {
-    for (const entry of entries) {
-      const article = document.createElement('article');
-      article.className = 'entry';
-      if ('text' in entry) article.append(paragraph(entry.text));
-      else {
-        article.append(
-          paragraph(
-            `${entry.status === 'delivered' ? 'Working' : entry.status === 'completed' ? 'Completed' : 'Queued'} · ${entry.payload.items.length} feedback items`,
-          ),
-        );
-        if (entry.payload.message)
-          article.append(paragraph(entry.payload.message));
-        const details = document.createElement('details'),
-          summary = document.createElement('summary'),
-          pre = document.createElement('pre');
-        summary.textContent = 'Feedback details';
-        pre.textContent = JSON.stringify(entry.payload.items, null, 2);
-        details.append(summary, pre);
-        article.append(details);
-      }
-      $('transcript').append(article);
-    }
+async function flushPage() {
+  if (!bridgeReady)
+    throw new Error('Wait for the page to connect before continuing.');
+  if (flushCall) throw new Error('Wait for the current save to finish.');
+  const requestId = crypto.randomUUID();
+  const flushed = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      flushCall = null;
+      reject(new Error('The page did not confirm saved input. Try again.'));
+    }, 20000);
+    flushCall = {
+      id: requestId,
+      finish(params) {
+        clearTimeout(timer);
+        flushCall = null;
+        if (params.error) reject(new Error(params.error));
+        else resolve();
+      },
+    };
   });
-  const reply = session.replies.at(-1);
-  const last = session.events.at(-1);
-  $('activity').hidden = !reply && !last;
-  $('activity').textContent =
-    reply && (!last || reply.at >= last.createdAt)
-      ? `Agent: ${reply.text}`
-      : last
-        ? last.status === 'delivered'
-          ? 'Agent is working on your review.'
-          : last.status === 'completed'
-            ? 'Review completed.'
-            : 'Review queued. Waiting for your agent.'
-        : '';
+  post('flush', {}, requestId);
+  await flushed;
 }
 async function sync() {
   if (syncing) return syncing;
   syncing = (async () => {
+    const documentId = latestDocument;
     const updated = await api<SessionSnapshot>();
+    if (documentId && documentId !== latestDocument) return session;
     const first = !session;
     const reconnected =
       !!session && session.surface.origin !== updated.surface.origin;
     session = updated;
     $('title').textContent = session.title;
     document.title = `${session.title} · Humagent`;
-    $('presence').textContent = session.ended
-      ? 'Ended'
-      : session.agent === 'working'
-        ? 'Agent working'
-        : session.agent === 'waiting'
-          ? 'Agent listening'
-          : 'Agent idle';
     $('end').disabled = session.ended || !writable;
     $('annotate').disabled = session.ended || !writable || !bridgeReady;
     if (first) $('frame').src = session.surface.frameUrl;
@@ -404,13 +397,13 @@ async function sync() {
     $('update').hidden =
       !reconnected && (!loadedRevision || loadedRevision === session.revision);
     if (session.ended) post('ended');
-    renderHistory();
+    renderStatus();
     render();
     return session;
   })()
     .catch((e) => {
       error(errorMessage(e));
-      $('presence').textContent = 'Disconnected';
+      $('bridge-status').textContent = 'Disconnected';
       throw e;
     })
     .finally(() => {
@@ -434,8 +427,10 @@ $('send').onclick = async () => {
         'Save the overall instruction before sending. Edit it to retry browser storage.',
       );
     await sync();
-    if (!$('edit-form').hidden)
-      throw new Error('Save or cancel your feedback edit before sending.');
+    await flushPage();
+    await sync();
+    if (editorDirty)
+      throw new Error('Save or cancel your feedback before sending.');
     if (!bridgeReady || loadedRevision !== session.revision)
       throw new Error('Refresh and inspect stale feedback before sending.');
     const clientId = review.begin(loadedRevision);
@@ -450,6 +445,7 @@ $('message').oninput = () => {
     unsavedMessage = false;
     review.setMessage($('message').value, loadedRevision ?? null);
     $('draft-status').textContent = 'Saved in this browser.';
+    resizeMessage();
   } catch (e) {
     unsavedMessage = true;
     $('send').disabled = true;
@@ -470,46 +466,24 @@ $('close-tray').onclick = () => {
   openTray(false);
   $('toggle-review').focus();
 };
-$('annotate').onclick = () => {
+$('take-over').onclick = () => location.reload();
+$('annotate').onclick = (event) => {
   try {
     canWrite();
     $('frame').focus();
-    post('pick');
+    post('annotate', { enabled: !annotating, keyboard: event.detail === 0 });
   } catch (e) {
     error(errorMessage(e));
   }
 };
 $('refresh').onclick = async () => {
   try {
-    if (bridgeReady) {
-      const requestId = crypto.randomUUID();
-      const flushed = new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          flushCall = null;
-          reject(
-            new Error(
-              'The page did not confirm saved form values. Refresh was cancelled.',
-            ),
-          );
-        }, 20000);
-        flushCall = {
-          id: requestId,
-          finish(params) {
-            clearTimeout(timer);
-            flushCall = null;
-            if (params.error) reject(new Error(params.error));
-            else resolve();
-          },
-        };
-      });
-      post('flush', {}, requestId);
-      await flushed;
-    }
+    if (bridgeReady) await flushPage();
     await sync();
     const reloadInPlace = bridgeReady;
     bridgeReady = false;
     $('connecting').hidden = false;
-    $('bridge-status').textContent = 'Bridge connecting';
+    $('bridge-status').textContent = 'Connecting';
     if (reloadInPlace) post('reload');
     else $('frame').src = session.surface.frameUrl;
   } catch (e) {
@@ -526,19 +500,8 @@ $('end').onclick = async () => {
     error(errorMessage(e));
   }
 };
-$('wait-command').textContent = `humagent wait ${id} --timeout 50 --lease 600`;
-$('copy-command').onclick = async () => {
-  try {
-    await navigator.clipboard.writeText($('wait-command').textContent || '');
-    $('copy-command').textContent = 'Copied';
-  } catch {
-    error('Select and copy the command manually.');
-  }
-};
-$('take-over').onclick = () => location.reload();
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
-    $('edit-form').hidden = true;
     openTray(false);
     $('toggle-review').focus();
   }
@@ -562,13 +525,26 @@ window.addEventListener('message', async (event) => {
     return;
   const msg = event.data as PageMessage;
   if (msg.method === 'hello') {
+    if (latestDocument !== msg.documentId) {
+      editorDirty = false;
+      mutations.clear();
+    }
     latestDocument = msg.documentId;
     if (writable) {
       let documentId = msg.documentId;
       try {
         for (;;) {
-          await api('surface', 'POST', { documentId });
-          if (documentId === latestDocument) break;
+          const activated = await api<Omit<SessionSnapshot, 'surface'>>(
+            'surface',
+            'POST',
+            {
+              documentId,
+            },
+          );
+          if (documentId === latestDocument) {
+            session = { ...session, ...activated };
+            break;
+          }
           documentId = latestDocument;
         }
       } catch (e) {
@@ -587,11 +563,14 @@ window.addEventListener('message', async (event) => {
       state: session.state,
       stateVersion: session.stateVersion,
       ended: session.ended,
-      drafts: review?.snapshot().drafts || [],
+      ...presentation(),
+      annotating,
     });
     void sync().catch(() => {});
     return;
   }
+  if (msg.documentId !== latestDocument || msg.revision !== loadedRevision)
+    return;
   if (msg.method === 'flushed') {
     if (flushCall?.id === msg.id) flushCall.finish(msg.params);
     return;
@@ -600,8 +579,15 @@ window.addEventListener('message', async (event) => {
     error(String(msg.params?.message || ''));
     return;
   }
-  if (msg.method === 'pickerDone') {
-    $('annotate').focus();
+  if (msg.method === 'mode') {
+    annotating = msg.params.enabled;
+    $('annotate').setAttribute('aria-pressed', String(annotating));
+    if (!annotating) $('annotate').focus();
+    return;
+  }
+  if (msg.method === 'editing') {
+    editorDirty = msg.params.dirty;
+    render();
     return;
   }
   if (msg.method === 'availability') {
@@ -610,7 +596,9 @@ window.addEventListener('message', async (event) => {
     return;
   }
   if (
-    (msg.method !== 'stage' &&
+    (msg.method !== 'edit' &&
+      msg.method !== 'remove' &&
+      msg.method !== 'stage' &&
       msg.method !== 'state' &&
       msg.method !== 'readState') ||
     typeof msg.id !== 'string'
@@ -618,11 +606,43 @@ window.addEventListener('message', async (event) => {
     return;
   try {
     canWrite();
-    let result: StageResult | StateResult;
+    let result: StageResult | StateResult | { ok: true };
     if (msg.method === 'stage') {
+      if (msg.revision !== session.revision)
+        throw new Error('Refresh the page before adding feedback.');
       result = review.stage(msg.params.item, msg.revision, msg.id);
-      openTray();
+      if (msg.params.item.intent) openTray();
       error();
+    } else if (msg.method === 'edit' || msg.method === 'remove') {
+      if (msg.revision !== session.revision)
+        throw new Error('Refresh the page before changing feedback.');
+      const signature = fingerprint({ method: msg.method, params: msg.params });
+      const prior = mutations.get(msg.id);
+      if (prior && prior.signature !== signature)
+        throw new Error('Request ID was reused with different content.');
+      if (prior) result = prior.result as { ok: true };
+      else {
+        const draft = review
+          .snapshot()
+          .drafts.find((d) => d.item.id === msg.params.draftId);
+        if (!draft || draft.revision !== msg.revision)
+          throw new Error('Feedback is unavailable for this page.');
+        if (msg.method === 'remove') review.remove(draft.item.id);
+        else {
+          const item = draft.item;
+          item.comment = msg.params.comment;
+          if (msg.params.after !== undefined) {
+            if (!item.replacement)
+              throw new Error('This feedback is not a replacement.');
+            item.replacement.after = msg.params.after;
+          }
+          review.edit(item.id, item);
+        }
+        result = { ok: true };
+        mutations.set(msg.id, { signature, result });
+        if (mutations.size > 200)
+          mutations.delete(mutations.keys().next().value!);
+      }
     } else {
       const saved =
         msg.method === 'readState'
@@ -720,12 +740,7 @@ window.addEventListener('pagehide', () => {
 });
 try {
   await sync();
-  if (
-    review?.snapshot().drafts.length ||
-    review?.snapshot().outbox.length ||
-    review?.snapshot().message.text
-  )
-    openTray();
+  if (review?.snapshot().outbox.length || !writable) openTray();
   void listen();
   setInterval(() => {
     void sync().catch(() => {});

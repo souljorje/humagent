@@ -1,5 +1,10 @@
 import { context, isNativeInteractiveControl } from './targets.js';
-import type { Bootstrap } from '../shared/bridge.js';
+import { createReviewView } from './review-view.js';
+import type {
+  Bootstrap,
+  ReviewPresentation,
+  Requests,
+} from '../shared/bridge.js';
 import type { DraftItem, ReviewTarget } from '../shared/batch.js';
 import type { Availability, Draft, StageResult } from '../shared/review.js';
 import { errorMessage } from '../shared/errors.js';
@@ -7,162 +12,178 @@ import { errorMessage } from '../shared/errors.js';
 interface ReviewBridge {
   boot: Bootstrap;
   stage(item: DraftItem): Promise<StageResult>;
+  edit(params: Requests['edit']['params']): Promise<unknown>;
+  remove(draftId: string): Promise<unknown>;
   notice(message: string): void;
   availability(items: Availability[]): void;
-  done(): void;
+  mode(enabled: boolean): void;
+  editing(dirty: boolean): void;
 }
-type Controls = Record<string, HTMLElement> & {
-  note: HTMLTextAreaElement;
-  after: HTMLTextAreaElement;
-  editor: HTMLFormElement;
-  comment: HTMLButtonElement;
-  replace: HTMLButtonElement;
-  close: HTMLButtonElement;
-  cancel: HTMLButtonElement;
-  add: HTMLButtonElement;
-};
 interface Capture {
-  target: ReviewTarget &
-    ReturnType<typeof context> & {
-      url: string;
-      revision: string;
-      anchorId: string;
-      anchor?: { quote: string; prefix: string; suffix: string };
-    };
+  target: ReviewTarget;
   before: string;
+  el: Element;
+  draft?: Draft;
 }
 
-/** The page owns selection geometry. The workspace owns every persisted draft. */
-export function createPageReview({
-  boot,
-  stage,
-  notice,
-  availability,
-  done,
-}: ReviewBridge) {
-  const host = document.createElement('div');
-  host.dataset.humagentUi = '';
-  const shadow = host.attachShadow({ mode: 'open' });
-  shadow.innerHTML = `<style>
-    :host{all:initial;position:fixed;inset:0;pointer-events:none;z-index:2147483647;font:14px/1.5 system-ui,sans-serif;color:#202020}
-    *{box-sizing:border-box} [hidden]{display:none!important}
-    button,textarea{font:inherit} button{min-height:36px;padding:6px 10px;border:1px solid #d8d8d8;border-radius:5px;background:#fff;color:#202020;cursor:pointer}
-    button:hover{background:#f1f1f1} button:disabled{color:#777;cursor:default} button:focus-visible,textarea:focus-visible{outline:2px solid #202020;outline-offset:2px}
-    .primary{background:#202020;color:#fff;border-color:#202020}.primary:hover{background:#444}
-    #panel,#picker{position:fixed;pointer-events:auto;background:#fff;box-shadow:0 6px 24px #0002;border-radius:8px;padding:12px;max-height:calc(100dvh - 24px);overflow:auto;width:min(340px,calc(100vw - 24px))}
-    #picker{left:12px;top:12px} #toolbar,.actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-    .actions{margin-top:12px} textarea{display:block;width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;min-height:72px;resize:vertical;color:#202020;background:#fff}
-    label{display:block;margin-top:10px} pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;max-height:100px;overflow:auto;background:#f4f4f4;padding:8px;margin:8px 0}
-    #local-error{color:#a32222;margin:8px 0} #picker-name{display:block;margin:8px 0;overflow-wrap:anywhere} .hint{font-size:12px;color:#595959;margin:6px 0}
-    .marker{position:fixed;display:grid;place-items:center;width:23px;height:23px;border-radius:50%;background:#202020;color:#fff;font-size:12px;font-weight:600;border:2px solid white;pointer-events:none}
-    #highlight{position:fixed;border:2px solid #202020;background:#00000006;pointer-events:none}
-  </style>
-  <div id="highlight" hidden></div><div id="markers"></div>
-  <section id="picker" aria-label="Choose an element" hidden>
-    <strong>Choose an element</strong><p class="hint">Click an element, or use the arrow keys and Enter. Escape cancels.</p>
-    <span id="picker-name" aria-live="polite"></span><div class="actions"><button id="previous">Previous</button><button id="next">Next</button><button id="choose">Choose</button><button id="cancel-pick">Cancel</button></div>
-  </section>
-  <section id="panel" role="dialog" aria-label="Add feedback" hidden>
-    <div id="toolbar"><button id="comment">Comment</button><button id="replace">Suggest replacement</button><button id="close">Close</button></div>
-    <form id="editor" hidden><div id="original-wrap" hidden><p class="hint">Captured original</p><pre id="original"></pre><label>Exact replacement<textarea id="after" aria-label="Exact replacement" placeholder="Leave empty to propose deletion"></textarea></label></div>
-    <label><span id="note-label">Comment</span><textarea id="note" aria-label="Comment"></textarea></label>
-    <p id="local-error" role="alert" hidden></p><div class="actions"><button class="primary" id="add" type="submit">Add to review</button><button id="cancel" type="button">Cancel</button></div></form>
-  </section>`;
-  (document.body || document.documentElement).append(host);
-  const $ = <K extends keyof Controls>(id: K): Controls[K] =>
-    shadow.getElementById(id) as Controls[K];
-  let captured: Capture | null = null;
-  let replacement = false,
-    picking = false,
-    candidates: Element[] = [],
-    cursor = 0,
+/** The page owns geometry and temporary editors. The parent owns saved feedback. */
+export function createPageReview(bridge: ReviewBridge) {
+  const { boot, stage, notice, availability } = bridge;
+  const { $ } = createReviewView();
+  const anchors = new Map<string, Element>();
+  const bound = new Map<string, Element | null>();
+  const markers = new Map<string, HTMLButtonElement>();
+  let drafts: Draft[] = [],
+    locked = new Set<string>(),
+    writable = false;
+  let captured: Capture | null = null,
+    hovered: Element | undefined;
+  let enabled = false,
+    replacement = false,
     saving = false,
-    drafts: Draft[] = [],
-    scheduled = false,
-    lastAvailability = '';
-  const anchors = new Map<string, Element>(),
-    bound = new Map<string, Element | null>();
-  let returnFocus: Element | null;
+    scheduled = false;
+  let lastAvailability = '',
+    lastDirty = false;
+  let returnFocus: Element | null = null;
+  let candidates: Element[] = [],
+    cursor = -1;
   const ignored = (el: EventTarget | null) =>
     !(el instanceof Element) ||
     el.closest('[data-humagent-ui],script,style,head') ||
     el === document.documentElement;
   const exactText = (el: Element) => el.textContent || '';
-  const normalizedText = (el: Element) => context(el).text;
-  const nativeEvent = (event: Event) =>
-    event.composedPath().some(isNativeInteractiveControl);
-  function flush() {
-    if (
-      saving ||
-      (!$('editor').hidden &&
-        ($('note').value || $('after').value || replacement))
-    )
-      throw new Error('Add or cancel your current feedback before continuing.');
+  function matchesTarget(el: Element, target: ReviewTarget) {
+    const current = context(el);
+    return (
+      current.text === target.text &&
+      (target.id === undefined || current.id === String(target.id)) &&
+      JSON.stringify(current.shadowPath || []) ===
+        JSON.stringify(target.shadowPath || [])
+    );
   }
-  function canReplaceCapture() {
+  const isEditor = () => !$('panel').hidden;
+  const mutable = () =>
+    writable && (!captured?.draft || !locked.has(captured.draft.item.id));
+  function changed() {
+    if (!captured || !isEditor()) return false;
+    return captured.draft
+      ? $('note').value !== (captured.draft.item.comment || '') ||
+          (replacement &&
+            $('after').value !== captured.draft.item.replacement?.after)
+      : !!$('note').value || replacement;
+  }
+  function updateEditor() {
+    const dirty = saving || changed();
+    if (lastDirty !== dirty) {
+      lastDirty = dirty;
+      bridge.editing(dirty);
+    }
+    const valid = replacement || !!$('note').value.trim();
+    $('confirm').disabled = saving || !mutable() || !valid;
+    $('save').disabled =
+      saving || !mutable() || !valid || (!!captured?.draft && !changed());
+    $('remove').disabled = saving || !mutable();
+    $('note').readOnly = $('after').readOnly = saving || !mutable();
+    $('editor-status').hidden = mutable();
+    $('editor-status').textContent = locked.has(captured?.draft?.item.id || '')
+      ? 'Awaiting confirmation'
+      : 'Read only';
+    for (const textarea of [$('note'), $('after')]) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(160, textarea.scrollHeight)}px`;
+    }
+    schedule();
+  }
+  function flush() {
+    if (saving || changed())
+      throw new Error('Save or cancel your feedback before continuing.');
+  }
+  function canChange() {
     try {
       flush();
       return true;
     } catch (error) {
       notice(errorMessage(error));
+      $('note').focus();
       return false;
     }
   }
-  function highlight(el: Element | undefined) {
-    if (!el?.isConnected) {
-      $('highlight').hidden = true;
-      return;
-    }
-    const rect = el.getBoundingClientRect();
-    Object.assign($('highlight').style, {
-      left: `${rect.left}px`,
-      top: `${rect.top}px`,
-      width: `${rect.width}px`,
-      height: `${rect.height}px`,
-    });
-    $('highlight').hidden = false;
-  }
-  function close() {
-    if (saving) return;
-    $('panel').hidden = true;
-    $('editor').hidden = true;
+  function close(force = false) {
+    if (saving && !force) return;
+    $('panel').hidden = $('selection-menu').hidden = true;
     if (
       captured &&
-      !drafts.some(
-        (draft) => draft.item.target?.anchorId === captured!.target.anchorId,
-      )
+      !drafts.some((d) => d.item.target?.anchorId === captured!.target.anchorId)
     )
-      anchors.delete(captured.target.anchorId);
+      anchors.delete(String(captured.target.anchorId));
     captured = null;
+    hovered = undefined;
     if (
       returnFocus?.isConnected &&
       'focus' in returnFocus &&
       typeof returnFocus.focus === 'function'
     )
       returnFocus.focus({ preventScroll: true });
-  }
-  function fitPanel() {
-    const rect = $('panel').getBoundingClientRect();
-    $('panel').style.top =
-      `${Math.max(12, Math.min(rect.top, innerHeight - rect.height - 12))}px`;
-    $('panel').style.left =
-      `${Math.max(12, Math.min(rect.left, innerWidth - rect.width - 12))}px`;
+    updateEditor();
   }
   function cancel() {
-    picking = false;
-    $('picker').hidden = true;
-    $('highlight').hidden = true;
     close();
-    done();
+  }
+  function setMode(value: boolean, keyboard = false) {
+    if (!canChange()) {
+      bridge.mode(enabled);
+      return;
+    }
+    close();
+    enabled = value && writable;
+    bridge.mode(enabled);
+    $('keyboard-hint').hidden = !enabled || !keyboard;
+    if (enabled && keyboard) {
+      candidates = [
+        ...document.querySelectorAll(
+          'h1,h2,h3,h4,p,li,td,th,img,a,button,input,select,textarea,label,[data-humagent-id],[role]',
+        ),
+      ]
+        .filter((el) => !ignored(el) && el.getClientRects().length)
+        .slice(0, 2000);
+      cursor = -1;
+      cursorAt(1);
+    }
+    schedule();
+  }
+  function showEditor(asReplacement = false) {
+    if (!captured) return;
+    replacement = asReplacement;
+    $('selection-menu').hidden = true;
+    $('panel').hidden = false;
+    const existing = captured.draft?.item;
+    $('note').value = existing?.comment || '';
+    $('after').value = existing?.replacement?.after || '';
+    $('original').textContent = captured.before;
+    $('original').hidden = $('after').hidden = !replacement;
+    $('note').placeholder = replacement
+      ? 'Comment (optional)'
+      : 'Leave a comment…';
+    $('confirm').hidden = !!existing || replacement;
+    $('actions').hidden = !existing && !replacement;
+    $('remove').hidden = !existing;
+    $('save').textContent = existing ? 'Save' : 'Add replacement';
+    $('local-error').hidden = true;
+    updateEditor();
+    position();
+    (replacement ? $('after') : $('note')).focus({ preventScroll: true });
   }
   function show(el: EventTarget | null, range?: Range) {
-    if (!(el instanceof Element) || ignored(el) || !canReplaceCapture()) return;
+    if (!(el instanceof Element) || ignored(el) || !writable || !canChange())
+      return;
     const before = range ? range.toString() : exactText(el);
     if (before.length > 50000) {
       notice('Select a smaller section (maximum 50,000 characters).');
       return;
     }
-    const target: Capture['target'] = {
+    close();
+    returnFocus = document.activeElement;
+    const target: ReviewTarget = {
       ...context(el),
       url: boot.sourceUrl,
       revision: boot.revision,
@@ -181,39 +202,42 @@ export function createPageReview({
         suffix: suffix.toString().slice(0, 32),
       };
     }
-    anchors.set(target.anchorId, el);
-    const allText = exactText(el);
-    const uniqueQuote =
-      !!before.trim() &&
-      allText.indexOf(before) === allText.lastIndexOf(before) &&
-      allText.includes(before);
-    if (captured) anchors.delete(captured.target.anchorId);
-    captured = { target, before };
-    replacement = false;
-    returnFocus = document.activeElement;
-    const rect = range
-      ? range.getBoundingClientRect()
-      : el.getBoundingClientRect();
-    $('panel').hidden = false;
-    $('editor').hidden = true;
-    $('note').value = '';
-    $('after').value = '';
-    $('replace').disabled =
-      isNativeInteractiveControl(el) ||
-      !!el.querySelector(
-        'a[href],button,input,select,textarea,[contenteditable]',
-      ) ||
-      !uniqueQuote ||
-      el === document.body;
-    $('replace').title = $('replace').disabled
-      ? 'Select unambiguous text outside interactive controls.'
-      : '';
-    const width = Math.min(340, innerWidth - 24);
-    Object.assign($('panel').style, {
-      left: `${Math.max(12, Math.min(rect.left, innerWidth - width - 12))}px`,
-      top: `${Math.max(12, Math.min(rect.bottom + 8, innerHeight - 220))}px`,
-    });
-    $('comment').focus({ preventScroll: true });
+    anchors.set(String(target.anchorId), el);
+    watchRoots(el);
+    captured = { target, before, el };
+    if (range) {
+      $('selection-menu').hidden = false;
+      const text = exactText(el);
+      $('replace').disabled =
+        isNativeInteractiveControl(el) ||
+        !!el.querySelector(
+          'a[href],button,input,select,textarea,[contenteditable]',
+        ) ||
+        text.indexOf(before) !== text.lastIndexOf(before);
+      position();
+      $('comment').focus({ preventScroll: true });
+    } else showEditor();
+  }
+  function edit(draftId: string) {
+    const draft = drafts.find((d) => d.item.id === draftId);
+    if (!draft || !canChange()) return;
+    const el = resolve(draft);
+    if (!el) {
+      notice(
+        'Target unavailable. Inspect or remove this feedback in pending items.',
+      );
+      return;
+    }
+    close();
+    returnFocus = markers.get(draftId) || document.activeElement;
+    captured = {
+      target: draft.item.target!,
+      before: draft.item.replacement?.before || exactText(el),
+      el,
+      draft,
+    };
+    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    showEditor(!!draft.item.replacement);
   }
   function selectedText() {
     const selection = document.getSelection();
@@ -224,49 +248,43 @@ export function createPageReview({
       !selection.toString().trim()
     )
       return false;
-    const range = selection.getRangeAt(0).cloneRange();
-    const node = range.commonAncestorContainer;
+    const range = selection.getRangeAt(0).cloneRange(),
+      node = range.commonAncestorContainer;
     const el = node instanceof Element ? node : node.parentElement;
     if (ignored(el) || isNativeInteractiveControl(el)) return false;
     show(el, range);
     return true;
   }
-  for (const [id, replace] of [
-    ['comment', false],
-    ['replace', true],
-  ] as const)
-    $(id).onclick = () => {
-      if (!captured) return;
-      replacement = replace;
-      $('editor').hidden = false;
-      $('original-wrap').hidden = !replace;
-      $('original').textContent = captured.before;
-      $('note-label').textContent = replace ? 'Comment (optional)' : 'Comment';
-      $('local-error').hidden = true;
-      (replace ? $('after') : $('note')).focus();
-      fitPanel();
-    };
-  $('close').onclick = close;
-  $('cancel').onclick = close;
-  $('editor').onsubmit = async (event) => {
-    event.preventDefault();
-    if (!captured) return;
-    const item = {
-      target: captured.target,
-      ...(replacement
-        ? { replacement: { before: captured.before, after: $('after').value } }
-        : {}),
-      ...($('note').value ? { comment: $('note').value } : {}),
-    };
+  $('comment').onclick = () => showEditor();
+  $('replace').onclick = () => showEditor(true);
+  $('cancel').onclick = cancel;
+  $('note').oninput = $('after').oninput = updateEditor;
+  async function save(remove = false) {
+    if (!captured || saving || !mutable()) return;
+    const current = captured;
     saving = true;
-    const disabled = [
-      ...shadow.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement>(
-        '#panel button,#panel textarea',
-      ),
-    ].map((el) => [el, el.disabled] as const);
-    for (const [el] of disabled) el.disabled = true;
+    updateEditor();
     try {
-      await stage(item);
+      if (remove && current.draft) await bridge.remove(current.draft.item.id);
+      else if (current.draft)
+        await bridge.edit({
+          draftId: current.draft.item.id,
+          comment: $('note').value,
+          ...(replacement ? { after: $('after').value } : {}),
+        });
+      else
+        await stage({
+          target: current.target,
+          ...($('note').value ? { comment: $('note').value } : {}),
+          ...(replacement
+            ? {
+                replacement: {
+                  before: current.before,
+                  after: $('after').value,
+                },
+              }
+            : {}),
+        });
       saving = false;
       close();
     } catch (error) {
@@ -274,71 +292,112 @@ export function createPageReview({
       $('local-error').hidden = false;
     } finally {
       saving = false;
-      for (const [el, previous] of disabled) el.disabled = previous;
+      updateEditor();
     }
-  };
-  document.addEventListener('mouseup', (event) => {
-    if (ignored(event.target) || picking || nativeEvent(event)) return;
-    setTimeout(selectedText, 0);
-  });
-  document.addEventListener('dblclick', (event) => {
-    if (!picking && !ignored(event.target) && !nativeEvent(event)) {
-      if (!selectedText()) show(event.target);
-    }
-  });
-  document.addEventListener('contextmenu', (event) => {
-    if (event.shiftKey || ignored(event.target) || nativeEvent(event)) return;
+  }
+  $('editor').onsubmit = (event) => {
     event.preventDefault();
-    if (!selectedText()) show(event.target);
+    if (!($('confirm').hidden ? $('save').disabled : $('confirm').disabled))
+      void save();
+  };
+  $('remove').onclick = () => void save(true);
+  document.addEventListener(
+    'pointermove',
+    (event) => {
+      if (!enabled || captured || ignored(event.target)) return;
+      hovered = event
+        .composedPath()
+        .find((item) => item instanceof Element && !ignored(item)) as
+        | Element
+        | undefined;
+      schedule();
+    },
+    { passive: true },
+  );
+  document.addEventListener('pointerleave', () => {
+    if (!captured) {
+      hovered = undefined;
+      schedule();
+    }
   });
   document.addEventListener(
-    'click',
+    'pointerdown',
     (event) => {
-      if (!picking || ignored(event.target)) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      picking = false;
-      $('picker').hidden = true;
-      $('highlight').hidden = true;
-      show(event.target);
+      if (
+        enabled &&
+        !ignored(event.target) &&
+        isNativeInteractiveControl(event.target)
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
     },
     true,
   );
+  document.addEventListener(
+    'click',
+    (event) => {
+      if (ignored(event.target)) return;
+      if (!enabled) {
+        if (!changed()) close();
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const selection = document.getSelection();
+      if (selection && !selection.isCollapsed && selection.toString().trim())
+        return;
+      show(
+        event.composedPath().find((item) => item instanceof Element) ||
+          event.target,
+      );
+    },
+    true,
+  );
+  document.addEventListener('mouseup', (event) => {
+    if (
+      enabled &&
+      !ignored(event.target) &&
+      !isNativeInteractiveControl(event.target)
+    )
+      setTimeout(selectedText, 0);
+  });
+  document.addEventListener('keyup', (event) => {
+    if (enabled && event.shiftKey && !ignored(event.target)) selectedText();
+  });
   function cursorAt(offset: number) {
     if (!candidates.length) return;
     cursor = (cursor + offset + candidates.length) % candidates.length;
-    const el = candidates[cursor]!;
-    el.scrollIntoView({ block: 'nearest' });
-    highlight(el);
-    $('picker-name').textContent =
-      `${cursor + 1} of ${candidates.length}: ${el.getAttribute('aria-label') || normalizedText(el) || el.tagName.toLowerCase()}`;
+    hovered = candidates[cursor];
+    hovered?.scrollIntoView({ block: 'nearest' });
+    $('keyboard-hint').textContent =
+      `Element ${cursor + 1} of ${candidates.length}. Arrow keys move. Enter comments. Escape exits.`;
+    schedule();
   }
-  function choose() {
-    const el = candidates[cursor];
-    picking = false;
-    $('picker').hidden = true;
-    $('highlight').hidden = true;
-    if (el) show(el);
-  }
-  $('previous').onclick = () => cursorAt(-1);
-  $('next').onclick = () => cursorAt(1);
-  $('choose').onclick = choose;
-  $('cancel-pick').onclick = cancel;
   document.addEventListener(
     'keydown',
     (event) => {
-      if (event.key === 'Escape' && (picking || !$('panel').hidden)) {
-        event.preventDefault();
-        cancel();
-      } else if (
-        picking &&
+      if (event.key === 'Escape') {
+        if (captured) {
+          event.preventDefault();
+          cancel();
+        } else if (enabled) {
+          event.preventDefault();
+          setMode(false);
+        }
+        return;
+      }
+      if (!enabled || captured || ignored(event.target)) return;
+      if (
         ['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft'].includes(event.key)
       ) {
         event.preventDefault();
-        cursorAt(['ArrowDown', 'ArrowRight'].includes(event.key) ? 1 : -1);
-      } else if (picking && event.key === 'Enter' && event.target !== host) {
+        if (!candidates.length) setMode(true, true);
+        else cursorAt(['ArrowDown', 'ArrowRight'].includes(event.key) ? 1 : -1);
+        $('keyboard-hint').hidden = false;
+      } else if (event.key === 'Enter' && hovered) {
         event.preventDefault();
-        choose();
+        show(hovered);
       }
     },
     true,
@@ -368,11 +427,21 @@ export function createPageReview({
     }
     if (!el) {
       try {
+        let root: Document | ShadowRoot = document;
+        if (Array.isArray(target.shadowPath)) {
+          for (const selector of target.shadowPath) {
+            const hosts: NodeListOf<Element> = root.querySelectorAll(
+              String(selector),
+            );
+            if (hosts.length !== 1 || !hosts[0]!.shadowRoot) return null;
+            root = hosts[0]!.shadowRoot!;
+          }
+        }
         const matches = target.id
-          ? document.querySelectorAll(
+          ? root.querySelectorAll(
               `[data-humagent-id="${CSS.escape(String(target.id))}"],#${CSS.escape(String(target.id))}`,
             )
-          : document.querySelectorAll(String(target.selector || ''));
+          : root.querySelectorAll(String(target.selector || ''));
         if (matches.length !== 1) return null;
         el = matches[0];
       } catch {
@@ -380,51 +449,121 @@ export function createPageReview({
       }
     }
     if (!el || ignored(el)) return null;
-    const current = context(el);
-    if (
-      current.text !== target.text ||
-      (target.id !== undefined && current.id !== String(target.id))
-    )
-      return null;
+    if (!matchesTarget(el, target)) return null;
     if (anchor && !exactText(el).includes(String(quote))) return null;
     bound.set(draft.item.id, el);
+    watchRoots(el);
     return el;
+  }
+
+  function place(el: HTMLElement, x: number, y: number) {
+    el.style.transform = `translate(${Math.round(x)}px,${Math.round(y)}px)`;
   }
   function position() {
     scheduled = false;
-    $('markers').replaceChildren();
     const available: Availability[] = [];
+    const layouts: {
+      draft: Draft;
+      index: number;
+      rect: DOMRect;
+      offset: number;
+    }[] = [];
+    const offsets = new Map<Element, number>();
     drafts.forEach((draft, index) => {
       if (!draft.item.target) return;
       const el = resolve(draft);
       available.push({ id: draft.item.id, available: !!el });
       if (!el) return;
-      const rect = el.getBoundingClientRect();
+      const rect = el.getBoundingClientRect(),
+        offset = offsets.get(el) || 0;
+      offsets.set(el, offset + 1);
       if (
-        !rect.width ||
-        !rect.height ||
-        rect.bottom < 0 ||
-        rect.top > innerHeight
+        rect.width &&
+        rect.height &&
+        rect.bottom >= 0 &&
+        rect.top <= innerHeight
       )
-        return;
-      const marker = document.createElement('span');
-      marker.className = 'marker';
-      marker.dataset.draftId = draft.item.id;
-      marker.textContent = String(index + 1);
-      marker.setAttribute('aria-hidden', 'true');
-      Object.assign(marker.style, {
-        left: `${Math.max(0, Math.min(rect.left - 11, innerWidth - 23))}px`,
-        top: `${Math.max(0, Math.min(rect.top - 11, innerHeight - 23))}px`,
-      });
-      $('markers').append(marker);
+        layouts.push({ draft, index, rect, offset });
     });
+    const target = captured
+      ? matchesTarget(captured.el, captured.target)
+        ? captured.el
+        : undefined
+      : hovered;
+    const highlight = target?.isConnected
+      ? target.getBoundingClientRect()
+      : null;
+    const panel = !$('panel').hidden
+      ? $('panel')
+      : !$('selection-menu').hidden
+        ? $('selection-menu')
+        : null;
+    const panelRect = panel?.getBoundingClientRect();
+    const visible = new Set(layouts.map((layout) => layout.draft.item.id));
+    for (const [id, marker] of markers) marker.hidden = !visible.has(id);
+    for (const { draft, index, rect, offset } of layouts) {
+      let marker = markers.get(draft.item.id);
+      if (!marker) {
+        marker = document.createElement('button');
+        marker.className = 'marker';
+        marker.dataset.draftId = draft.item.id;
+        marker.onclick = () => edit(draft.item.id);
+        markers.set(draft.item.id, marker);
+        $('markers').append(marker);
+      }
+      marker.hidden = false;
+      marker.textContent = String(index + 1);
+      marker.setAttribute(
+        'aria-label',
+        `Comment ${index + 1}: ${draft.item.comment || 'Suggested replacement'}`,
+      );
+      marker.setAttribute(
+        'aria-expanded',
+        String(captured?.draft?.item.id === draft.item.id),
+      );
+      place(
+        marker,
+        Math.max(6, Math.min(rect.right - 16 - offset * 38, innerWidth - 38)),
+        Math.max(6, Math.min(rect.top - 16, innerHeight - 38)),
+      );
+    }
+    $('highlight').hidden = !highlight;
+    if (highlight) {
+      place($('highlight'), highlight.left, highlight.top);
+      $('highlight').style.width = `${highlight.width}px`;
+      $('highlight').style.height = `${highlight.height}px`;
+    }
+    if (panel && panelRect && highlight) {
+      const viewportHeight = window.visualViewport?.height || innerHeight;
+      const fitsRight =
+        highlight.right + 10 + panelRect.width <= innerWidth - 12;
+      const fitsLeft = highlight.left - 10 - panelRect.width >= 12;
+      const x = fitsRight
+        ? highlight.right + 10
+        : fitsLeft
+          ? highlight.left - panelRect.width - 10
+          : Math.max(
+              12,
+              Math.min(highlight.left, innerWidth - panelRect.width - 12),
+            );
+      const preferredY =
+        fitsRight || fitsLeft
+          ? highlight.top - 12
+          : highlight.bottom + 10 + panelRect.height <= viewportHeight - 12
+            ? highlight.bottom + 10
+            : highlight.top - panelRect.height - 10;
+      const y = Math.max(
+        12,
+        Math.min(preferredY, viewportHeight - panelRect.height - 12),
+      );
+      panel.style.left = `${Math.round(x)}px`;
+      panel.style.top = `${Math.round(y)}px`;
+    }
     const signature = JSON.stringify(available);
     if (signature !== lastAvailability) {
       lastAvailability = signature;
       availability(available);
     }
-    if (picking) highlight(candidates[cursor]);
-    if (!$('panel').hidden) fitPanel();
   }
   function schedule() {
     if (!scheduled) {
@@ -432,8 +571,12 @@ export function createPageReview({
       requestAnimationFrame(position);
     }
   }
-  document.addEventListener('scroll', schedule, true);
+  document.addEventListener('scroll', schedule, {
+    capture: true,
+    passive: true,
+  });
   window.addEventListener('resize', schedule);
+  window.visualViewport?.addEventListener('resize', schedule);
   window.addEventListener('beforeunload', (event) => {
     try {
       flush();
@@ -443,47 +586,57 @@ export function createPageReview({
     }
   });
   const observer = new MutationObserver(schedule);
-  observer.observe(document.body || document.documentElement, {
+  const observed = new WeakSet<ShadowRoot>();
+  const observation = {
     subtree: true,
     childList: true,
     characterData: true,
     attributes: true,
     attributeFilter: ['class', 'style', 'id', 'data-humagent-id', 'hidden'],
-  });
+  };
+  observer.observe(document.body || document.documentElement, observation);
+  function watchRoots(el: Element) {
+    let root = el.getRootNode();
+    while (root instanceof ShadowRoot) {
+      if (!observed.has(root)) {
+        observer.observe(root, observation);
+        observed.add(root);
+      }
+      root = root.host.getRootNode();
+    }
+  }
   return {
-    cancel,
     flush,
-    setDrafts(items: Draft[]) {
-      drafts = items;
-      const ids = new Set(items.map((draft) => draft.item.id));
+    edit,
+    setMode,
+    end() {
+      enabled = false;
+      writable = false;
+      bridge.mode(false);
+      updateEditor();
+      schedule();
+    },
+    setDrafts(presentation: ReviewPresentation) {
+      drafts = presentation.items;
+      locked = new Set(presentation.locked);
+      writable = presentation.writable;
+      const ids = new Set(drafts.map((draft) => draft.item.id));
       const references = new Set(
-        items.map((draft) => draft.item.target?.anchorId),
+        drafts.map((draft) => draft.item.target?.anchorId),
       );
       for (const id of bound.keys()) if (!ids.has(id)) bound.delete(id);
+      for (const [id, marker] of markers)
+        if (!ids.has(id)) {
+          marker.remove();
+          markers.delete(id);
+        }
       for (const id of anchors.keys())
         if (!references.has(id) && id !== captured?.target.anchorId)
           anchors.delete(id);
+      if (captured?.draft && !ids.has(captured.draft.item.id)) close(true);
+      if (!writable) enabled = false;
+      updateEditor();
       schedule();
-    },
-    pick() {
-      if (!canReplaceCapture()) return;
-      close();
-      candidates = [
-        ...document.querySelectorAll(
-          'h1,h2,h3,h4,p,li,td,th,img,a,button,input,select,textarea,label,[data-humagent-id],[role]',
-        ),
-      ]
-        .filter((el) => !ignored(el) && el.getClientRects().length)
-        .slice(0, 2000);
-      if (!candidates.length) {
-        notice('No visible targets are available.');
-        return;
-      }
-      picking = true;
-      cursor = 0;
-      $('picker').hidden = false;
-      cursorAt(0);
-      $('choose').focus();
     },
   };
 }

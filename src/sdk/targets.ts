@@ -37,7 +37,14 @@ export function isNativeInteractiveControl(el: EventTarget | null): boolean {
   return true;
 }
 export function context(el: Element) {
+  const shadowPath: string[] = [];
+  let root = el.getRootNode();
+  while (root instanceof ShadowRoot) {
+    shadowPath.unshift(selector(root.host));
+    root = root.host.getRootNode();
+  }
   return {
+    ...(shadowPath.length ? { shadowPath } : {}),
     id: el.getAttribute('data-humagent-id') || el.id || '',
     selector: selector(el),
     tag: el.tagName.toLowerCase(),

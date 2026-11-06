@@ -214,18 +214,6 @@ export function createReview(
         next.drafts = next.drafts.filter((d) => d.item.id !== id);
       });
     },
-    move(id: string, offset: number) {
-      mutable(id);
-      commit((next) => {
-        const index = next.drafts.findIndex((d) => d.item.id === id);
-        const position = Math.max(
-          0,
-          Math.min(next.drafts.length - 1, index + offset),
-        );
-        const [draft] = next.drafts.splice(index, 1);
-        next.drafts.splice(position, 0, draft!);
-      });
-    },
     release(clientId: string) {
       const entry = state.outbox.find((e) => e.batch.clientId === clientId);
       if (!entry?.rejected || entry.uncertain || flights.has(clientId))

@@ -8,101 +8,78 @@
     <script type="module" src="/ui/app.js"></script>
   </head>
   <body>
-    <header class="topbar">
-      <strong class="brand">Humagent</strong><span id="title">Connecting…</span>
-      <span id="presence" role="status">Connecting</span>
-      <button id="refresh">Refresh page</button
-      ><button id="annotate">Annotate</button>
-      <button id="toggle-review" aria-expanded="false" aria-controls="tray">
-        Review (0)
-      </button>
-      <button id="end" class="quiet">End session</button>
-    </header>
-    <p id="error" role="alert" hidden></p>
-    <p id="readonly" class="banner" hidden>
-      This review is open in another tab. Close that tab, then
-      <button id="take-over">reload here</button>.
-    </p>
-    <p id="update" class="banner" hidden>
-      The page changed. Refresh and inspect stale feedback before sending.
-    </p>
-    <main>
-      <section class="canvas" aria-label="Page under review">
-        <iframe
-          id="frame"
-          title="Page under review"
-          allow="clipboard-write"
-        ></iframe>
-        <div id="connecting" role="status">Connecting to the page…</div>
-        <footer>
-          <span>Select text to comment or suggest a replacement.</span
-          ><span id="bridge-status">Bridge connecting</span>
-        </footer>
-      </section>
-      <aside id="tray" aria-label="Review" hidden>
+    <main aria-label="Page under review">
+      <iframe
+        id="frame"
+        title="Page under review"
+        allow="clipboard-write"
+      ></iframe>
+      <div id="connecting" role="status">Connecting to the page…</div>
+    </main>
+    <section id="review-bar" aria-label="Review controls">
+      <section id="tray" aria-label="Pending items" hidden>
         <div class="tray-head">
-          <h1>Review</h1>
-          <button id="close-tray" aria-label="Close review">Close</button>
+          <strong id="title">Pending items</strong
+          ><button
+            id="close-tray"
+            class="icon"
+            aria-label="Close pending items"
+          ></button>
         </div>
+        <p id="error" role="alert" hidden></p>
+        <p id="readonly" role="status" hidden>
+          This review is open in another tab. Close that tab, then
+          <button id="take-over">reload here</button>.
+        </p>
+        <p id="update" role="status" hidden>
+          The page changed. Refresh and inspect stale feedback before sending.
+        </p>
         <div class="tray-content">
           <p id="empty">
-            No feedback yet. Select text on the page or use Annotate to choose
-            an element.
+            No pending feedback. Turn on commenting to choose an element.
           </p>
           <ol id="drafts" aria-label="Draft feedback"></ol>
-          <form id="edit-form" hidden>
-            <h2>Edit feedback</h2>
-            <pre id="edit-original" hidden></pre>
-            <label
-              >Comment<textarea id="edit-comment" rows="2"></textarea>
-            </label>
-            <label id="edit-replacement" hidden
-              >Exact replacement<textarea id="edit-after" rows="3"></textarea>
-            </label>
-            <label id="edit-structured" hidden
-              >Decision values (JSON)<textarea
-                id="edit-values"
-                rows="4"
-              ></textarea>
-            </label>
-            <div class="actions">
-              <button type="submit">Save feedback</button
-              ><button type="button" id="cancel-edit">Cancel</button>
-            </div>
-          </form>
-          <label for="message"
-            >Overall instruction <span class="muted">(optional)</span></label
-          >
-          <textarea
-            id="message"
-            rows="3"
-            placeholder="What should your agent do with this feedback?"
-          ></textarea>
-          <p id="message-stale" class="warning" hidden>
+          <p id="message-stale" hidden>
             This instruction belongs to another revision. Inspect the page, then
             <button id="verify-message">Use for this page</button>.
           </p>
-          <p id="draft-status" class="muted" role="status">
-            Drafts stay in this browser.
-          </p>
-          <button id="send" class="primary" disabled>Send all (0)</button>
           <section id="outbox" aria-label="Unconfirmed batches" hidden>
             <h2>Awaiting confirmation</h2>
             <div id="pending-batches"></div>
           </section>
-          <p id="activity" role="status" hidden></p>
-          <details id="history">
-            <summary>Activity and agent replies</summary>
-            <div id="transcript"></div>
-          </details>
-          <details id="agent-help">
-            <summary>Connect your agent</summary>
-            <p>Ask your agent to run:</p>
-            <code id="wait-command"></code
-            ><button id="copy-command">Copy command</button>
-          </details>
         </div>
-      </aside>
-    </main>
+        <div class="session-actions">
+          <span id="bridge-status" role="status">Connecting</span
+          ><button id="refresh">Refresh page</button
+          ><button id="end">End session</button>
+        </div>
+      </section>
+      <p id="activity" role="status" hidden></p>
+      <div class="bar-controls">
+        <button
+          id="annotate"
+          class="icon"
+          aria-label="Toggle commenting"
+          aria-pressed="false"
+          title="Toggle commenting"
+          disabled
+        ></button>
+        <textarea
+          id="message"
+          aria-label="Overall instruction"
+          rows="1"
+          maxlength="4000"
+          placeholder="Add an instruction…"
+        ></textarea>
+        <button
+          id="toggle-review"
+          aria-label="Pending items and session actions"
+          aria-expanded="false"
+          aria-controls="tray"
+        ></button>
+        <button id="send" class="primary" disabled>Send</button>
+      </div>
+      <span id="draft-status" class="sr-only" role="status"></span>
+    </section>
   </body>
 </html>

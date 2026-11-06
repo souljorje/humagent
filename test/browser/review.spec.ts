@@ -1,49 +1,229 @@
 import fs from 'node:fs';
 import { test, expect } from './fixtures.ts';
 
-test('replacement text stays protected after switching to Comment', async ({
+test('shadow-root targets survive refresh and invalidate when their identity changes', async ({
   page,
   plan: _plan,
   review,
 }) => {
-  await review.frame.locator('h1').click({ button: 'right' });
-  await review.frame
-    .getByRole('button', { name: 'Suggest replacement' })
-    .click();
-  await review.frame
-    .getByLabel('Exact replacement', { exact: true })
-    .fill('Keep this proposed wording');
-  await review.frame
-    .getByRole('button', { name: 'Comment', exact: true })
-    .click();
-  const documentId = await review.evaluate(
-    () => window.__HUMAGENT__!.documentId,
+  await page.addInitScript(() => {
+    if (window.parent === window) return;
+    document.addEventListener('DOMContentLoaded', () => {
+      const host = document.createElement('section');
+      host.id = 'shadow-target';
+      host.attachShadow({ mode: 'open' }).innerHTML =
+        '<button id="shadow-action">Shadow action</button>';
+      document.body.prepend(host);
+    });
+  });
+  await page.reload();
+  await review.ready();
+  await review.addComment('#shadow-action', 'Keep this target');
+  await page.locator('#toggle-review').click();
+  await Promise.all([
+    page.waitForEvent(
+      'framenavigated',
+      (frame) => frame.parentFrame() === page.mainFrame(),
+    ),
+    page.locator('#refresh').click(),
+  ]);
+  await review.ready();
+  await expect(review.frame.locator('.marker:visible')).toHaveCount(1);
+  await review.frame.locator('.marker').click();
+  await expect(review.frame.getByLabel('Comment', { exact: true })).toHaveValue(
+    'Keep this target',
   );
-  await page.locator('#refresh').click();
-  await expect(page.locator('#error')).toContainText('Add or cancel');
-  expect(await review.evaluate(() => window.__HUMAGENT__!.documentId)).toBe(
-    documentId,
+  await review.evaluate(() => {
+    document
+      .querySelector('#shadow-target')!
+      .shadowRoot!.querySelector('button')!.id = 'different-action';
+  });
+  await expect(review.frame.locator('.marker:visible')).toHaveCount(0);
+  await expect(review.frame.locator('#highlight')).toBeHidden();
+  expect((await review.state()).drafts[0].item.target!.id).toBe(
+    'shadow-action',
   );
-  await review.frame
-    .getByRole('button', { name: 'Suggest replacement' })
-    .click();
+});
+
+test('lost edit and delete acknowledgments do not repeat mutations', async ({
+  page,
+  plan: _plan,
+  review,
+}) => {
+  await page.addInitScript(() => {
+    let dropped = false;
+    window.addEventListener(
+      'message',
+      (event) => {
+        if (
+          !dropped &&
+          event.data?.method === 'result' &&
+          event.data.result?.ok === true
+        ) {
+          dropped = true;
+          event.stopImmediatePropagation();
+        }
+      },
+      true,
+    );
+  });
+  await page.reload();
+  await review.ready();
+  await review.addComment('h1', 'Original');
+  const id = (await review.state()).drafts[0].item.id;
+  await review.frame.locator('.marker').click();
+  await review.frame.getByLabel('Comment', { exact: true }).fill('Updated');
+  await review.frame.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(review.frame.getByRole('dialog')).toBeHidden({ timeout: 15000 });
+  expect((await review.state()).drafts).toHaveLength(1);
+  expect((await review.state()).drafts[0].item).toMatchObject({
+    id,
+    comment: 'Updated',
+  });
+  await page.reload();
+  await review.ready();
+  await review.frame.locator('.marker').click();
+  await review.frame.getByRole('button', { name: 'Delete comment' }).click();
+  await expect(page.locator('#annotate')).toBeEnabled();
+  await expect.poll(async () => (await review.state()).drafts.length).toBe(0);
+  await expect(page.locator('#error')).toBeHidden();
+});
+
+test('pending markers are read only and disappear after matching server confirmation', async ({
+  page,
+  plan,
+  review,
+}) => {
+  const pattern = `**/api/sessions/${plan.session}/events`;
+  await review.addComment('h1', 'Pending comment');
+  await page.route(pattern, async (route) => {
+    await route.fetch();
+    await route.abort();
+  });
+  await page.locator('#send').click();
+  await expect(page.locator('#error')).toBeVisible();
+  await review.frame.locator('.marker').click();
   await expect(
-    review.frame.getByLabel('Exact replacement', { exact: true }),
-  ).toHaveValue('Keep this proposed wording');
+    review.frame.getByLabel('Comment', { exact: true }),
+  ).toHaveAttribute('readonly', '');
+  await expect(
+    review.frame.getByRole('button', { name: 'Delete comment' }),
+  ).toBeDisabled();
+  await expect(
+    review.frame.getByRole('button', { name: 'Save', exact: true }),
+  ).toBeDisabled();
   await review.frame
     .getByRole('button', { name: 'Cancel', exact: true })
     .click();
+  await page.unroute(pattern);
+  await page.getByRole('button', { name: 'Retry send' }).click();
+  await expect(review.frame.locator('.marker')).toHaveCount(0);
 });
 
-test('unfinished feedback survives reselection and blocks refresh until added or cancelled', async ({
+test('old document messages cannot edit or remove current feedback', async ({
+  plan: _plan,
+  review,
+}) => {
+  await review.addComment('h1', 'Keep this');
+  const id = (await review.state()).drafts[0].item.id;
+  await review.evaluate((draftId) => {
+    const boot = window.__HUMAGENT__!;
+    for (const method of ['edit', 'remove'])
+      parent.postMessage(
+        {
+          ...boot,
+          humagent: 1,
+          documentId: 'previous-document',
+          method,
+          id: crypto.randomUUID(),
+          params: { draftId, comment: 'Wrong document' },
+        },
+        boot.parentOrigin,
+      );
+  }, id);
+  await expect(review.frame.locator('.marker')).toHaveCount(1);
+  expect((await review.state()).drafts[0].item.comment).toBe('Keep this');
+});
+
+test('editors fit viewport edges and reduced motion disables transitions', async ({
   page,
   plan: _plan,
   review,
 }) => {
-  await review.frame.locator('h1').click({ button: 'right' });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await review.addComment('h1', 'Keep the target visible');
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    await review.frame.locator('.marker').click();
+    await expect
+      .poll(async () => {
+        const panel = await review.frame.locator('#panel').boundingBox();
+        return (
+          !!panel &&
+          panel.x >= 0 &&
+          panel.y >= 0 &&
+          panel.x + panel.width <= width &&
+          panel.y + panel.height <= 844
+        );
+      })
+      .toBe(true);
+    expect(
+      await review.frame
+        .locator('#panel')
+        .evaluate((el) => getComputedStyle(el).transitionDuration),
+    ).toBe('0s');
+    const target = await review.frame.locator('h1').boundingBox();
+    const panel = await review.frame.locator('#panel').boundingBox();
+    if (width < 500)
+      expect(panel!.y).toBeGreaterThanOrEqual(target!.y + target!.height);
+    await review.frame
+      .getByRole('button', { name: 'Cancel', exact: true })
+      .click();
+  }
+});
+
+test('commenting stays enabled, hover highlights, and confirmation creates a clickable marker', async ({
+  page,
+  plan: _plan,
+  review,
+}) => {
+  await expect(page.locator('#tray')).toBeHidden();
+  await page.locator('#annotate').click();
+  await review.frame.locator('h1').hover();
+  await expect(review.frame.locator('#highlight')).toBeVisible();
+  await review.frame.locator('h1').click();
+  await expect(
+    review.frame.getByRole('button', { name: 'Add comment' }),
+  ).toBeDisabled();
   await review.frame
-    .getByRole('button', { name: 'Comment', exact: true })
-    .click();
+    .getByLabel('Comment', { exact: true })
+    .fill('Shorter heading');
+  await review.frame.getByRole('button', { name: 'Add comment' }).click();
+  await expect(page.locator('#annotate')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.locator('#tray')).toBeHidden();
+  await expect(review.frame.locator('.marker')).toHaveText('1');
+  await page.locator('#annotate').click();
+  await review.frame.locator('input[name="outcome"]').fill('Native input');
+  await review.frame.locator('.marker').click();
+  await expect(review.frame.getByLabel('Comment', { exact: true })).toHaveValue(
+    'Shorter heading',
+  );
+  await expect(
+    review.frame.getByRole('button', { name: 'Save', exact: true }),
+  ).toBeDisabled();
+});
+
+test('unfinished feedback survives reselection and blocks refresh and send', async ({
+  page,
+  plan: _plan,
+  review,
+}) => {
+  await page.locator('#message').fill('Overall instruction');
+  await page.locator('#annotate').click();
+  await review.frame.locator('h1').click();
   await review.frame
     .getByLabel('Comment', { exact: true })
     .fill('Keep this unfinished note');
@@ -51,111 +231,166 @@ test('unfinished feedback survives reselection and blocks refresh until added or
     document
       .querySelector('[data-humagent-id="brief"]')!
       .dispatchEvent(
-        new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+        new MouseEvent('click', { bubbles: true, cancelable: true }),
       ),
   );
   await expect(review.frame.getByLabel('Comment', { exact: true })).toHaveValue(
     'Keep this unfinished note',
   );
+  await expect(page.locator('#send')).toBeDisabled();
   const documentId = await review.evaluate(
     () => window.__HUMAGENT__!.documentId,
   );
   await page.locator('#refresh').click();
-  await expect(page.locator('#error')).toContainText(
-    'Add or cancel your current feedback',
-  );
+  await expect(page.locator('#error')).toContainText('Save or cancel');
   expect(await review.evaluate(() => window.__HUMAGENT__!.documentId)).toBe(
     documentId,
   );
-  await review.frame.getByRole('button', { name: 'Add to review' }).click();
-  await expect(page.locator('.draft')).toHaveCount(1);
-  expect((await review.state()).drafts[0].item.target!.id).toBe('headline');
-});
-
-test('polling and reordering preserve keyboard focus', async ({
-  page,
-  plan,
-  review,
-  workspace,
-}) => {
-  await review.addComment('h1', 'First');
-  await review.addComment('[data-humagent-id="brief"]', 'Second');
-  const first = (await review.state()).drafts[0].item.id;
-  const down = page
-    .locator(`[data-draft-id="${first}"]`)
-    .getByRole('button', { name: 'Move down' });
-  await down.focus();
-  await workspace.api(`/api/sessions/${plan.session}/reply`, 'POST', {
-    message: 'Focus check',
-  });
-  await expect(page.locator('#activity')).toContainText('Focus check');
-  await expect(down).toBeFocused();
-  const deadline = Date.now() + 3200;
+  await review.frame.getByRole('button', { name: 'Add comment' }).click();
   await expect
-    .poll(async () => {
-      await expect(down).toBeFocused();
-      return Date.now() >= deadline;
-    })
-    .toBe(true);
-  await page.keyboard.press('Enter');
-  await expect(page.locator('.draft').last()).toHaveAttribute(
-    'data-draft-id',
-    first,
-  );
-  await expect(
-    page
-      .locator('.draft')
-      .last()
-      .getByRole('button', { name: 'Edit', exact: true }),
-  ).toBeFocused();
+    .poll(async () => (await review.state()).drafts[0]?.item.target?.id)
+    .toBe('headline');
 });
 
-test('shadow controls retain native context menus', async ({
+test('native selection and context menus are untouched when commenting is off', async ({
   plan: _plan,
   review,
 }) => {
+  const results = await review.evaluate(() => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = host.attachShadow({ mode: 'open' });
+    root.innerHTML = '<input value="Native control">';
+    return [document.querySelector('h1')!, root.querySelector('input')!].map(
+      (el) => {
+        const event = new MouseEvent('contextmenu', {
+          bubbles: true,
+          composed: true,
+          cancelable: true,
+        });
+        el.dispatchEvent(event);
+        return event.defaultPrevented;
+      },
+    );
+  });
+  expect(results).toEqual([false, false]);
+  await review.frame.locator('h1').dblclick();
   expect(
-    await review.evaluate(() => {
-      const host = document.createElement('div');
-      document.body.append(host);
-      const shadow = host.attachShadow({ mode: 'open' });
-      shadow.innerHTML = '<input value="Native control">';
-      const event = new MouseEvent('contextmenu', {
-        bubbles: true,
-        composed: true,
-        cancelable: true,
-      });
-      shadow.querySelector('input')!.dispatchEvent(event);
-      return event.defaultPrevented;
-    }),
-  ).toBe(false);
+    await review.evaluate(() => document.getSelection()!.toString()),
+  ).toBeTruthy();
   await expect(review.frame.getByRole('dialog')).toBeHidden();
 });
 
-test('closing feedback restores focus to SVG controls', async ({
+test('keyboard targeting and Escape restore normal interaction', async ({
+  page,
   plan: _plan,
   review,
 }) => {
-  await review.evaluate(() => {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.id = 'svg-focus';
-    svg.setAttribute('tabindex', '0');
-    document.body.append(svg);
-    svg.focus();
-    document
-      .querySelector('h1')!
-      .dispatchEvent(
-        new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
-      );
-  });
+  await page.locator('#annotate').focus();
+  await page.keyboard.press('Enter');
+  await expect(review.frame.locator('#keyboard-hint')).toBeVisible();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
   await expect(review.frame.getByRole('dialog')).toBeVisible();
-  await review.frame
-    .getByRole('button', { name: 'Close', exact: true })
-    .click();
-  await expect(review.frame.locator('#svg-focus')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(review.frame.getByRole('dialog')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#annotate')).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await expect(page.locator('#annotate')).toBeFocused();
 });
 
-test('several comments and an exact deletion form one ordered review without mutating source', async ({
+test('commenting captures controls without activating them', async ({
+  page,
+  review,
+  app,
+}) => {
+  await review.open(app.origin + '/nested');
+  await page.locator('#annotate').click();
+  await review.frame.locator('#counter').click();
+  await expect(review.frame.locator('#counter')).toHaveText('Count: 0');
+  await review.frame.getByLabel('Comment', { exact: true }).fill('This button');
+  await review.frame.getByRole('button', { name: 'Add comment' }).click();
+  await page.locator('#annotate').click();
+  await review.frame.locator('#counter').click();
+  await expect(review.frame.locator('#counter')).toHaveText('Count: 1');
+});
+
+test('inline edits preserve IDs, cancel preserves saved content, and deletion renumbers markers', async ({
+  page,
+  plan: _plan,
+  review,
+}) => {
+  await review.addComment('h1', 'First');
+  await review.addComment('[data-humagent-id="brief"]', 'Second');
+  const ids = (await review.state()).drafts.map((d) => d.item.id);
+  await review.frame.locator(`.marker[data-draft-id="${ids[1]}"]`).click();
+  await expect(
+    review.frame.getByRole('button', { name: 'Save', exact: true }),
+  ).toBeDisabled();
+  await review.frame
+    .getByLabel('Comment', { exact: true })
+    .fill('Discard this');
+  await review.frame
+    .getByRole('button', { name: 'Cancel', exact: true })
+    .click();
+  expect((await review.state()).drafts[1].item.comment).toBe('Second');
+  await review.frame.locator(`.marker[data-draft-id="${ids[1]}"]`).click();
+  await review.frame
+    .getByLabel('Comment', { exact: true })
+    .fill('Changed second');
+  await review.frame.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect
+    .poll(async () => (await review.state()).drafts[1].item.comment)
+    .toBe('Changed second');
+  await review.frame.locator(`.marker[data-draft-id="${ids[0]}"]`).click();
+  await review.frame.getByRole('button', { name: 'Delete comment' }).click();
+  await expect(review.frame.locator('.marker')).toHaveCount(1);
+  await expect(review.frame.locator('.marker')).toHaveText('1');
+  await page.reload();
+  await review.ready();
+  expect((await review.state()).drafts[0].item.id).toBe(ids[1]);
+});
+
+for (const trigger of ['button', 'Control+Enter', 'Meta+Enter'])
+  test(`sending waits for unfinished draft edits via ${trigger}`, async ({
+    page,
+    plan,
+    review,
+    workspace,
+  }) => {
+    await review.addComment('h1', 'Original comment');
+    await review.frame.locator('.marker').click();
+    await review.frame
+      .getByLabel('Comment', { exact: true })
+      .fill('Updated comment');
+    await expect(page.locator('#send')).toBeDisabled();
+    if (trigger === 'button')
+      await page.locator('#send').dispatchEvent('click');
+    else await page.locator('#message').press(trigger);
+    expect(workspace.store.get(plan.session).events).toHaveLength(0);
+    await expect(
+      review.frame.getByLabel('Comment', { exact: true }),
+    ).toHaveValue('Updated comment');
+    expect((await review.state()).drafts[0].item.comment).toBe(
+      'Original comment',
+    );
+    const cancelled = trigger === 'button';
+    await review.frame
+      .getByRole('button', { name: cancelled ? 'Cancel' : 'Save', exact: true })
+      .click();
+    await page.locator('#send').click();
+    await expect
+      .poll(() => workspace.store.get(plan.session).events.length)
+      .toBe(1);
+    expect(
+      workspace.store.get(plan.session).events[0].payload.items[0].comment,
+    ).toBe(cancelled ? 'Original comment' : 'Updated comment');
+  });
+
+test('comments and exact deletion send in creation order without changing source', async ({
   page,
   plan,
   review,
@@ -169,16 +404,15 @@ test('several comments and an exact deletion form one ordered review without mut
     'Keep these boundaries.',
   );
   await review.replace('h1', '');
-  await expect(page.locator('.draft')).toHaveCount(3);
   await expect(review.frame.locator('.marker')).toHaveCount(3);
-  expect(workspace.store.get(plan.session).events).toHaveLength(0);
   await page.locator('#message').fill('Apply these together.');
   await page.locator('#send').click();
   await expect
     .poll(() => workspace.store.get(plan.session).events.length)
     .toBe(1);
+  await expect(review.frame.locator('.marker:visible')).toHaveCount(0);
+  await expect(page.locator('#activity')).toHaveText('Sent');
   const event = workspace.store.get(plan.session).events[0];
-  expect(event.protocol).toBe(2);
   expect(
     event.payload.items.map((item) => item.comment || item.replacement!.after),
   ).toEqual(['A shorter heading.', 'Keep these boundaries.', '']);
@@ -194,80 +428,26 @@ test('several comments and an exact deletion form one ordered review without mut
   expect(fs.readFileSync(workspace.file(), 'utf8')).toBe(source);
 });
 
-test('draft editing and non-drag reordering retain IDs and marker numbers', async ({
+test('marker nodes and keyboard focus survive polling and scrolling', async ({
   page,
   plan: _plan,
   review,
 }) => {
   await review.addComment('h1', 'First');
-  await review.addComment('[data-humagent-id="brief"]', 'Second');
-  const ids = (await review.state()).drafts.map((d) => d.item.id);
-  await page
-    .locator('.draft')
-    .nth(1)
-    .getByRole('button', { name: 'Move up' })
-    .click();
-  expect((await review.state()).drafts.map((d) => d.item.id)).toEqual(
-    ids.toReversed(),
-  );
-  await expect(
-    review.frame.locator(`.marker[data-draft-id="${ids[1]}"]`),
-  ).toHaveText('1');
-  await page
-    .locator('.draft')
-    .first()
-    .getByRole('button', { name: 'Edit', exact: true })
-    .click();
-  await page.locator('#edit-comment').fill('Changed second');
-  await page.getByRole('button', { name: 'Save feedback' }).click();
-  await expect(page.locator('.draft').first()).toContainText('Changed second');
-  await page
-    .locator('.draft')
-    .nth(1)
-    .getByRole('button', { name: 'Remove', exact: true })
-    .click();
-  await expect(review.frame.locator('.marker')).toHaveCount(1);
-  await page.reload();
-  await review.ready();
-  expect((await review.state()).drafts[0].item.id).toBe(ids[1]);
-});
-
-for (const trigger of ['button', 'Control+Enter', 'Meta+Enter'])
-  test(`sending waits for unfinished draft edits via ${trigger}`, async ({
-    page,
-    plan,
-    review,
-    workspace,
-  }) => {
-    await review.addComment('h1', 'Original comment');
-    await page
-      .locator('.draft')
-      .getByRole('button', { name: 'Edit', exact: true })
-      .click();
-    await page.locator('#edit-comment').fill('Updated comment');
-    if (trigger === 'button') await page.locator('#send').click();
-    else await page.locator('#edit-comment').press(trigger);
-    await expect(page.locator('#error')).toContainText('Save or cancel');
-    await expect(page.locator('#edit-comment')).toHaveValue('Updated comment');
-    expect(workspace.store.get(plan.session).events).toHaveLength(0);
-    expect((await review.state()).drafts[0].item.comment).toBe(
-      'Original comment',
-    );
-
-    const cancelled = trigger === 'button';
-    if (cancelled) await page.locator('#cancel-edit').click();
-    else
-      await page
-        .getByRole('button', { name: 'Save feedback', exact: true })
-        .click();
-    await page.locator('#send').click();
-    await expect
-      .poll(() => workspace.store.get(plan.session).events.length)
-      .toBe(1);
-    expect(
-      workspace.store.get(plan.session).events[0].payload.items[0].comment,
-    ).toBe(cancelled ? 'Original comment' : 'Updated comment');
+  const marker = review.frame.locator('.marker');
+  await marker.focus();
+  const same = await review.evaluate(async () => {
+    const root = document.querySelector('[data-humagent-ui]')!.shadowRoot!;
+    const marker = root.querySelector('.marker');
+    dispatchEvent(new Event('resize'));
+    document.dispatchEvent(new Event('scroll'));
+    await new Promise(requestAnimationFrame);
+    return marker === root.querySelector('.marker');
   });
+  expect(same).toBe(true);
+  await page.waitForTimeout(3200);
+  await expect(marker).toBeFocused();
+});
 
 for (const attribute of ['data-humagent-id', 'id'])
   test(`reused targets become unavailable when ${attribute} changes`, async ({
@@ -290,7 +470,7 @@ for (const attribute of ['data-humagent-id', 'id'])
     await expect(page.locator('.draft-status')).toContainText(
       'Target unavailable',
     );
-    await expect(review.frame.locator('.marker')).toHaveCount(0);
+    await expect(review.frame.locator('.marker:visible')).toHaveCount(0);
     expect((await review.state()).drafts[0].item.target).toEqual(target);
   });
 
@@ -308,73 +488,7 @@ test('removed targets remain unavailable instead of binding to replacements', as
   await expect(page.locator('.draft-status')).toContainText(
     'Target unavailable',
   );
-  await expect(review.frame.locator('.marker')).toHaveCount(0);
-});
-
-test('keyboard picker annotates controls once and Escape restores native interaction', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await page.getByRole('button', { name: 'Annotate', exact: true }).focus();
-  await page.keyboard.press('Enter');
-  await expect(review.frame.locator('#picker')).toBeVisible();
-  await page.keyboard.press('ArrowDown');
-  await review.frame
-    .getByRole('button', { name: 'Choose', exact: true })
-    .press('Enter');
-  await expect(review.frame.getByRole('dialog')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(review.frame.getByRole('dialog')).toBeHidden();
-  await page.locator('#annotate').click();
-  await review.frame.locator('input[name="outcome"]').click();
-  await expect(
-    review.frame.getByRole('button', { name: 'Suggest replacement' }),
-  ).toBeDisabled();
-  await review.frame
-    .getByRole('button', { name: 'Comment', exact: true })
-    .click();
-  await review.frame
-    .getByLabel('Comment', { exact: true })
-    .fill('Review this field');
-  await review.frame.getByRole('button', { name: 'Add to review' }).click();
-  await review.frame
-    .locator('input[name="outcome"]')
-    .fill('Native editing still works');
-  await expect(review.frame.locator('input[name="outcome"]')).toHaveValue(
-    'Native editing still works',
-  );
-});
-
-test('right-click respects controls and Shift, and double-click retains selected text', async ({
-  plan: _plan,
-  review,
-}) => {
-  const results = await review.evaluate(() => {
-    const check = (el: Element | null, shiftKey: boolean) => {
-      const event = new MouseEvent('contextmenu', {
-        bubbles: true,
-        cancelable: true,
-        shiftKey,
-      });
-      el!.dispatchEvent(event);
-      return event.defaultPrevented;
-    };
-    return {
-      control: check(document.querySelector('input'), false),
-      shifted: check(document.querySelector('h1'), true),
-      plain: check(document.querySelector('h1'), false),
-    };
-  });
-  expect(results).toEqual({ control: false, shifted: false, plain: true });
-  await review.frame
-    .getByRole('button', { name: 'Close', exact: true })
-    .click();
-  await review.frame.locator('h1').dblclick();
-  await expect(review.frame.getByRole('dialog')).toBeVisible();
-  expect(
-    await review.evaluate(() => document.getSelection()!.toString()),
-  ).toBeTruthy();
+  await expect(review.frame.locator('.marker:visible')).toHaveCount(0);
 });
 
 test('stale feedback remains visible and blocks sending after explicit refresh', async ({
@@ -385,6 +499,7 @@ test('stale feedback remains visible and blocks sending after explicit refresh',
 }) => {
   await review.addComment('h1', 'Preserve this note.');
   fs.appendFileSync(workspace.file(), '<p>Changed source.</p>');
+  await page.locator('#toggle-review').click();
   await expect(page.locator('#update')).toBeVisible();
   await page.locator('#refresh').click();
   await review.ready();
@@ -454,7 +569,7 @@ test('one tab owns review editing and another can take ownership after it closes
   await expect(other.locator('#readonly')).toBeVisible();
   await expect(other.locator('#annotate')).toBeDisabled();
   await page.close();
-  await other.reload();
+  await other.locator('#take-over').click();
   await expect(other.locator('#bridge-status')).toHaveText(
     'Interface connected',
   );
@@ -463,12 +578,13 @@ test('one tab owns review editing and another can take ownership after it closes
   await other.close();
 });
 
-test('the review tray fits desktop and narrow screens', async ({
+test('the floating bar expands within desktop and narrow screens', async ({
   page,
   plan: _plan,
   review,
 }) => {
   await review.addComment('h1', 'Review the spacing and heading.');
+  await page.locator('#toggle-review').click();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
     await expect(page.locator('#tray')).toBeVisible();

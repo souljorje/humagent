@@ -1,5 +1,48 @@
 import { test, expect } from './fixtures.ts';
 
+test('new document can stage before an older snapshot response returns', async ({
+  page,
+  review,
+  workspace,
+  app,
+}) => {
+  const opened = await review.open(app.origin + '/a');
+  let release!: () => void;
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let held = false,
+    finished = false;
+  await page.route(`**/api/sessions/${opened.session}`, async (route) => {
+    if (held) return route.continue();
+    const response = await route.fetch();
+    held = true;
+    await delayed;
+    await route.fulfill({ response });
+    finished = true;
+  });
+  try {
+    await expect.poll(() => held).toBe(true);
+    await review.frame.locator('a').click();
+    await expect(review.frame.locator('h1')).toHaveText('Page b');
+    await review.ready();
+    const result = await review.evaluate(() =>
+      window.humagent.submit({ intent: 'current-page', values: { page: 'b' } }),
+    );
+    expect(result.status).toBe('draft');
+    release();
+    await expect.poll(() => finished).toBe(true);
+    await expect(page.locator('#send')).toBeEnabled();
+    await page.locator('#send').click();
+    await expect
+      .poll(() => workspace.store.get(opened.session).events.length)
+      .toBe(1);
+    expect(workspace.store.get(opened.session).surfacePath).toBe('/b');
+  } finally {
+    release();
+  }
+});
+
 test('navigation stays current when a corrective request also arrives late', async ({
   page,
   review,
@@ -40,6 +83,8 @@ test('navigation stays current when a corrective request also arrives late', asy
     },
   );
   try {
+    if (await page.locator('#tray').isHidden())
+      await page.locator('#toggle-review').click();
     await page.locator('#refresh').click();
     await expect.poll(() => heldA).toBe(true);
     await review.evaluate(() => {
@@ -101,6 +146,8 @@ test('late navigation responses cannot replace the current revision', async ({
     },
   );
   try {
+    if (await page.locator('#tray').isHidden())
+      await page.locator('#toggle-review').click();
     await page.locator('#refresh').click();
     await expect.poll(() => held).toBe(true);
     await review.evaluate(() => {
@@ -214,7 +261,7 @@ test('default restarts retain drafts, form values, and pending input', async ({
     plan.session,
   );
   expect(restoredId).toBe(pendingId);
-  await page.getByRole('button', { name: 'Retry batch', exact: true }).click();
+  await page.getByRole('button', { name: 'Retry send', exact: true }).click();
   await expect
     .poll(
       () =>
@@ -260,6 +307,8 @@ test('refresh flushes state and keeps the currently displayed route', async ({
   await expect(review.frame.locator('h1')).toHaveText('Page b');
   await review.ready();
   await review.frame.locator('input[name="note"]').fill('Save before reload.');
+  if (await page.locator('#tray').isHidden())
+    await page.locator('#toggle-review').click();
   await Promise.all([
     page.waitForEvent(
       'framenavigated',

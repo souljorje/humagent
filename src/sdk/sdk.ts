@@ -77,7 +77,7 @@ if (window.parent === window.top) {
         pending.delete(id);
         reject(
           new Error(
-            'Workspace did not confirm this request. Check the review tray, then retry.',
+            'Workspace did not confirm this request. Check pending items, then retry.',
           ),
         );
       }
@@ -144,7 +144,10 @@ if (window.parent === window.top) {
     stage,
     notice,
     availability: (items) => send('availability', { items }),
-    done: () => send('pickerDone'),
+    edit: (params) => request('edit', params),
+    remove: (draftId) => request('remove', { draftId }),
+    mode: (enabled) => send('mode', { enabled }),
+    editing: (dirty) => send('editing', { dirty }),
   });
 
   window.addEventListener('message', async (event) => {
@@ -175,13 +178,16 @@ if (window.parent === window.top) {
         forms.restore();
         resolveReady();
       }
-      review.setDrafts(data.params.drafts || []);
+      review.setDrafts(data.params);
+      review.setMode(data.params.annotating);
     }
-    if (data.method === 'drafts') review.setDrafts(data.params.items || []);
-    if (data.method === 'pick' && !ended) review.pick();
+    if (data.method === 'drafts') review.setDrafts(data.params);
+    if (data.method === 'annotate' && !ended)
+      review.setMode(data.params.enabled, data.params.keyboard);
+    if (data.method === 'edit') review.edit(data.params.draftId);
     if (data.method === 'ended') {
       ended = true;
-      review.cancel();
+      review.end();
     }
     if (data.method === 'flush') {
       try {

@@ -180,14 +180,14 @@ test('batch validation preserves exact replacements and rejects empty, mixed, du
     /256/,
   );
 });
-test('reordering changes draft order without changing identities or replacement strings', () => {
+test('editing preserves creation order and identities', () => {
   const review = createReview(storage(), 's');
   const one = review.stage(decision(1), 'r');
   const two = review.stage(decision(2), 'r');
-  review.move(two.draftId, -1);
+  review.edit(two.draftId, { id: two.draftId, ...decision(3) });
   assert.deepEqual(
     review.snapshot().drafts.map((d) => d.item.id),
-    [two.draftId, one.draftId],
+    [one.draftId, two.draftId],
   );
   review.remove(one.draftId);
   assert.equal(review.snapshot().drafts.length, 1);
