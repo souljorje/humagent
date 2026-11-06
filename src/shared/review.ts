@@ -24,7 +24,6 @@ export interface ReviewState {
   message: OverallInstruction;
   outbox: PendingBatch[];
   staged: Record<string, { id: string; signature: string }>;
-  recovery: string[];
 }
 export interface Submission {
   intent: string;

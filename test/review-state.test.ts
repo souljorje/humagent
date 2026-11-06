@@ -48,6 +48,15 @@ test('failed storage does not acknowledge or mutate a staged draft', () => {
   saved.fail = false;
   assert.deepEqual(createReview(saved, 's').snapshot().drafts, []);
 });
+test('unreadable review storage is rejected without replacing its contents', () => {
+  const saved = storage();
+  const key = 'humagent:review:s';
+  for (const value of ['invalid', JSON.stringify({ format: 0, drafts: [] })]) {
+    saved.setItem(key, value);
+    assert.throws(() => createReview(saved, 's'));
+    assert.equal(saved.getItem(key), value);
+  }
+});
 test('sending locks its snapshot and preserves new drafts and edited overall instructions', async () => {
   const review = createReview(storage(), 's');
   const first = review.stage(decision(1), 'revision');

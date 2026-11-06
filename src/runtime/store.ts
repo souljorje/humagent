@@ -39,7 +39,7 @@ function readSession(
       typeof target.network === 'boolean' &&
       (target.kind === 'url' ||
         (target.kind === 'file' && typeof target.root === 'string')),
-    'Unsupported or corrupt session',
+    'Invalid stored session',
   );
   if (target.kind === 'url') {
     const url = new URL(target.value);
@@ -63,7 +63,7 @@ function readSession(
   boundedObject(session.state);
   ensure(
     session.events.every((event) => event.protocol === 2),
-    'Stored feedback uses an unsupported protocol. Use a new data directory.',
+    'Invalid stored feedback protocol',
   );
   return session;
 }
@@ -78,11 +78,6 @@ export class Store extends EventEmitter {
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
     this.sessionDirectory = path.join(directory, 'sessions');
     fs.mkdirSync(this.sessionDirectory, { recursive: true, mode: 0o700 });
-    const legacy = path.join(directory, 'sessions.json');
-    ensure(
-      !fs.existsSync(legacy),
-      'Legacy sessions are unsupported. Use a new data directory.',
-    );
     for (const file of fs.readdirSync(this.sessionDirectory)) {
       if (!/^[\w-]+\.json$/.test(file)) continue;
       const id = file.slice(0, -5);
@@ -94,7 +89,7 @@ export class Store extends EventEmitter {
       } catch {
         this.failures.set(
           id,
-          'Stored session is unreadable or unsupported. Restore a compatible backup or use a new data directory.',
+          'Stored session is unreadable. Restore a backup or use a new data directory.',
         );
       }
     }

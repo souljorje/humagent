@@ -297,8 +297,6 @@ function render() {
       $('pending-batches').append(div);
     }
   });
-  $('recovery').textContent = snapshot.recovery.join(' ');
-  $('recovery').hidden = !snapshot.recovery.length;
   post('drafts', { items: snapshot.drafts });
 }
 function edit(draft: Draft) {
@@ -536,7 +534,8 @@ $('copy-command').onclick = async () => {
   }
 };
 $('export').onclick = () => {
-  const blob = new Blob([JSON.stringify(review?.exportRecovery(), null, 2)], {
+  if (!review) return;
+  const blob = new Blob([JSON.stringify(review.snapshot(), null, 2)], {
     type: 'application/json',
   });
   const url = URL.createObjectURL(blob),

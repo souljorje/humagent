@@ -21,7 +21,6 @@ export function createReview(
     message: { text: '', revision: null, token: '' },
     outbox: [],
     staged: {},
-    recovery: [],
   });
   let state: ReviewState;
   type Confirmation = { clientId: string; id: string };
@@ -38,23 +37,13 @@ export function createReview(
         !Array.isArray(saved.drafts) ||
         !Array.isArray(saved.outbox) ||
         !saved.message ||
-        !saved.staged ||
-        !Array.isArray(saved.recovery)
+        !saved.staged
       )
-        throw new Error(
-          'Saved review is unreadable. Export browser storage before recovery.',
-        );
+        throw new Error('Saved review is unreadable.');
       state = saved;
       return;
     }
     const next = empty();
-    if (
-      storage.getItem(`humagent:outbox:${sessionId}`) ||
-      storage.getItem(`humagent:draft:${sessionId}`)
-    )
-      next.recovery.push(
-        'This session contains unsupported browser feedback. Export it for reference, then start a new session.',
-      );
     storage.setItem(key, JSON.stringify(next));
     state = next;
   }
@@ -259,10 +248,5 @@ export function createReview(
         next.outbox = next.outbox.filter((e) => e.batch.clientId !== clientId);
       });
     },
-    exportRecovery: () => ({
-      review: state,
-      draft: storage.getItem(`humagent:draft:${sessionId}`),
-      outbox: storage.getItem(`humagent:outbox:${sessionId}`),
-    }),
   };
 }
