@@ -463,12 +463,13 @@ export function createPageReview(bridge: ReviewBridge) {
   document.addEventListener(
     'click',
     (event) => {
-      if (ownEvent(event) || ignored(event.target)) return;
+      if (ownEvent(event)) return;
       if (captured && outside()) {
         event.preventDefault();
         event.stopImmediatePropagation();
         return;
       }
+      if (ignored(event.target)) return;
       if (!enabled) {
         return;
       }
