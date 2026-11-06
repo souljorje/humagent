@@ -99,24 +99,16 @@ test('Bun CLI preserves runtime and origin through an agent loop and restart', a
       '--lease',
       '600',
     );
-    await run(
-      'reply',
-      opened.session,
-      '--receipt',
-      batch.receipt,
-      '--message',
-      'Checked. No source changes.',
-    );
+    await run('ack', opened.session, '--receipt', batch.receipt);
     const result = await run('status', opened.session);
     assert.equal(result.events[0].status, 'completed');
-    assert.equal(result.replies[0].text, 'Checked. No source changes.');
     await stop();
     const resumed = await run('open', source, '--no-open');
     assert.equal(resumed.session, opened.session);
     assert.equal(new URL(resumed.url).origin, new URL(opened.url).origin);
     assert.equal(
-      (await run('status', opened.session)).replies[0].text,
-      'Checked. No source changes.',
+      (await run('status', opened.session)).events[0].status,
+      'completed',
     );
     const skills = path.join(root, 'skills', 'humagent');
     await run('setup', '--directory', skills);
@@ -152,7 +144,7 @@ test('CLI provides help and version without starting a server', () => {
       ['__proto__'],
       ['toString'],
       ['open', '--bad'],
-      ['reply', 'id', '--message'],
+      ['ack', 'id', '--receipt'],
       ['wait', 'id', '--timeout', '0'],
     ]) {
       assert.throws(() => run(args));

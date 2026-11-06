@@ -1,6 +1,6 @@
 ---
 name: humagent
-description: Work with a human through local HTML, a localhost app, or a generated mini-app. Receive choices, comments, and exact edits. Revise source and reply.
+description: Work with a human through local HTML, a localhost app, or a generated mini-app. Receive choices, comments, and exact edits. Revise source and acknowledge input.
 ---
 
 # Humagent
@@ -23,7 +23,7 @@ For structured input, use named controls in a form with `data-humagent-intent`.
 Use a stable form ID and `data-humagent-persist` for nonsensitive values that must survive refresh.
 
 Keep local interactions independent of model calls. Custom mini-apps can stage structured feedback through `window.humagent.submit()`.
-Forms and SDK calls add drafts to the review tray. The human chooses **Send all** to deliver them.
+Forms and SDK calls add pending items. The human chooses **Send** to deliver them.
 See the [SDK guide](https://github.com/souljorje/humagent/blob/main/docs/SDK.md).
 
 ## Open and wait
@@ -46,7 +46,7 @@ Repeat `wait` after a timeout while review remains active. Stop when the session
 Read every review event in the receipt. Process each event's `payload.message` and ordered `payload.items` together.
 Preserve `replacement.before` and `replacement.after` exactly. An empty `replacement.after` proposes deletion.
 Interpret `comment`, `intent`, and `values` using the task context. Field presence describes each item.
-Each event represents one **Send all** action. A receipt can contain several events.
+Each event represents one **Send** action. A receipt can contain several events.
 
 Targets describe rendered content, not guaranteed source lines. Read current source before editing. Reconcile newer changes. Humagent does not apply edits itself.
 
@@ -54,16 +54,15 @@ Apply only authorized changes. A plan choice does not authorize execution or pub
 
 Renew the receipt before lease expiry. Check event IDs and earlier changes before repeating actions from a redelivered batch.
 
-## Reply
+## Complete work
 
-Check the result. Send a reply:
+Check the result. Acknowledge the receipt:
 
 ```sh
-humagent reply SESSION --receipt RECEIPT --message "Describe changes and remaining limits."
+humagent ack SESSION --receipt RECEIPT
 ```
 
-The receipt completes only its reserved events. A reply without a receipt does not acknowledge work.
-Use `ack --receipt` to complete work without a reply.
+Describe changes and remaining limits in your agent chat. The receipt completes only its reserved events.
 
 Run `wait` again to continue. Save important results in the task's source files.
 

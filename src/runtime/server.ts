@@ -198,7 +198,7 @@ export async function createRuntime(options: RuntimeOptions) {
         401,
       );
       ensure(
-        !['wait', 'ack', 'reply', 'renew'].includes(match[2] ?? '') || control,
+        !['wait', 'ack', 'renew'].includes(match[2] ?? '') || control,
         'This operation requires the agent credential',
         'UNAUTHORIZED',
         401,
@@ -281,14 +281,6 @@ export async function createRuntime(options: RuntimeOptions) {
     await body(c.req.raw);
     store.end(c.req.param('id'));
     return json(200, view(c.req.param('id')));
-  });
-  app.post(`${sessionPath}/reply`, async (c) => {
-    const value = await body(c.req.raw);
-    const id = c.req.param('id');
-    if (value.receipt !== undefined)
-      store.acknowledge(id, value.receipt, value.message as string);
-    else store.reply(id, value.message);
-    return json(200, view(id));
   });
   app.post(`${sessionPath}/ack`, async (c) => {
     const value = await body(c.req.raw);

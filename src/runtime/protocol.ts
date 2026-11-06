@@ -34,7 +34,6 @@ export interface Session {
   ended: boolean;
   createdAt: string;
   events: Event[];
-  replies: { id: string; text: string; at: string; receipt?: string }[];
   state: ObjectValue;
   stateVersion: number;
   lease?: Lease;

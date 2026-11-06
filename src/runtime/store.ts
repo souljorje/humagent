@@ -32,7 +32,6 @@ function readSession(
       Number.isInteger(session.stateVersion) &&
       session.stateVersion >= 0 &&
       Array.isArray(session.events) &&
-      Array.isArray(session.replies) &&
       Array.isArray(session.acknowledged) &&
       target &&
       typeof target.value === 'string' &&
@@ -136,7 +135,6 @@ export class Store extends EventEmitter {
       ended: false,
       createdAt: new Date().toISOString(),
       events: [],
-      replies: [],
       state: {},
       stateVersion: 0,
       acknowledged: [],
@@ -262,20 +260,10 @@ export class Store extends EventEmitter {
       events: updated.events.filter((e) => ids.has(e.id)),
     };
   }
-  acknowledge(id: string, receipt: unknown, reply?: string) {
+  acknowledge(id: string, receipt: unknown) {
     const s = this.get(id);
     text(receipt, 'receipt', 100);
-    if (reply !== undefined) text(reply, 'reply', 20000);
-    if (s.acknowledged.includes(receipt)) {
-      const prior = s.replies.find((r) => r.receipt === receipt);
-      ensure(
-        reply === undefined || prior?.text === reply,
-        'Receipt already completed with a different reply',
-        'REPLY_CONFLICT',
-        409,
-      );
-      return s;
-    }
+    if (s.acknowledged.includes(receipt)) return s;
     ensure(
       s.lease?.receipt === receipt && s.lease.expiresAt > Date.now(),
       'Receipt is unknown or expired; do not acknowledge newer work',
@@ -290,29 +278,6 @@ export class Store extends EventEmitter {
       events: s.events.map((e) =>
         ids.has(e.id) ? { ...e, status: 'completed' } : e,
       ),
-      replies:
-        reply === undefined
-          ? s.replies
-          : [
-              ...s.replies,
-              {
-                id: randomUUID(),
-                text: reply,
-                at: new Date().toISOString(),
-                receipt,
-              },
-            ],
-    });
-  }
-  reply(id: string, message: unknown) {
-    text(message, 'reply', 20000);
-    const s = this.get(id);
-    return this.commit({
-      ...s,
-      replies: [
-        ...s.replies,
-        { id: randomUUID(), text: message, at: new Date().toISOString() },
-      ],
     });
   }
   renew(id: string, receipt: unknown, leaseMs = 120000) {

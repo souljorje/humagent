@@ -11,7 +11,7 @@ flowchart TB
   A["AI agent"]
   H["Human"]
   A -->|"creates or connects"| I
-  I -->|"Send all: one review batch"| A
+  I -->|"Send: one review batch"| A
   H -->|"interact and add feedback"| I
 ```
 
@@ -55,7 +55,14 @@ Use `humagent open http://127.0.0.1:3000` for a local app.
 
 > Read `.agents/skills/humagent/SKILL.md`. Wait for feedback from the open page.
 
-4. Select text or use **Annotate** to add feedback. Use **Review** to inspect drafts, then choose **Send all**.
+4. Enable commenting from the floating bar.
+5. Add a comment to an element.
+6. Choose **Send** when your feedback is ready.
+
+Click a numbered marker to edit or delete its comment. Disable commenting to interact with the page normally.
+Select text while commenting to suggest an exact replacement. Expand the bar to inspect pending items or retry delivery.
+
+Confirmed sends remove their markers. The bar shows delivery status. Your agent explains its work in its own chat.
 
 The page stays interactive. Replacement proposals do not change its text. Your agent edits source after receiving the review.
 

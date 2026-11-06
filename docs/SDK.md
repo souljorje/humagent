@@ -2,7 +2,7 @@
 
 Humagent automatically injects its SDK into local HTML and localhost apps. Generic comments and replacement proposals need no integration code.
 
-Feedback stays in the review tray until the human chooses **Send all**. One action sends one immutable batch.
+Feedback remains a draft until the human chooses **Send**. One action sends one immutable batch.
 
 ## Declarative forms
 
@@ -53,7 +53,7 @@ const result = await window.humagent.submit({
 The method waits for bridge readiness internally. It resolves after the workspace persists the draft in browser storage.
 It does not confirm server delivery or agent receipt. Display errors so the user can recover.
 
-Agent replies appear in the workspace.
+The bar shows delivery status. The agent explains changes in its own chat.
 
 ## Review batches
 
@@ -79,6 +79,7 @@ Each item has a unique ID and actionable fields: a target-bound comment, a targe
 A message-only batch is valid. An empty batch is not. An empty replacement string proposes deletion.
 
 Captured targets include source URL, viewed revision, selector, text, stable ID when available, and quote context for selected text.
+Open shadow-root targets also include a selector path through their hosts.
 Targets describe rendered content. They do not guarantee a unique source location.
 
 Requests must contain JSON and stay within 256 KiB. Nesting stays below 24 levels, including the envelope.
@@ -90,7 +91,7 @@ The server adds event identity, timestamps, status, and delivery attempts. See [
 ## Recovery and revisions
 
 Drafts remain editable until sending. Sending persists an immutable batch locally before contacting the server.
-Unconfirmed batches retain their client ID and exact payload. Retry them through the review tray.
+Unconfirmed batches retain their client ID and exact payload. Retry them through the pending items.
 Confirmation removes only the submitted draft IDs. New drafts and newer overall instructions remain intact.
 Only one tab edits a session at a time. Close that tab before taking ownership elsewhere.
 
@@ -98,7 +99,7 @@ Source revisions hash served HTML with SHA-256. Other assets do not affect the h
 HTTP revisions follow the attached page. Nested frames, fragment fetches, and status reads do not update the revision.
 File changes also trigger revision checks.
 
-Add or cancel unfinished popup feedback before refreshing or selecting another target.
+Save or cancel unfinished feedback before sending, refreshing, or selecting another target.
 
 Mixed or stale draft revisions block sending. Refresh the page, inspect the feedback, then recreate or remove affected items.
 An overall instruction can be explicitly confirmed for the displayed page. Existing target anchors never receive a new revision automatically.

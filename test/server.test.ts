@@ -177,7 +177,7 @@ test('file resolution denies hidden files, traversal and escaped symlinks', asyn
   await assert.rejects(() => safeFile(root, '/%2e%2e/outside.txt'));
   await assert.rejects(() => safeFile(root, '/escape.txt'));
 });
-test('wait receives an event once, reply acknowledges only that receipt', async () => {
+test('wait receives an event once, acknowledgment completes only that receipt', async () => {
   const s = await opened();
   const before = (await api(`/api/sessions/${s.session}`)).data;
   const wait = api(`/api/sessions/${s.session}/wait`, 'POST', {
@@ -202,16 +202,14 @@ test('wait receives an event once, reply acknowledges only that receipt', async 
   assert.equal(batch.data.events[0].payload.items[0].values.x, 1);
   assert.equal(
     (
-      await api(`/api/sessions/${s.session}/reply`, 'POST', {
+      await api(`/api/sessions/${s.session}/ack`, 'POST', {
         receipt: batch.data.receipt,
-        message: 'Updated',
       })
     ).status,
     200,
   );
   const after = (await api(`/api/sessions/${s.session}`)).data;
   assert.equal(after.events[0].status, 'completed');
-  assert.equal(after.replies[0].text, 'Updated');
 });
 test('wait ownership, timeout and end are typed', async () => {
   const s = await opened();

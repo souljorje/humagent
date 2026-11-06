@@ -178,14 +178,7 @@ try {
   assert.equal(response.status, 200);
   const batch = await waiting;
   assert.equal(batch.events[0].payload.items[0].values.approach, 'pilot-first');
-  await run(
-    'reply',
-    opened.session,
-    '--receipt',
-    batch.receipt,
-    '--message',
-    'Updated.',
-  );
+  await run('ack', opened.session, '--receipt', batch.receipt);
   assert.equal(
     (await run('status', opened.session)).events[0].status,
     'completed',
@@ -213,7 +206,7 @@ try {
     'ended',
   );
   console.log(
-    'PASS npm install from tarball and npm exec: demo, server, source, structured input, reply, skill, local proxy',
+    'PASS npm install from tarball and npm exec: demo, server, source, structured input, acknowledgment, skill, local proxy',
   );
   // npx delegates to npm exec. Exercise its actual binary as well.
   const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';

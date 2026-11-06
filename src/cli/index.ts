@@ -19,7 +19,6 @@ Start here:
 
 Agent commands:
   humagent wait <session> [--consumer name] [--timeout seconds] [--lease seconds]
-  humagent reply <session> --message "text" [--receipt id]
   humagent ack <session> --receipt id
   humagent renew <session> --receipt id [--lease seconds]
 
@@ -58,7 +57,6 @@ const commandFlags: Record<string, string[]> = {
   open: ['no-open', 'network'],
   demo: ['no-open', 'network'],
   wait: ['consumer', 'timeout', 'lease'],
-  reply: ['message', 'receipt'],
   ack: ['receipt'],
   renew: ['receipt', 'lease'],
   server: ['port'],
@@ -398,8 +396,6 @@ async function main() {
         argument && /^[\w-]+$/.test(argument),
         'Specify a session ID from the open command.',
       );
-    if (command === 'reply')
-      ensure(flags.get('message')?.trim(), '--message requires nonempty text.');
     if (command === 'ack' || command === 'renew')
       ensure(flags.get('receipt'), '--receipt is required.');
     if (command === 'wait') numeric('timeout', 50, 600);
@@ -446,15 +442,6 @@ async function main() {
         },
         timeoutMs + 5000,
       ),
-    );
-    return;
-  }
-  if (command === 'reply') {
-    await output(
-      await request(r, `${base}/reply`, 'POST', {
-        message: flags.get('message'),
-        receipt: flags.get('receipt'),
-      }),
     );
     return;
   }

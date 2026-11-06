@@ -112,18 +112,13 @@ test('receipt completes only leased events, not newer input', () => {
   const batch = store.take(id, 'agent');
   assert.ok(batch?.status === 'feedback');
   store.send(id, message('two'));
-  store.acknowledge(id, batch.receipt, 'Applied');
+  store.acknowledge(id, batch.receipt);
   assert.deepEqual(
     store.get(id).events.map((e) => e.status),
     ['completed', 'queued'],
   );
-  assert.equal(store.get(id).replies[0].text, 'Applied');
-  store.acknowledge(id, batch.receipt, 'Applied');
-  assert.equal(store.get(id).replies.length, 1);
-  assert.throws(
-    () => store.acknowledge(id, batch.receipt, 'Other'),
-    /different reply/,
-  );
+  store.acknowledge(id, batch.receipt);
+  assert.deepEqual(store.get(id).acknowledged, [batch.receipt]);
 });
 test('lease excludes competing consumers and expires into redelivery', () => {
   const { store, id } = setup();

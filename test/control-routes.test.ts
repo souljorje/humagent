@@ -157,7 +157,7 @@ test('control routes enforce host, origin, and credential boundaries', async () 
   assert.equal('viewKey' in snapshot, false);
   assert.equal('lease' in snapshot, false);
   assert.equal('acknowledged' in snapshot, false);
-  for (const action of ['wait', 'ack', 'reply', 'renew'] as const)
+  for (const action of ['wait', 'ack', 'renew'] as const)
     await json(
       await jsonRequest(
         `/api/sessions/${first.session}/${action}`,
@@ -418,17 +418,9 @@ test('route receipts preserve target, revision, and individual event ownership',
     }),
     200,
   );
-  const reply = { receipt: batch.receipt, message: 'Applied' };
-  await json(await jsonRequest(`${base}/reply`, 'POST', reply), 200);
-  await json(await jsonRequest(`${base}/reply`, 'POST', reply), 200);
-  await json(
-    await jsonRequest(`${base}/reply`, 'POST', {
-      ...reply,
-      message: 'Different',
-    }),
-    409,
-    'REPLY_CONFLICT',
-  );
+  const acknowledgment = { receipt: batch.receipt };
+  await json(await jsonRequest(`${base}/ack`, 'POST', acknowledgment), 200);
+  await json(await jsonRequest(`${base}/ack`, 'POST', acknowledgment), 200);
   const after = await json(await request(base), 200);
   assert.deepEqual(
     after.events.map(({ id, status }: { id: string; status: string }) => ({
@@ -440,7 +432,6 @@ test('route receipts preserve target, revision, and individual event ownership',
       { id: newer.id, status: 'queued' },
     ],
   );
-  assert.equal(after.replies.length, 1);
   assert.equal(
     (await json(await request(other), 200)).events[0].status,
     'queued',

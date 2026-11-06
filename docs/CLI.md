@@ -25,14 +25,13 @@ Setup installs the skill at `.agents/skills/humagent` by default. It preserves c
 
 ```sh
 humagent wait SESSION --consumer my-agent --timeout 50 --lease 600
-humagent reply SESSION --receipt RECEIPT --message "Updated the page."
 humagent ack SESSION --receipt RECEIPT
 humagent renew SESSION --receipt RECEIPT --lease 600
 ```
 
 Use the session ID from `open`. `wait` reserves queued events and returns their receipt.
 
-Each **Send all** action creates one protocol v2 event. Its `payload` contains an optional `message` and ordered `items`.
+Each **Send** action creates one protocol v2 event. Its `payload` contains an optional `message` and ordered `items`.
 One receipt can cover several review events. Process each event's overall instruction and items together.
 
 | Option | Seconds | Default |
@@ -42,13 +41,12 @@ One receipt can cover several review events. Process each event's overall instru
 
 | Result | Action |
 | --- | --- |
-| `feedback` | Read the batch. Apply authorized changes. Reply or acknowledge its receipt. |
+| `feedback` | Read the batch. Apply authorized changes. Acknowledge its receipt. |
 | `timeout` | Repeat `wait` while review remains active. |
 | `ended` | Stop waiting. Reopen only on request. |
 | `interrupted` | Check server status before resuming. |
 
-`reply --receipt` completes only the events in that receipt. Without a receipt, a reply completes no events.
-`ack` completes the receipt's events without replying.
+`ack --receipt` completes only the events reserved by that receipt.
 
 Renew before the lease expires. Events remain stored and can arrive again after expiry. Check event IDs before repeating consequential actions.
 
@@ -82,7 +80,7 @@ Use the same data directory across commands.
 | Problem | Action |
 | --- | --- |
 | No agent listening | Ask the agent to run `wait`. Queued input remains available. |
-| Feedback remains a draft | Open Review and choose Send all. Forms and SDK calls only stage feedback. |
+| Feedback remains a draft | Choose Send from the floating bar. Forms and SDK calls only stage feedback. |
 | Review is open in another tab | Close the editing tab, then reload the other tab. |
 | Agent turn ended | Send the agent a new message. |
 | Browser did not open | Open the printed URL on the same computer. |
