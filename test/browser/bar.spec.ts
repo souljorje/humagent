@@ -7,8 +7,19 @@ test('compact controls, reversible expansion, content growth, and reduced motion
   expect(
     await page
       .locator('.bar-controls')
-      .evaluate((el) => [...el.children].map((child) => child.id)),
-  ).toEqual(['annotate', 'toggle-review', 'message', 'send', 'end']);
+      .evaluate((el) =>
+        [...el.children].map(
+          (child) => child.id || child.firstElementChild?.id,
+        ),
+      ),
+  ).toEqual([
+    'agent-indicator',
+    'toggle-review',
+    'end',
+    'annotate',
+    'message',
+    'send',
+  ]);
   expect((await page.locator('#review-bar').boundingBox())!.width).toBe(450);
   const bottom = (await page.locator('.bar-controls').boundingBox())!.y;
   await page.locator('#toggle-review').click();
@@ -112,7 +123,18 @@ test('agent command is session-specific with copy feedback and selectable fallba
   );
   await page.getByRole('button', { name: 'Copy agent command' }).click();
   await expect(page.locator('#copy-status')).toHaveText('Copied');
+  await expect(page.locator('#copy-status')).toHaveClass('sr-only');
+  await expect(page.locator('#copy-command')).toHaveAttribute(
+    'data-copied',
+    'true',
+  );
+  await expect(page.locator('#copy-command')).toHaveText('');
   expect(await page.locator('body').getAttribute('data-copied')).toBe(command);
+  await expect(page.locator('#copy-command')).not.toHaveAttribute(
+    'data-copied',
+    'true',
+    { timeout: 2500 },
+  );
   await page.evaluate(() =>
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -128,4 +150,38 @@ test('agent command is session-specific with copy feedback and selectable fallba
     'Select and copy the command.',
   );
   expect(await page.evaluate(() => getSelection()?.toString())).toBe(command);
+});
+
+test('tooltips explain status and disabled buttons with pointer and keyboard', async ({
+  page,
+  plan: _plan,
+}) => {
+  const tip = page.getByRole('tooltip');
+  await page.locator('#agent-indicator').hover();
+  await expect(tip).toHaveText('No agent waiting');
+  await page.locator('#send').hover();
+  await expect(tip).toHaveText('Send feedback to your agent');
+  await page.locator('#send').locator('..').focus();
+  await expect(tip).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(tip).toBeHidden();
+  await page.locator('#toggle-review').click();
+  await expect(tip).toBeVisible();
+  await expect
+    .poll(async () => {
+      const tooltip = (await tip.boundingBox())!;
+      const button = (await page.locator('#toggle-review').boundingBox())!;
+      return Math.abs(tooltip.y + tooltip.height + 8 - button.y);
+    })
+    .toBeLessThan(1);
+  await page.setViewportSize({ width: 320, height: 600 });
+  await page.locator('#end').focus();
+  await expect(tip).toHaveText('End session');
+  const box = (await tip.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(12);
+  expect(box.x + box.width).toBeLessThanOrEqual(308);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(
+    await tip.evaluate((el) => getComputedStyle(el).transitionDuration),
+  ).toBe('0s');
 });

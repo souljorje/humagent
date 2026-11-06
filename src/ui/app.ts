@@ -12,6 +12,8 @@ import { icon } from '../shared/icons.js';
 import { fingerprint } from '../shared/batch.js';
 import { errorMessage } from '../shared/errors.js';
 import { createExpansion } from './expansion.js';
+import { installTooltips } from '../shared/tooltips.js';
+import { inputStyles } from '../shared/input-styles.js';
 
 type Controls = Record<string, HTMLElement> & {
   frame: HTMLIFrameElement;
@@ -51,7 +53,12 @@ const mutations = new Map<
 $('annotate').innerHTML = icon('comment');
 $('end').innerHTML = icon('power');
 $('expand-icon').innerHTML = icon('chevron');
+$('copy-command').innerHTML = icon('copy');
 $('agent-command').textContent = `humagent wait ${id} --timeout 50 --lease 600`;
+installTooltips(document);
+const inputStyle = new CSSStyleSheet();
+inputStyle.replaceSync(inputStyles);
+document.adoptedStyleSheets = [...document.adoptedStyleSheets, inputStyle];
 const expand = createExpansion($('tray'), $('tray-content'));
 const rendered = new WeakMap<HTMLElement, string>();
 function renderChanged(element: HTMLElement, value: unknown, draw: () => void) {
@@ -203,8 +210,8 @@ function render() {
   const snapshot = review.snapshot();
   const count = snapshot.drafts.length;
   $('pending-count').textContent = count ? String(count) : '';
-  $('toggle-review').title = count
-    ? `${count} pending items`
+  $('toggle-review').dataset.tooltip = count
+    ? `${count} pending ${count === 1 ? 'item' : 'items'}`
     : 'Review details';
   $('annotate').setAttribute('aria-pressed', String(annotating));
   const mutable = writable && !session?.ended;
@@ -319,7 +326,7 @@ function render() {
     drafts.some((d) => d.revision !== loadedRevision) ||
     (hasMessage && snapshot.message.revision !== loadedRevision) ||
     loadedRevision !== session?.revision;
-  $('send').title = 'Send feedback to your agent';
+  $('send').dataset.tooltip = 'Send feedback to your agent';
   $('outbox').hidden = !snapshot.outbox.length;
   renderChanged($('pending-batches'), [snapshot.outbox, writable], () => {
     for (const entry of snapshot.outbox) {
@@ -378,6 +385,7 @@ function renderConnection() {
           : 'No agent waiting';
   $('agent-state').textContent = state;
   $('agent-indicator').setAttribute('aria-label', state);
+  $('agent-indicator').dataset.tooltip = state;
   $('agent-indicator').dataset.active = String(
     connected && !session?.ended && session?.agent !== 'idle',
   );
@@ -502,10 +510,20 @@ $('toggle-review').onclick = () =>
 let copyTimer: ReturnType<typeof setTimeout>;
 $('copy-command').onclick = async () => {
   clearTimeout(copyTimer);
+  $('copy-status').classList.add('sr-only');
   try {
     await navigator.clipboard.writeText($('agent-command').textContent || '');
+    $('copy-command').innerHTML = icon('check');
+    $('copy-command').dataset.copied = 'true';
     $('copy-status').textContent = 'Copied';
+    copyTimer = setTimeout(() => {
+      $('copy-command').innerHTML = icon('copy');
+      delete $('copy-command').dataset.copied;
+      $('copy-status').textContent = '';
+    }, 1500);
   } catch {
+    $('copy-command').innerHTML = icon('copy');
+    delete $('copy-command').dataset.copied;
     const range = document.createRange();
     range.selectNodeContents($('agent-command'));
     const selection = getSelection();
@@ -513,10 +531,8 @@ $('copy-command').onclick = async () => {
     selection?.addRange(range);
     $('agent-command').focus();
     $('copy-status').textContent = 'Select and copy the command.';
+    $('copy-status').classList.remove('sr-only');
   }
-  copyTimer = setTimeout(() => {
-    $('copy-status').textContent = '';
-  }, 2500);
 };
 $('take-over').onclick = () => location.reload();
 $('annotate').onclick = (event) => {
@@ -563,7 +579,10 @@ document.addEventListener(
 );
 document.addEventListener('keydown', (event) => {
   blockedClick = false;
-  if (event.key === 'Escape') {
+  if (
+    event.key === 'Escape' &&
+    $('toggle-review').getAttribute('aria-expanded') === 'true'
+  ) {
     openTray(false);
     $('toggle-review').focus();
   }

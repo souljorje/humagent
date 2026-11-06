@@ -26,11 +26,13 @@
             </div>
             <div class="connection-command">
               <code id="agent-command" tabindex="0"></code
-              ><button id="copy-command" aria-label="Copy agent command">
-                Copy
-              </button>
+              ><button
+                id="copy-command"
+                class="icon"
+                aria-label="Copy agent command"
+              ></button>
             </div>
-            <span id="copy-status" role="status"></span>
+            <span id="copy-status" class="sr-only" role="status"></span>
           </section>
           <p id="error" role="alert" hidden></p>
           <p id="readonly" role="status" hidden>
@@ -56,42 +58,43 @@
       </section>
       <p id="activity" role="status" hidden></p>
       <div class="bar-controls">
-        <button
-          id="annotate"
-          class="icon"
-          aria-label="Toggle commenting"
-          aria-pressed="false"
-          title="Toggle commenting"
-          disabled
-        ></button>
+        <span
+          id="agent-indicator"
+          role="img"
+          tabindex="0"
+          aria-label="Checking connection"
+          data-tooltip="Checking connection"
+        ></span>
         <button
           id="toggle-review"
           aria-label="Review details and agent connection"
           aria-expanded="false"
           aria-controls="tray"
         >
-          <span
-            id="agent-indicator"
-            role="img"
-            aria-label="Checking connection"
-          ></span
-          ><span id="pending-count"></span><span id="expand-icon"></span>
+          <span id="pending-count"></span><span id="expand-icon"></span>
         </button>
+        <button
+          id="end"
+          class="icon"
+          aria-label="End session"
+          disabled
+        ></button>
+        <button
+          id="annotate"
+          class="icon"
+          aria-label="Toggle commenting"
+          aria-pressed="false"
+          disabled
+        ></button>
         <textarea
           id="message"
+          class="feedback-input"
           aria-label="Overall instruction"
           rows="1"
           maxlength="4000"
           placeholder="Add an instruction…"
         ></textarea>
         <button id="send" class="primary" disabled>Send</button>
-        <button
-          id="end"
-          class="icon"
-          aria-label="End session"
-          title="End session"
-          disabled
-        ></button>
       </div>
       <span id="bridge-status" class="sr-only" role="status">Connecting</span>
       <span id="draft-status" class="sr-only" role="status"></span>
