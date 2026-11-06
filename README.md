@@ -60,7 +60,9 @@ Use `humagent open http://127.0.0.1:3000` for a local app.
 6. Choose **Send** when your feedback is ready.
 
 Click a numbered marker to edit or delete its comment. Disable commenting to interact with the page normally.
-Select text while commenting to suggest an exact replacement. Expand the bar to inspect pending items or retry delivery.
+Select plain text while commenting, then type to edit it. Press Enter to confirm or Escape to cancel.
+Confirmed edits preview locally until the agent acknowledges their batch. Source files remain unchanged.
+Expand the bar to inspect pending items, retry delivery, or copy the agent connection command.
 
 Confirmed sends remove their markers. The bar shows delivery status. Your agent explains its work in its own chat.
 

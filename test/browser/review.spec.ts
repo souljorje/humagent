@@ -434,7 +434,11 @@ test('comments and exact deletion send in creation order without changing source
     id: 'headline',
     revision: event.revision,
   });
-  expect(await review.frame.locator('h1').textContent()).toBe(original);
+  expect(await review.frame.locator('h1').textContent()).toBe('');
+  const receipt = workspace.store.take(plan.session, 'deletion-test');
+  if (receipt?.status !== 'feedback') throw new Error('Expected feedback');
+  workspace.store.acknowledge(plan.session, receipt.receipt);
+  await expect(review.frame.locator('h1')).toHaveText(original!);
   expect(fs.readFileSync(workspace.file(), 'utf8')).toBe(source);
 });
 

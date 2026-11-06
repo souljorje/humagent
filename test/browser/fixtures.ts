@@ -159,10 +159,14 @@ export const test = base.extend<Fixtures>({
           'true'
         )
           await page.locator('#annotate').click();
+        await expect(page.locator('#annotate')).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        );
         await attachedFrame().evaluate((selector) => {
           const element = document.querySelector(selector)!,
             range = document.createRange();
-          range.selectNodeContents(element);
+          range.selectNodeContents(element.firstChild!);
           const selection = document.getSelection()!;
           selection.removeAllRanges();
           selection.addRange(range);
@@ -170,18 +174,16 @@ export const test = base.extend<Fixtures>({
         }, selector);
         await page
           .frameLocator('#frame')
-          .getByRole('button', { name: 'Suggest replacement', exact: true })
-          .click();
-        await page
-          .frameLocator('#frame')
-          .getByLabel('Exact replacement', { exact: true })
+          .getByRole('textbox', { name: 'Edit text', exact: true })
           .fill(replacement);
         await page
           .frameLocator('#frame')
-          .getByRole('button', { name: 'Add replacement', exact: true })
+          .getByRole('button', { name: 'Confirm text edit', exact: true })
           .click();
         await expect(
-          page.frameLocator('#frame').getByRole('dialog', { name: 'Feedback' }),
+          page
+            .frameLocator('#frame')
+            .getByRole('dialog', { name: 'Edit text controls' }),
         ).toBeHidden();
       },
       async state() {

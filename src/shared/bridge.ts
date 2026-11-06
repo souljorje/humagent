@@ -19,6 +19,7 @@ export interface Bootstrap {
 }
 export interface ReviewPresentation {
   items: Draft[];
+  previews: Draft[];
   locked: string[];
   writable: boolean;
 }
@@ -74,6 +75,7 @@ export type WorkspaceMessage = Channel &
     | { method: 'drafts'; params: ReviewPresentation }
     | { method: 'annotate'; params: { enabled: boolean; keyboard?: boolean } }
     | { method: 'edit'; params: { draftId: string } }
+    | { method: 'outside' }
     | { method: 'ended' }
     | { method: 'flush'; id: string }
   );

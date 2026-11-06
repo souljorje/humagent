@@ -35,7 +35,7 @@ The SDK skips disabled controls and file, password, hidden, submit, reset, and b
 
 A stable form ID and `data-humagent-persist` enable nonsensitive value restoration. Restoration emits a form input event for local display updates.
 Form values use an internal ordered state queue. Later form changes do not modify staged decisions.
-Failed saves remain pending. Refresh retries them before reloading the page.
+Failed saves remain pending. Browser reload warns while a form save remains unfinished.
 
 ## JavaScript
 
@@ -99,7 +99,13 @@ Source revisions hash served HTML with SHA-256. Other assets do not affect the h
 HTTP revisions follow the attached page. Nested frames, fragment fetches, and status reads do not update the revision.
 File changes also trigger revision checks.
 
-Save or cancel unfinished feedback before sending, refreshing, or selecting another target.
+Confirm or cancel unfinished feedback before sending. The first outside click focuses the editor. The second discards unconfirmed changes.
+Typing resets this sequence. Escape cancels immediately. Cancellation preserves previously saved feedback.
+
+Select text within one plain text run to edit it directly. Enter confirms, Shift+Enter adds a newline, and Escape cancels.
+Mixed-format selections and interactive controls remain comment targets. Repeated edits preserve the original text and item ID.
+Confirmed previews stay visible after Send until their batch is acknowledged. Deletion or a source revision change removes previews.
+Preview cleanup does not overwrite subsequent application changes. Humagent never saves rendered page content as source.
 
 Mixed or stale draft revisions block sending. Refresh the page, inspect the feedback, then recreate or remove affected items.
 An overall instruction can be explicitly confirmed for the displayed page. Existing target anchors never receive a new revision automatically.

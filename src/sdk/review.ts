@@ -1,5 +1,7 @@
 import { context, isNativeInteractiveControl } from './targets.js';
 import { createReviewView } from './review-view.js';
+import { createTextEditing, selectedRun } from './text-editing.js';
+import { createCommentCursor } from './comment-cursor.js';
 import type {
   Bootstrap,
   ReviewPresentation,
@@ -34,6 +36,7 @@ export function createPageReview(bridge: ReviewBridge) {
   const bound = new Map<string, Element | null>();
   const markers = new Map<string, HTMLButtonElement>();
   let drafts: Draft[] = [],
+    previews: Draft[] = [],
     locked = new Set<string>(),
     writable = false;
   let captured: Capture | null = null,
@@ -47,13 +50,38 @@ export function createPageReview(bridge: ReviewBridge) {
   let returnFocus: Element | null = null;
   let candidates: Element[] = [],
     cursor = -1;
+  let outsideClicks = 0;
+  const text = createTextEditing({
+    resolve,
+    input,
+    confirm: () => void save(),
+    cancel,
+  });
+  const commentCursor = createCommentCursor((root) => {
+    observer.observe(root, observation);
+    observed.add(root);
+    shadowRoots.add(root);
+  });
   const ignored = (el: EventTarget | null) =>
     !(el instanceof Element) ||
     el.closest('[data-humagent-ui],script,style,head') ||
     el === document.documentElement;
-  const exactText = (el: Element) => el.textContent || '';
+  const eventElement = (event: Event) =>
+    event.composedPath().find((item) => item instanceof Element) as
+      | Element
+      | undefined;
+  const ownEvent = (event: Event) =>
+    event
+      .composedPath()
+      .some(
+        (item) => item instanceof Element && item.matches('[data-humagent-ui]'),
+      );
+  const exactText = text.canonicalText;
+  function targetContext(el: Element) {
+    return context(el, exactText(el));
+  }
   function matchesTarget(el: Element, target: ReviewTarget) {
-    const current = context(el);
+    const current = targetContext(el);
     return (
       current.text === target.text &&
       (target.id === undefined || current.id === String(target.id)) &&
@@ -61,16 +89,19 @@ export function createPageReview(bridge: ReviewBridge) {
         JSON.stringify(target.shadowPath || [])
     );
   }
-  const isEditor = () => !$('panel').hidden;
+  const isEditor = () => !$('panel').hidden || !!text.element;
   const mutable = () =>
     writable && (!captured?.draft || !locked.has(captured.draft.item.id));
   function changed() {
     if (!captured || !isEditor()) return false;
+    if (replacement) return text.value !== text.initial;
     return captured.draft
-      ? $('note').value !== (captured.draft.item.comment || '') ||
-          (replacement &&
-            $('after').value !== captured.draft.item.replacement?.after)
-      : !!$('note').value || replacement;
+      ? $('note').value !== (captured.draft.item.comment || '')
+      : !!$('note').value;
+  }
+  function input() {
+    outsideClicks = 0;
+    updateEditor();
   }
   function updateEditor() {
     const dirty = saving || changed();
@@ -78,39 +109,63 @@ export function createPageReview(bridge: ReviewBridge) {
       lastDirty = dirty;
       bridge.editing(dirty);
     }
-    const valid = replacement || !!$('note').value.trim();
+    const valid = replacement
+      ? text.connected && changed() && text.value.length <= 50000
+      : !!$('note').value.trim();
     $('confirm').disabled = saving || !mutable() || !valid;
     $('save').disabled =
       saving || !mutable() || !valid || (!!captured?.draft && !changed());
     $('remove').disabled = saving || !mutable();
-    $('note').readOnly = $('after').readOnly = saving || !mutable();
+    $('inline-confirm').disabled = saving || !mutable() || !valid;
+    $('inline-remove').disabled = saving || !mutable();
+    $('inline-remove').hidden = !captured?.draft;
+    $('note').readOnly = saving || !mutable();
+    text.setReadOnly(saving || !mutable());
     $('editor-status').hidden = mutable();
     $('editor-status').textContent = locked.has(captured?.draft?.item.id || '')
       ? 'Awaiting confirmation'
       : 'Read only';
-    for (const textarea of [$('note'), $('after')]) {
+    for (const textarea of [$('note')]) {
       textarea.style.height = 'auto';
       textarea.style.height = `${Math.min(160, textarea.scrollHeight)}px`;
     }
     schedule();
   }
   function flush() {
-    if (saving || changed())
-      throw new Error('Save or cancel your feedback before continuing.');
+    if (saving || changed()) throw new Error('Feedback is not confirmed.');
   }
-  function canChange() {
-    try {
-      flush();
+  function outside() {
+    if (!captured) return false;
+    if (saving || changed()) {
+      if (!saving && ++outsideClicks >= 2) close();
+      else {
+        const editor = text.element || $('note');
+        editor.focus({ preventScroll: true });
+        if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          const surface = text.element || $('panel');
+          surface.getAnimations().forEach((animation) => animation.cancel());
+          surface.animate(
+            [
+              { translate: '0' },
+              { translate: '-4px' },
+              { translate: '4px' },
+              { translate: '0' },
+            ],
+            { duration: 180 },
+          );
+        }
+      }
       return true;
-    } catch (error) {
-      notice(errorMessage(error));
-      $('note').focus();
-      return false;
     }
+    close();
+    return false;
   }
   function close(force = false) {
     if (saving && !force) return;
-    $('panel').hidden = $('selection-menu').hidden = true;
+    $('panel').hidden = $('inline-panel').hidden = true;
+    text.close();
+    text.reconcile(previews);
+    outsideClicks = 0;
     if (
       captured &&
       !drafts.some((d) => d.item.target?.anchorId === captured!.target.anchorId)
@@ -130,12 +185,13 @@ export function createPageReview(bridge: ReviewBridge) {
     close();
   }
   function setMode(value: boolean, keyboard = false) {
-    if (!canChange()) {
+    if (outside()) {
       bridge.mode(enabled);
       return;
     }
     close();
     enabled = value && writable;
+    commentCursor.set(enabled);
     bridge.mode(enabled);
     $('keyboard-hint').hidden = !enabled || !keyboard;
     if (enabled && keyboard) {
@@ -151,30 +207,22 @@ export function createPageReview(bridge: ReviewBridge) {
     }
     schedule();
   }
-  function showEditor(asReplacement = false) {
+  function showEditor() {
     if (!captured) return;
-    replacement = asReplacement;
-    $('selection-menu').hidden = true;
+    replacement = false;
     $('panel').hidden = false;
     const existing = captured.draft?.item;
     $('note').value = existing?.comment || '';
-    $('after').value = existing?.replacement?.after || '';
-    $('original').textContent = captured.before;
-    $('original').hidden = $('after').hidden = !replacement;
-    $('note').placeholder = replacement
-      ? 'Comment (optional)'
-      : 'Leave a comment…';
-    $('confirm').hidden = !!existing || replacement;
-    $('actions').hidden = !existing && !replacement;
+    $('confirm').hidden = !!existing;
+    $('actions').hidden = !existing;
     $('remove').hidden = !existing;
-    $('save').textContent = existing ? 'Save' : 'Add replacement';
     $('local-error').hidden = true;
     updateEditor();
     position();
-    (replacement ? $('after') : $('note')).focus({ preventScroll: true });
+    $('note').focus({ preventScroll: true });
   }
   function show(el: EventTarget | null, range?: Range) {
-    if (!(el instanceof Element) || ignored(el) || !writable || !canChange())
+    if (!(el instanceof Element) || ignored(el) || !writable || outside())
       return;
     const before = range ? range.toString() : exactText(el);
     if (before.length > 50000) {
@@ -184,7 +232,7 @@ export function createPageReview(bridge: ReviewBridge) {
     close();
     returnFocus = document.activeElement;
     const target: ReviewTarget = {
-      ...context(el),
+      ...targetContext(el),
       url: boot.sourceUrl,
       revision: boot.revision,
       anchorId: crypto.randomUUID(),
@@ -192,9 +240,9 @@ export function createPageReview(bridge: ReviewBridge) {
     if (range) {
       const prefix = range.cloneRange(),
         suffix = range.cloneRange();
-      prefix.selectNodeContents(document.body);
+      prefix.selectNodeContents(el);
       prefix.setEnd(range.startContainer, range.startOffset);
-      suffix.selectNodeContents(document.body);
+      suffix.selectNodeContents(el);
       suffix.setStart(range.endContainer, range.endOffset);
       target.anchor = {
         quote: before,
@@ -205,22 +253,46 @@ export function createPageReview(bridge: ReviewBridge) {
     anchors.set(String(target.anchorId), el);
     watchRoots(el);
     captured = { target, before, el };
-    if (range) {
-      $('selection-menu').hidden = false;
-      const text = exactText(el);
-      $('replace').disabled =
-        isNativeInteractiveControl(el) ||
-        !!el.querySelector(
-          'a[href],button,input,select,textarea,[contenteditable]',
-        ) ||
-        text.indexOf(before) !== text.lastIndexOf(before);
-      position();
-      $('comment').focus({ preventScroll: true });
-    } else showEditor();
+    showEditor();
+  }
+  function showText(node: Text, start: number, end: number, draft?: Draft) {
+    const el = node.parentElement!;
+    const existing = draft || text.existing(node);
+    if (
+      existing &&
+      !draft &&
+      (!drafts.some((draft) => draft.item.id === existing.item.id) ||
+        locked.has(existing.item.id))
+    )
+      return;
+    if (!writable || outside()) return;
+    close();
+    returnFocus = existing
+      ? markers.get(existing.item.id) || document.activeElement
+      : document.activeElement;
+    const before = existing?.item.replacement?.before ?? node.data;
+    if (!before.trim() || before.length > 50000) return;
+    const target: ReviewTarget = existing?.item.target || {
+      ...targetContext(el),
+      url: boot.sourceUrl,
+      revision: boot.revision,
+      anchorId: crypto.randomUUID(),
+      textNode: [...el.childNodes].indexOf(node),
+      anchor: { quote: before },
+    };
+    anchors.set(String(target.anchorId), el);
+    watchRoots(el);
+    captured = { target, before, el, draft: existing };
+    replacement = true;
+    text.open(node, start, end, before);
+    $('inline-panel').hidden = false;
+    $('inline-error').hidden = true;
+    updateEditor();
+    position();
   }
   function edit(draftId: string) {
     const draft = drafts.find((d) => d.item.id === draftId);
-    if (!draft || !canChange()) return;
+    if (!draft || outside()) return;
     const el = resolve(draft);
     if (!el) {
       notice(
@@ -228,16 +300,21 @@ export function createPageReview(bridge: ReviewBridge) {
       );
       return;
     }
+    if (draft.item.replacement) {
+      const node = text.nodeFor(draft, el);
+      if (node) showText(node, 0, node.length, draft);
+      return;
+    }
     close();
     returnFocus = markers.get(draftId) || document.activeElement;
     captured = {
       target: draft.item.target!,
-      before: draft.item.replacement?.before || exactText(el),
+      before: exactText(el),
       el,
       draft,
     };
     el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    showEditor(!!draft.item.replacement);
+    showEditor();
   }
   function selectedText() {
     const selection = document.getSelection();
@@ -248,19 +325,59 @@ export function createPageReview(bridge: ReviewBridge) {
       !selection.toString().trim()
     )
       return false;
-    const range = selection.getRangeAt(0).cloneRange(),
-      node = range.commonAncestorContainer;
+    let range = selection.getRangeAt(0).cloneRange();
+    // Native Selection ranges are retargeted at shadow hosts in some browsers.
+    const composed = selection as Selection & {
+      getComposedRanges?: (options: {
+        shadowRoots: ShadowRoot[];
+      }) => StaticRange[];
+    };
+    if (composed.getComposedRanges) {
+      const ranges = composed.getComposedRanges({
+        shadowRoots: [...shadowRoots],
+      });
+      const current = ranges[0];
+      if (current) {
+        range = document.createRange();
+        range.setStart(current.startContainer, current.startOffset);
+        range.setEnd(current.endContainer, current.endOffset);
+      }
+    }
+    const node = range.commonAncestorContainer;
     const el = node instanceof Element ? node : node.parentElement;
-    if (ignored(el) || isNativeInteractiveControl(el)) return false;
-    show(el, range);
+    if (ignored(el)) return false;
+    const run = selectedRun(range);
+    if (run && !isNativeInteractiveControl(el))
+      showText(run.node, run.start, run.end);
+    else show(el, range);
     return true;
   }
-  $('comment').onclick = () => showEditor();
-  $('replace').onclick = () => showEditor(true);
   $('cancel').onclick = cancel;
-  $('note').oninput = $('after').oninput = updateEditor;
+  $('note').oninput = input;
+  $('inline-cancel').onclick = cancel;
+  $('inline-confirm').onclick = () => {
+    if (!$('inline-confirm').disabled) void save();
+  };
+  $('inline-remove').onclick = () => void save(true);
   async function save(remove = false) {
     if (!captured || saving || !mutable()) return;
+    if (
+      !remove &&
+      (replacement
+        ? !text.connected || !changed() || text.value.length > 50000
+        : !$('note').value.trim())
+    )
+      return;
+    if (
+      !captured.el.isConnected ||
+      !matchesTarget(captured.el, captured.target)
+    ) {
+      const output = replacement ? $('inline-error') : $('local-error');
+      output.textContent =
+        'Target changed. Cancel this edit and inspect the page.';
+      output.hidden = false;
+      return;
+    }
     const current = captured;
     saving = true;
     updateEditor();
@@ -269,18 +386,22 @@ export function createPageReview(bridge: ReviewBridge) {
       else if (current.draft)
         await bridge.edit({
           draftId: current.draft.item.id,
-          comment: $('note').value,
-          ...(replacement ? { after: $('after').value } : {}),
+          comment: replacement
+            ? current.draft.item.comment || ''
+            : $('note').value,
+          ...(replacement ? { after: text.value } : {}),
         });
       else
         await stage({
           target: current.target,
-          ...($('note').value ? { comment: $('note').value } : {}),
+          ...(!replacement && $('note').value
+            ? { comment: $('note').value }
+            : {}),
           ...(replacement
             ? {
                 replacement: {
                   before: current.before,
-                  after: $('after').value,
+                  after: text.value,
                 },
               }
             : {}),
@@ -288,8 +409,9 @@ export function createPageReview(bridge: ReviewBridge) {
       saving = false;
       close();
     } catch (error) {
-      $('local-error').textContent = errorMessage(error);
-      $('local-error').hidden = false;
+      const output = replacement ? $('inline-error') : $('local-error');
+      output.textContent = errorMessage(error);
+      output.hidden = false;
     } finally {
       saving = false;
       updateEditor();
@@ -310,6 +432,7 @@ export function createPageReview(bridge: ReviewBridge) {
         .find((item) => item instanceof Element && !ignored(item)) as
         | Element
         | undefined;
+      if (hovered) watchRoots(hovered);
       schedule();
     },
     { passive: true },
@@ -323,10 +446,12 @@ export function createPageReview(bridge: ReviewBridge) {
   document.addEventListener(
     'pointerdown',
     (event) => {
+      if (ownEvent(event)) return;
       if (
-        enabled &&
-        !ignored(event.target) &&
-        isNativeInteractiveControl(event.target)
+        changed() ||
+        (enabled &&
+          !ignored(event.target) &&
+          isNativeInteractiveControl(eventElement(event) || null))
       ) {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -337,9 +462,13 @@ export function createPageReview(bridge: ReviewBridge) {
   document.addEventListener(
     'click',
     (event) => {
-      if (ignored(event.target)) return;
+      if (ownEvent(event) || ignored(event.target)) return;
+      if (captured && outside()) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
       if (!enabled) {
-        if (!changed()) close();
         return;
       }
       event.preventDefault();
@@ -357,13 +486,16 @@ export function createPageReview(bridge: ReviewBridge) {
   document.addEventListener('mouseup', (event) => {
     if (
       enabled &&
+      !captured &&
+      !ownEvent(event) &&
       !ignored(event.target) &&
       !isNativeInteractiveControl(event.target)
     )
       setTimeout(selectedText, 0);
   });
   document.addEventListener('keyup', (event) => {
-    if (enabled && event.shiftKey && !ignored(event.target)) selectedText();
+    if (enabled && !captured && event.shiftKey && !ownEvent(event))
+      selectedText();
   });
   function cursorAt(offset: number) {
     if (!candidates.length) return;
@@ -377,6 +509,7 @@ export function createPageReview(bridge: ReviewBridge) {
   document.addEventListener(
     'keydown',
     (event) => {
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.key === 'Escape') {
         if (captured) {
           event.preventDefault();
@@ -406,6 +539,7 @@ export function createPageReview(bridge: ReviewBridge) {
     const target = draft.item.target;
     if (
       !target ||
+      text.unavailable(draft.item.id) ||
       draft.revision !== boot.revision ||
       target.url !== boot.sourceUrl
     )
@@ -461,6 +595,13 @@ export function createPageReview(bridge: ReviewBridge) {
   }
   function position() {
     scheduled = false;
+    text.reconcile(previews);
+    if (text.element && !text.connected) {
+      $('inline-confirm').disabled = true;
+      $('inline-error').hidden = false;
+      $('inline-error').textContent =
+        'Target changed. Cancel this edit and inspect the page.';
+    }
     const available: Availability[] = [];
     const layouts: {
       draft: Draft;
@@ -478,8 +619,7 @@ export function createPageReview(bridge: ReviewBridge) {
         offset = offsets.get(el) || 0;
       offsets.set(el, offset + 1);
       if (
-        rect.width &&
-        rect.height &&
+        (rect.width || rect.height) &&
         rect.bottom >= 0 &&
         rect.top <= innerHeight
       )
@@ -495,8 +635,8 @@ export function createPageReview(bridge: ReviewBridge) {
       : null;
     const panel = !$('panel').hidden
       ? $('panel')
-      : !$('selection-menu').hidden
-        ? $('selection-menu')
+      : !$('inline-panel').hidden
+        ? $('inline-panel')
         : null;
     const panelRect = panel?.getBoundingClientRect();
     const visible = new Set(layouts.map((layout) => layout.draft.item.id));
@@ -515,7 +655,7 @@ export function createPageReview(bridge: ReviewBridge) {
       marker.textContent = String(index + 1);
       marker.setAttribute(
         'aria-label',
-        `Comment ${index + 1}: ${draft.item.comment || 'Suggested replacement'}`,
+        `Comment ${index + 1}: ${draft.item.comment || 'Text edit'}`,
       );
       marker.setAttribute(
         'aria-expanded',
@@ -585,8 +725,21 @@ export function createPageReview(bridge: ReviewBridge) {
       event.returnValue = '';
     }
   });
-  const observer = new MutationObserver(schedule);
+  const observer = new MutationObserver((records) => {
+    if (
+      records.every(
+        (record) =>
+          record.target instanceof Element &&
+          record.target.closest('[data-humagent-ui]') &&
+          !record.target.closest('[data-humagent-text]'),
+      )
+    )
+      return;
+    if (enabled) commentCursor.discover();
+    schedule();
+  });
   const observed = new WeakSet<ShadowRoot>();
+  const shadowRoots = new Set<ShadowRoot>();
   const observation = {
     subtree: true,
     childList: true,
@@ -596,21 +749,25 @@ export function createPageReview(bridge: ReviewBridge) {
   };
   observer.observe(document.body || document.documentElement, observation);
   function watchRoots(el: Element) {
+    commentCursor.watch(el);
     let root = el.getRootNode();
     while (root instanceof ShadowRoot) {
       if (!observed.has(root)) {
         observer.observe(root, observation);
         observed.add(root);
+        shadowRoots.add(root);
       }
       root = root.host.getRootNode();
     }
   }
   return {
     flush,
+    outside,
     edit,
     setMode,
     end() {
       enabled = false;
+      commentCursor.set(false);
       writable = false;
       bridge.mode(false);
       updateEditor();
@@ -618,13 +775,16 @@ export function createPageReview(bridge: ReviewBridge) {
     },
     setDrafts(presentation: ReviewPresentation) {
       drafts = presentation.items;
+      previews = presentation.previews;
       locked = new Set(presentation.locked);
       writable = presentation.writable;
       const ids = new Set(drafts.map((draft) => draft.item.id));
+      const previewIds = new Set(previews.map((draft) => draft.item.id));
       const references = new Set(
-        drafts.map((draft) => draft.item.target?.anchorId),
+        [...drafts, ...previews].map((draft) => draft.item.target?.anchorId),
       );
-      for (const id of bound.keys()) if (!ids.has(id)) bound.delete(id);
+      for (const id of bound.keys())
+        if (!ids.has(id) && !previewIds.has(id)) bound.delete(id);
       for (const [id, marker] of markers)
         if (!ids.has(id)) {
           marker.remove();
@@ -634,7 +794,11 @@ export function createPageReview(bridge: ReviewBridge) {
         if (!references.has(id) && id !== captured?.target.anchorId)
           anchors.delete(id);
       if (captured?.draft && !ids.has(captured.draft.item.id)) close(true);
-      if (!writable) enabled = false;
+      if (!writable) {
+        enabled = false;
+        commentCursor.set(false);
+      }
+      text.reconcile(previews);
       updateEditor();
       schedule();
     },

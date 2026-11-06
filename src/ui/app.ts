@@ -175,8 +175,21 @@ function paragraph(text: string, className?: string) {
 }
 function presentation(): ReviewPresentation {
   const items = review?.snapshot().drafts || [];
+  const previews = new Map(items.map((draft) => [draft.item.id, draft]));
+  for (const event of session?.events || []) {
+    for (const item of event.payload.items) {
+      if (event.status === 'completed') previews.delete(item.id);
+      else previews.set(item.id, { item, revision: event.revision });
+    }
+  }
   return {
     items,
+    previews: [...previews.values()].filter(
+      (draft) =>
+        draft.item.replacement &&
+        draft.revision === session?.revision &&
+        draft.revision === loadedRevision,
+    ),
     locked: items.filter((d) => review.locked(d.item.id)).map((d) => d.item.id),
     writable: writable && !session?.ended,
   };
@@ -433,9 +446,12 @@ async function sync() {
 }
 async function deliver(clientId: string) {
   canWrite(true);
-  await review.deliver(clientId, (value) =>
-    api<ReviewEvent>('events', 'POST', value),
-  );
+  await review.deliver(clientId, async (value) => {
+    const event = await api<ReviewEvent>('events', 'POST', value);
+    if (!session.events.some((existing) => existing.id === event.id))
+      session.events.push(event);
+    return event;
+  });
   error();
   await sync();
 }
@@ -522,6 +538,16 @@ $('end').onclick = async () => {
     error(errorMessage(e));
   }
 };
+document.addEventListener(
+  'click',
+  (event) => {
+    if (!editorDirty) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    post('outside');
+  },
+  true,
+);
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
     openTray(false);

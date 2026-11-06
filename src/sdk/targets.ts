@@ -36,7 +36,7 @@ export function isNativeInteractiveControl(el: EventTarget | null): boolean {
   if (!widget) return false;
   return true;
 }
-export function context(el: Element) {
+export function context(el: Element, text: string) {
   const shadowPath: string[] = [];
   let root = el.getRootNode();
   while (root instanceof ShadowRoot) {
@@ -48,10 +48,7 @@ export function context(el: Element) {
     id: el.getAttribute('data-humagent-id') || el.id || '',
     selector: selector(el),
     tag: el.tagName.toLowerCase(),
-    text: ((el instanceof HTMLElement && el.innerText) || el.textContent || '')
-      .trim()
-      .replace(/\s+/g, ' ')
-      .slice(0, 4000),
+    text: text.trim().replace(/\s+/g, ' ').slice(0, 4000),
   };
 }
 
