@@ -54,9 +54,12 @@ for (const lost of ['HTTP response', 'bridge acknowledgment'])
     const documentId = await review.evaluate(
       () => window.__HUMAGENT__!.documentId,
     );
-    if (await page.locator('#tray').isHidden())
+    if (
+      (await page.locator('#toggle-review').getAttribute('aria-expanded')) !==
+      'true'
+    )
       await page.locator('#toggle-review').click();
-    await page.locator('#refresh').click();
+    await review.evaluate(() => location.reload());
     await expect
       .poll(() => review.evaluate(() => window.__HUMAGENT__!.documentId), {
         timeout: 15000,

@@ -132,6 +132,12 @@ export function createForms({
   async function flush() {
     while (timers.size) for (const form of timers.keys()) await persist(form);
   }
+  window.addEventListener('beforeunload', (event) => {
+    if (!timers.size) return;
+    event.preventDefault();
+    event.returnValue = '';
+    void flush().catch((error: unknown) => notice(errorMessage(error)));
+  });
   for (const type of ['input', 'change'])
     document.addEventListener(type, (event) => {
       if (!isElement(event.target)) return;

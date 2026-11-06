@@ -199,7 +199,6 @@ if (window.parent === window.top) {
         send('flushed', { error: errorMessage(error) }, data.id);
       }
     }
-    if (data.method === 'reload') location.reload();
   });
   const hello = setInterval(() => send('hello'), 1000);
   send('hello');

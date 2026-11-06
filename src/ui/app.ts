@@ -11,6 +11,7 @@ import type {
 import { icon } from '../shared/icons.js';
 import { fingerprint } from '../shared/batch.js';
 import { errorMessage } from '../shared/errors.js';
+import { createExpansion } from './expansion.js';
 
 type Controls = Record<string, HTMLElement> & {
   frame: HTMLIFrameElement;
@@ -36,6 +37,7 @@ let session: SessionSnapshot,
   syncing: Promise<SessionSnapshot> | null,
   writable = false,
   annotating = false,
+  connected = false,
   editorDirty = false,
   flushCall: {
     id: string;
@@ -47,7 +49,10 @@ const mutations = new Map<
   { signature: string; result: RequestResult }
 >();
 $('annotate').innerHTML = icon('comment');
-$('close-tray').innerHTML = icon('close');
+$('end').innerHTML = icon('power');
+$('expand-icon').innerHTML = icon('chevron');
+$('agent-command').textContent = `humagent wait ${id} --timeout 50 --lease 600`;
+const expand = createExpansion($('tray'), $('tray-content'));
 const rendered = new WeakMap<HTMLElement, string>();
 function renderChanged(element: HTMLElement, value: unknown, draw: () => void) {
   const key = JSON.stringify(value);
@@ -81,7 +86,7 @@ function error(message = '') {
   if (message) openTray();
 }
 function openTray(open = true) {
-  $('tray').hidden = !open;
+  expand(open);
   $('toggle-review').setAttribute('aria-expanded', String(open));
 }
 function canWrite(retry = false) {
@@ -184,12 +189,10 @@ function render() {
   if (!review) return;
   const snapshot = review.snapshot();
   const count = snapshot.drafts.length;
-  $('toggle-review').innerHTML =
-    `${count ? `<span>${count}</span>` : ''}${icon('chevron')}`;
+  $('pending-count').textContent = count ? String(count) : '';
   $('toggle-review').title = count
     ? `${count} pending items`
     : 'Review details';
-  $('empty').hidden = !!count || !!snapshot.outbox.length;
   $('annotate').setAttribute('aria-pressed', String(annotating));
   const mutable = writable && !session?.ended;
   renderChanged(
@@ -303,9 +306,7 @@ function render() {
     drafts.some((d) => d.revision !== loadedRevision) ||
     (hasMessage && snapshot.message.revision !== loadedRevision) ||
     loadedRevision !== session?.revision;
-  $('send').title = editorDirty
-    ? 'Save or cancel your feedback first'
-    : 'Send feedback to your agent';
+  $('send').title = 'Send feedback to your agent';
   $('outbox').hidden = !snapshot.outbox.length;
   renderChanged($('pending-batches'), [snapshot.outbox, writable], () => {
     for (const entry of snapshot.outbox) {
@@ -352,6 +353,22 @@ function renderStatus() {
           ? 'Completed'
           : 'Sent';
 }
+function renderConnection() {
+  const state = session?.ended
+    ? 'Session ended'
+    : !connected
+      ? 'Connection unavailable'
+      : session.agent === 'waiting'
+        ? 'Agent listening'
+        : session.agent === 'working'
+          ? 'Agent working'
+          : 'No agent waiting';
+  $('agent-state').textContent = state;
+  $('agent-indicator').setAttribute('aria-label', state);
+  $('agent-indicator').dataset.active = String(
+    connected && !session?.ended && session?.agent !== 'idle',
+  );
+}
 async function flushPage() {
   if (!bridgeReady)
     throw new Error('Wait for the page to connect before continuing.');
@@ -385,7 +402,8 @@ async function sync() {
     const reconnected =
       !!session && session.surface.origin !== updated.surface.origin;
     session = updated;
-    $('title').textContent = session.title;
+    connected = true;
+    renderConnection();
     document.title = `${session.title} · Humagent`;
     $('end').disabled = session.ended || !writable;
     $('annotate').disabled = session.ended || !writable || !bridgeReady;
@@ -402,6 +420,8 @@ async function sync() {
     return session;
   })()
     .catch((e) => {
+      connected = false;
+      renderConnection();
       error(errorMessage(e));
       $('bridge-status').textContent = 'Disconnected';
       throw e;
@@ -461,10 +481,26 @@ $('verify-message').onclick = () => {
     error(errorMessage(e));
   }
 };
-$('toggle-review').onclick = () => openTray($('tray').hidden);
-$('close-tray').onclick = () => {
-  openTray(false);
-  $('toggle-review').focus();
+$('toggle-review').onclick = () =>
+  openTray($('toggle-review').getAttribute('aria-expanded') !== 'true');
+let copyTimer: ReturnType<typeof setTimeout>;
+$('copy-command').onclick = async () => {
+  clearTimeout(copyTimer);
+  try {
+    await navigator.clipboard.writeText($('agent-command').textContent || '');
+    $('copy-status').textContent = 'Copied';
+  } catch {
+    const range = document.createRange();
+    range.selectNodeContents($('agent-command'));
+    const selection = getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    $('agent-command').focus();
+    $('copy-status').textContent = 'Select and copy the command.';
+  }
+  copyTimer = setTimeout(() => {
+    $('copy-status').textContent = '';
+  }, 2500);
 };
 $('take-over').onclick = () => location.reload();
 $('annotate').onclick = (event) => {
@@ -472,20 +508,6 @@ $('annotate').onclick = (event) => {
     canWrite();
     $('frame').focus();
     post('annotate', { enabled: !annotating, keyboard: event.detail === 0 });
-  } catch (e) {
-    error(errorMessage(e));
-  }
-};
-$('refresh').onclick = async () => {
-  try {
-    if (bridgeReady) await flushPage();
-    await sync();
-    const reloadInPlace = bridgeReady;
-    bridgeReady = false;
-    $('connecting').hidden = false;
-    $('bridge-status').textContent = 'Connecting';
-    if (reloadInPlace) post('reload');
-    else $('frame').src = session.surface.frameUrl;
   } catch (e) {
     error(errorMessage(e));
   }
@@ -737,6 +759,11 @@ window.addEventListener('pageshow', (event) => {
 });
 window.addEventListener('pagehide', () => {
   writable = false;
+});
+window.addEventListener('beforeunload', (event) => {
+  if (!unsavedMessage && !editorDirty) return;
+  event.preventDefault();
+  event.returnValue = '';
 });
 try {
   await sync();

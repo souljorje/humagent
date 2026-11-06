@@ -25,7 +25,7 @@ test('shadow-root targets survive refresh and invalidate when their identity cha
       'framenavigated',
       (frame) => frame.parentFrame() === page.mainFrame(),
     ),
-    page.locator('#refresh').click(),
+    review.evaluate(() => location.reload()),
   ]);
   await review.ready();
   await expect(review.frame.locator('.marker:visible')).toHaveCount(1);
@@ -187,7 +187,10 @@ test('commenting stays enabled, hover highlights, and confirmation creates a cli
   plan: _plan,
   review,
 }) => {
-  await expect(page.locator('#tray')).toBeHidden();
+  await expect(page.locator('#toggle-review')).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
   await page.locator('#annotate').click();
   await review.frame.locator('h1').hover();
   await expect(review.frame.locator('#highlight')).toBeVisible();
@@ -203,7 +206,10 @@ test('commenting stays enabled, hover highlights, and confirmation creates a cli
     'aria-pressed',
     'true',
   );
-  await expect(page.locator('#tray')).toBeHidden();
+  await expect(page.locator('#toggle-review')).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
   await expect(review.frame.locator('.marker')).toHaveText('1');
   await page.locator('#annotate').click();
   await review.frame.locator('input[name="outcome"]').fill('Native input');
@@ -241,8 +247,12 @@ test('unfinished feedback survives reselection and blocks refresh and send', asy
   const documentId = await review.evaluate(
     () => window.__HUMAGENT__!.documentId,
   );
-  await page.locator('#refresh').click();
-  await expect(page.locator('#error')).toContainText('Save or cancel');
+  expect(
+    await review.evaluate(
+      () =>
+        !window.dispatchEvent(new Event('beforeunload', { cancelable: true })),
+    ),
+  ).toBe(true);
   expect(await review.evaluate(() => window.__HUMAGENT__!.documentId)).toBe(
     documentId,
   );
@@ -501,7 +511,7 @@ test('stale feedback remains visible and blocks sending after explicit refresh',
   fs.appendFileSync(workspace.file(), '<p>Changed source.</p>');
   await page.locator('#toggle-review').click();
   await expect(page.locator('#update')).toBeVisible();
-  await page.locator('#refresh').click();
+  await review.evaluate(() => location.reload());
   await review.ready();
   await expect(page.locator('.draft-status')).toContainText('Stale revision');
   await expect(page.locator('#send')).toBeDisabled();

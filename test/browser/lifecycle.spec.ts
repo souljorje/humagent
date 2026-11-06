@@ -83,9 +83,12 @@ test('navigation stays current when a corrective request also arrives late', asy
     },
   );
   try {
-    if (await page.locator('#tray').isHidden())
+    if (
+      (await page.locator('#toggle-review').getAttribute('aria-expanded')) !==
+      'true'
+    )
       await page.locator('#toggle-review').click();
-    await page.locator('#refresh').click();
+    await review.evaluate(() => location.reload());
     await expect.poll(() => heldA).toBe(true);
     await review.evaluate(() => {
       location.href = '/b';
@@ -146,9 +149,12 @@ test('late navigation responses cannot replace the current revision', async ({
     },
   );
   try {
-    if (await page.locator('#tray').isHidden())
+    if (
+      (await page.locator('#toggle-review').getAttribute('aria-expanded')) !==
+      'true'
+    )
       await page.locator('#toggle-review').click();
-    await page.locator('#refresh').click();
+    await review.evaluate(() => location.reload());
     await expect.poll(() => held).toBe(true);
     await review.evaluate(() => {
       location.href = '/b';
@@ -239,11 +245,11 @@ test('default restarts retain drafts, form values, and pending input', async ({
   expect(workspace.origin).toBe(origin);
   await expect(page.locator('#error')).toContainText('service restarted');
   const reconnected = await workspace.api(`/api/sessions/${plan.session}`);
-  await page.locator('#refresh').click();
+  await page.reload();
+  await review.ready();
   await expect
     .poll(() => review.evaluate(() => location.origin))
     .toBe(reconnected.surface.origin);
-  await review.ready();
   await expect(review.frame.locator('input[name="outcome"]')).toHaveValue(
     'A preserved outcome.',
   );
@@ -296,7 +302,7 @@ test('existing apps retain native clicks, API requests, and annotations', async 
     .toBe('headline');
 });
 
-test('refresh flushes state and keeps the currently displayed route', async ({
+test('browser reload retains saved form state and the displayed route', async ({
   page,
   review,
   workspace,
@@ -307,14 +313,26 @@ test('refresh flushes state and keeps the currently displayed route', async ({
   await expect(review.frame.locator('h1')).toHaveText('Page b');
   await review.ready();
   await review.frame.locator('input[name="note"]').fill('Save before reload.');
-  if (await page.locator('#tray').isHidden())
+  expect(
+    await review.evaluate(
+      () =>
+        !window.dispatchEvent(new Event('beforeunload', { cancelable: true })),
+    ),
+  ).toBe(true);
+  await expect
+    .poll(() => workspace.forms(session.session).route?.note)
+    .toBe('Save before reload.');
+  if (
+    (await page.locator('#toggle-review').getAttribute('aria-expanded')) !==
+    'true'
+  )
     await page.locator('#toggle-review').click();
   await Promise.all([
     page.waitForEvent(
       'framenavigated',
       (frame) => frame.parentFrame() === page.mainFrame(),
     ),
-    page.locator('#refresh').click(),
+    review.evaluate(() => location.reload()),
   ]);
   await review.ready();
   expect(await review.evaluate(() => location.pathname)).toBe('/b');

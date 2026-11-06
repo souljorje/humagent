@@ -5,6 +5,7 @@ const paths = {
   trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
   chevron: '<path d="m6 15 6-6 6 6"/>',
+  power: '<path d="M12 2v10M6.3 5.3a9 9 0 1 0 11.4 0"/>',
 };
 
 export function icon(name: keyof typeof paths) {

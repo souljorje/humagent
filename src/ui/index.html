@@ -17,41 +17,41 @@
       <div id="connecting" role="status">Connecting to the page…</div>
     </main>
     <section id="review-bar" aria-label="Review controls">
-      <section id="tray" aria-label="Pending items" hidden>
-        <div class="tray-head">
-          <strong id="title">Pending items</strong
-          ><button
-            id="close-tray"
-            class="icon"
-            aria-label="Close pending items"
-          ></button>
-        </div>
-        <p id="error" role="alert" hidden></p>
-        <p id="readonly" role="status" hidden>
-          This review is open in another tab. Close that tab, then
-          <button id="take-over">reload here</button>.
-        </p>
-        <p id="update" role="status" hidden>
-          The page changed. Refresh and inspect stale feedback before sending.
-        </p>
-        <div class="tray-content">
-          <p id="empty">
-            No pending feedback. Turn on commenting to choose an element.
-          </p>
-          <ol id="drafts" aria-label="Draft feedback"></ol>
-          <p id="message-stale" hidden>
-            This instruction belongs to another revision. Inspect the page, then
-            <button id="verify-message">Use for this page</button>.
-          </p>
-          <section id="outbox" aria-label="Unconfirmed batches" hidden>
-            <h2>Awaiting confirmation</h2>
-            <div id="pending-batches"></div>
+      <section id="tray" aria-label="Review details" inert>
+        <div id="tray-content">
+          <section class="connection" aria-label="Connect your agent">
+            <div class="connection-heading">
+              <h2>Connect your agent</h2>
+              <span id="agent-state" role="status">Checking connection</span>
+            </div>
+            <div class="connection-command">
+              <code id="agent-command" tabindex="0"></code
+              ><button id="copy-command" aria-label="Copy agent command">
+                Copy
+              </button>
+            </div>
+            <span id="copy-status" role="status"></span>
           </section>
-        </div>
-        <div class="session-actions">
-          <span id="bridge-status" role="status">Connecting</span
-          ><button id="refresh">Refresh page</button
-          ><button id="end">End session</button>
+          <p id="error" role="alert" hidden></p>
+          <p id="readonly" role="status" hidden>
+            This review is open in another tab. Close that tab, then
+            <button id="take-over">reload here</button>.
+          </p>
+          <p id="update" role="status" hidden>
+            The page changed. Refresh and inspect stale feedback before sending.
+          </p>
+          <div class="tray-content">
+            <ol id="drafts" aria-label="Draft feedback"></ol>
+            <p id="message-stale" hidden>
+              This instruction belongs to another revision. Inspect the page,
+              then
+              <button id="verify-message">Use for this page</button>.
+            </p>
+            <section id="outbox" aria-label="Unconfirmed batches" hidden>
+              <h2>Awaiting confirmation</h2>
+              <div id="pending-batches"></div>
+            </section>
+          </div>
         </div>
       </section>
       <p id="activity" role="status" hidden></p>
@@ -64,6 +64,19 @@
           title="Toggle commenting"
           disabled
         ></button>
+        <button
+          id="toggle-review"
+          aria-label="Review details and agent connection"
+          aria-expanded="false"
+          aria-controls="tray"
+        >
+          <span
+            id="agent-indicator"
+            role="img"
+            aria-label="Checking connection"
+          ></span
+          ><span id="pending-count"></span><span id="expand-icon"></span>
+        </button>
         <textarea
           id="message"
           aria-label="Overall instruction"
@@ -71,14 +84,16 @@
           maxlength="4000"
           placeholder="Add an instruction…"
         ></textarea>
-        <button
-          id="toggle-review"
-          aria-label="Pending items and session actions"
-          aria-expanded="false"
-          aria-controls="tray"
-        ></button>
         <button id="send" class="primary" disabled>Send</button>
+        <button
+          id="end"
+          class="icon"
+          aria-label="End session"
+          title="End session"
+          disabled
+        ></button>
       </div>
+      <span id="bridge-status" class="sr-only" role="status">Connecting</span>
       <span id="draft-status" class="sr-only" role="status"></span>
     </section>
   </body>
