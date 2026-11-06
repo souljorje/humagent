@@ -195,12 +195,12 @@ test('commenting stays enabled, hover highlights, and confirmation creates a cli
   await expect(review.frame.locator('#highlight')).toBeVisible();
   await review.frame.locator('h1').click();
   await expect(
-    review.frame.getByRole('button', { name: 'Add comment' }),
+    review.frame.getByRole('button', { name: 'Confirm text edit' }),
   ).toBeDisabled();
   await review.frame
     .getByLabel('Comment', { exact: true })
     .fill('Shorter heading');
-  await review.frame.getByRole('button', { name: 'Add comment' }).click();
+  await review.frame.getByRole('button', { name: 'Confirm text edit' }).click();
   await expect(page.locator('#annotate')).toHaveAttribute(
     'aria-pressed',
     'true',
@@ -255,7 +255,7 @@ test('unfinished feedback survives reselection and blocks refresh and send', asy
   expect(await review.evaluate(() => window.__HUMAGENT__!.documentId)).toBe(
     documentId,
   );
-  await review.frame.getByRole('button', { name: 'Add comment' }).click();
+  await review.frame.getByRole('button', { name: 'Confirm text edit' }).click();
   await expect
     .poll(async () => (await review.state()).drafts[0]?.item.target?.id)
     .toBe('headline');

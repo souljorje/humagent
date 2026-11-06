@@ -6,6 +6,7 @@ import {
   isEditableText,
 } from './text-editing.js';
 import { createCommentCursor } from './comment-cursor.js';
+import { hitTestText } from './text-hit.js';
 import type {
   Bootstrap,
   ReviewPresentation,
@@ -554,12 +555,12 @@ export function createPageReview(bridge: ReviewBridge) {
       event.stopImmediatePropagation();
       const selection = document.getSelection();
       if (selection?.toString().trim()) return;
-      show(
-        event.composedPath().find((item) => item instanceof Element) ||
-          event.target,
-        undefined,
-        clickPoint(event),
-      );
+      const point = clickPoint(event);
+      const hit = point
+        ? hitTestText(point, shadowRoots, canEditText)?.text
+        : undefined;
+      if (hit) showText(hit.node, hit.offset, hit.offset, undefined, point);
+      else show(eventElement(event) || event.target, undefined, point);
     },
     true,
   );
@@ -610,7 +611,10 @@ export function createPageReview(bridge: ReviewBridge) {
         $('keyboard-hint').hidden = false;
       } else if (event.key === 'Enter' && hovered) {
         event.preventDefault();
-        show(hovered);
+        const nodes = [...hovered.childNodes].filter(canEditText);
+        if (nodes.length === 1)
+          showText(nodes[0]!, nodes[0]!.length, nodes[0]!.length);
+        else show(hovered);
       }
     },
     true,

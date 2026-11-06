@@ -1,5 +1,5 @@
 import { icon } from '../shared/icons.js';
-import { isNativeInteractiveControl } from './targets.js';
+import { hitTestText } from './text-hit.js';
 
 export function createCommentCursor(
   observe: (root: ShadowRoot) => void,
@@ -40,48 +40,16 @@ export function createCommentCursor(
   function update() {
     frame = 0;
     if (!enabled || !point) return restore();
-    let hit = document.elementFromPoint(point.x, point.y);
-    while (hit?.shadowRoot) {
-      const inner = hit.shadowRoot.elementFromPoint(point.x, point.y);
-      if (!inner || inner === hit) break;
-      hit = inner;
-    }
-    if (
-      !hit ||
-      hit.closest('[data-humagent-ui]') ||
-      isNativeInteractiveControl(hit)
-    )
-      return restore();
-    const doc = document as Document & {
-      caretPositionFromPoint?: (
-        x: number,
-        y: number,
-        options: { shadowRoots: ShadowRoot[] },
-      ) => { offsetNode: Node } | null;
-      caretRangeFromPoint?: (x: number, y: number) => Range | null;
-    };
-    const node =
-      doc.caretPositionFromPoint?.(point.x, point.y, {
-        shadowRoots: [...roots].filter(
-          (root): root is ShadowRoot => root instanceof ShadowRoot,
-        ),
-      })?.offsetNode ||
-      doc.caretRangeFromPoint?.(point.x, point.y)?.startContainer;
-    let nextKind = 'comment';
-    if (eligible(node || null) && hit.contains(node!)) {
-      const range = document.createRange();
-      range.selectNodeContents(node!);
-      if (
-        [...range.getClientRects()].some(
-          (rect) =>
-            point!.x >= rect.left &&
-            point!.x <= rect.right &&
-            point!.y >= rect.top &&
-            point!.y <= rect.bottom,
-        )
-      )
-        nextKind = 'text';
-    }
+    const result = hitTestText(
+      point,
+      [...roots].filter(
+        (root): root is ShadowRoot => root instanceof ShadowRoot,
+      ),
+      eligible,
+    );
+    if (!result) return restore();
+    const hit = result.element;
+    const nextKind = result.text ? 'text' : 'comment';
     if (hit === hovered && nextKind === kind) return;
     restore();
     hovered = hit;

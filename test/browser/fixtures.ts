@@ -147,7 +147,7 @@ export const test = base.extend<Fixtures>({
           .fill(comment);
         await page
           .frameLocator('#frame')
-          .getByRole('button', { name: 'Add comment', exact: true })
+          .getByRole('button', { name: /^(Add comment|Confirm text edit)$/ })
           .click();
         await expect(
           page.frameLocator('#frame').getByRole('dialog', { name: 'Feedback' }),

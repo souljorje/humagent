@@ -290,7 +290,7 @@ export function isEditableText(node: Node | null): node is Text {
     !(node instanceof Text) ||
     !node.data.trim() ||
     node.length > 50000 ||
-    !node.parentElement
+    !(node.parentElement instanceof HTMLElement)
   )
     return false;
   let el: Element = node.parentElement;
