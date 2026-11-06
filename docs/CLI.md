@@ -84,10 +84,9 @@ Use the same data directory across commands.
 | No agent listening | Ask the agent to run `wait`. Queued input remains available. |
 | Feedback remains a draft | Open Review and choose Send all. Forms and SDK calls only stage feedback. |
 | Review is open in another tab | Close the editing tab, then reload the other tab. |
-| Unsupported old feedback | Export browser feedback for reference. Start a new session with a new data directory. |
 | Agent turn ended | Send the agent a new message. |
 | Browser did not open | Open the printed URL on the same computer. |
-| Older server running | Run `humagent stop`. Repeat `open`. |
+| Server version mismatch | Run `humagent stop`. Repeat `open`. |
 | Source changed | Follow the [revision steps](SDK.md#revisions). |
 | App cannot connect | Check its HTML route and [attachment limits](SECURITY.md#network). |
 | Command fails | Run `humagent doctor`. Read `server.log` in the data directory. |

@@ -53,7 +53,7 @@ const result = await window.humagent.submit({
 The method waits for bridge readiness internally. It resolves after the workspace persists the draft in browser storage.
 It does not confirm server delivery or agent receipt. Display errors so the user can recover.
 
-Agent replies appear in the workspace. Public state methods, reply subscriptions, and immediate submissions are unsupported.
+Agent replies appear in the workspace.
 
 ## Review batches
 
@@ -103,5 +103,3 @@ Add or cancel unfinished popup feedback before refreshing or selecting another t
 Mixed or stale draft revisions block sending. Refresh the page, inspect the feedback, then recreate or remove affected items.
 An overall instruction can be explicitly confirmed for the displayed page. Existing target anchors never receive a new revision automatically.
 Missing or ambiguous targets show as unavailable. Humagent does not bind them to a replacement element automatically.
-
-Unsupported old sessions and browser feedback are not migrated. Export browser data for reference before starting a new session.
