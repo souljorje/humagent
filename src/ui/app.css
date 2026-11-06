@@ -120,11 +120,11 @@ textarea::placeholder {
 .bar-controls {
   display: flex;
   align-items: center;
-  gap: 6px;
   padding: 8px;
 }
 .bar-controls #message {
   flex: 1;
+  margin-inline: 6px;
 }
 .bar-controls #annotate[aria-pressed='true'] {
   background: #eee;
@@ -134,7 +134,8 @@ textarea::placeholder {
   color: var(--muted);
 }
 #toggle-review svg {
-  width: 16px;
+  width: 24px;
+  height: 24px;
   transition: transform 160ms;
 }
 #toggle-review[aria-expanded='true'] svg {
@@ -203,12 +204,12 @@ textarea::placeholder {
 #agent-indicator {
   width: 6px;
   height: 6px;
-  border: 1px solid #aaa;
+  background: #f87171;
   border-radius: 50%;
   flex-shrink: 0;
 }
 #agent-indicator[data-active='true'] {
-  background: #eee;
+  background: #4ade80;
 }
 #pending-count {
   margin: 12px 0 6px;
@@ -344,8 +345,10 @@ dd {
     border-radius: 20px;
   }
   .bar-controls {
-    gap: 3px;
     padding: 6px;
+  }
+  .bar-controls #message {
+    margin-inline: 3px;
   }
   .bar-controls #send {
     padding: 8px 12px;
