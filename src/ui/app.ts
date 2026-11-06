@@ -55,7 +55,7 @@ $('annotate').innerHTML = icon('comment');
 $('end').innerHTML = icon('power');
 $('expand-icon').innerHTML = icon('chevron');
 $('copy-command').innerHTML = icon('copy');
-$('agent-command').textContent = `humagent wait ${id} --timeout 50 --lease 600`;
+$('agent-command').textContent = `humagent wait ${id}`;
 installTooltips(document);
 const inputStyle = new CSSStyleSheet();
 inputStyle.replaceSync(inputStyles);

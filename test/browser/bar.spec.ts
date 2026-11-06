@@ -125,7 +125,7 @@ test('agent command is session-specific with copy feedback and selectable fallba
   page,
   plan,
 }) => {
-  const command = `humagent wait ${plan.session} --timeout 50 --lease 600`;
+  const command = `humagent wait ${plan.session}`;
   await expect(page.locator('#agent-command')).toHaveText(command);
   await page.evaluate(() =>
     Object.defineProperty(navigator, 'clipboard', {
