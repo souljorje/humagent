@@ -260,7 +260,13 @@ test('refresh flushes state and keeps the currently displayed route', async ({
   await expect(review.frame.locator('h1')).toHaveText('Page b');
   await review.ready();
   await review.frame.locator('input[name="note"]').fill('Save before reload.');
-  await page.locator('#refresh').click();
+  await Promise.all([
+    page.waitForEvent(
+      'framenavigated',
+      (frame) => frame.parentFrame() === page.mainFrame(),
+    ),
+    page.locator('#refresh').click(),
+  ]);
   await review.ready();
   expect(await review.evaluate(() => location.pathname)).toBe('/b');
   await expect(review.frame.locator('h1')).toHaveText('Page b');
