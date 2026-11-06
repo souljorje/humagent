@@ -59,7 +59,14 @@ for (const lost of ['HTTP response', 'bridge acknowledgment'])
       'true'
     )
       await page.locator('#toggle-review').click();
-    await review.evaluate(() => location.reload());
+    await Promise.all([
+      page.waitForEvent(
+        'framenavigated',
+        (frame) => frame.parentFrame() === page.mainFrame(),
+      ),
+      review.evaluate(() => location.reload()),
+    ]);
+    await review.ready();
     await expect
       .poll(() => review.evaluate(() => window.__HUMAGENT__!.documentId), {
         timeout: 15000,
