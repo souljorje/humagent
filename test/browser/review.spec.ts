@@ -1,29 +1,6 @@
 import fs from 'node:fs';
 import { test, expect } from './fixtures.ts';
 
-test('export preserves current drafts and unconfirmed batches', async ({
-  page,
-  plan,
-  review,
-}) => {
-  await review.addComment('h1', 'Keep this feedback');
-  await page.locator('#message').fill('Keep the instruction too');
-  await page.route(`**/api/sessions/${plan.session}/events`, (route) =>
-    route.abort(),
-  );
-  await page.locator('#send').click();
-  await expect(page.locator('#outbox')).toBeVisible();
-  await expect(page.locator('#error')).toBeVisible();
-  const expected = await review.state();
-  const downloaded = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export review data' }).click();
-  const download = await downloaded;
-  expect(download.suggestedFilename()).toBe('humagent-review.json');
-  const file = await download.path();
-  expect(JSON.parse(fs.readFileSync(file!, 'utf8'))).toEqual(expected);
-  expect(await review.state()).toEqual(expected);
-});
-
 test('replacement text stays protected after switching to Comment', async ({
   page,
   plan: _plan,

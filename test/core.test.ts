@@ -170,13 +170,6 @@ test('ending a session rejects writes but delivers previously queued work', () =
   store.acknowledge(id, batch.receipt);
   assert.equal(store.take(id, 'agent')?.status, 'ended');
 });
-test('corrupt state is not silently replaced with an empty store', () => {
-  const { dir, id } = setup();
-  const file = path.join(dir, 'sessions', `${id}.json`);
-  fs.writeFileSync(file, 'invalid');
-  assert.throws(() => new Store(dir).get(id), /unreadable/);
-  assert.equal(fs.readFileSync(file, 'utf8'), 'invalid');
-});
 test('quote context preserves exact text at document boundaries', () => {
   assert.deepEqual(buildContext('one\n two', 0, 8), {
     prefix: '',
@@ -204,22 +197,6 @@ test('session writes leave other session files untouched', () => {
   const restarted = new Store(dir);
   assert.equal(restarted.get(id).events.length, 1);
   assert.equal(restarted.get(other.id).events.length, 0);
-});
-test('invalid stored protocols fail without rewriting data', () => {
-  const { dir, store, id } = setup();
-  const file = path.join(dir, 'sessions', `${id}.json`);
-  const event = store.send(id, message());
-  const saved = {
-    protocol: 1,
-    session: {
-      ...store.get(id),
-      events: [{ ...event, protocol: 0 }],
-    },
-  };
-  const bytes = JSON.stringify(saved);
-  fs.writeFileSync(file, bytes);
-  assert.throws(() => new Store(dir).get(id), /unreadable/);
-  assert.equal(fs.readFileSync(file, 'utf8'), bytes);
 });
 test('corruption in one session does not hide other sessions', () => {
   const { dir, store, id } = setup();

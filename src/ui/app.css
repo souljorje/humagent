@@ -371,10 +371,6 @@ code {
   font-size: 11px;
   margin: 8px 0;
 }
-#export {
-  font-size: 11px;
-  margin-top: 12px;
-}
 @media (max-width: 900px) {
   .topbar {
     flex-wrap: wrap;

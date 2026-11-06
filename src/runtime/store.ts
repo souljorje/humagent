@@ -39,7 +39,7 @@ function readSession(
       typeof target.network === 'boolean' &&
       (target.kind === 'url' ||
         (target.kind === 'file' && typeof target.root === 'string')),
-    'Invalid stored session',
+    'Unsupported or corrupt session',
   );
   if (target.kind === 'url') {
     const url = new URL(target.value);
@@ -63,7 +63,7 @@ function readSession(
   boundedObject(session.state);
   ensure(
     session.events.every((event) => event.protocol === 2),
-    'Invalid stored feedback protocol',
+    'Stored feedback uses an unsupported protocol. Use a new data directory.',
   );
   return session;
 }
@@ -89,7 +89,7 @@ export class Store extends EventEmitter {
       } catch {
         this.failures.set(
           id,
-          'Stored session is unreadable. Restore a backup or use a new data directory.',
+          'Stored session is unreadable or unsupported. Restore a compatible backup or use a new data directory.',
         );
       }
     }

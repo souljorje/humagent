@@ -8,8 +8,6 @@ Use Bun 1.4.4 for development, dependencies, builds, and tests. Keep `bun.lock` 
 
 Use TypeScript for application code, examples, scripts, and tests. Compile browser code to native JavaScript modules.
 
-Support only the current protocol and storage formats.
-
 Published JavaScript must run on Node.js 24+ and Bun 1.4.4+. Keep the Node shebang for npm/npx compatibility.
 Child servers must use the CLI's runtime executable. npm users must not need Bun.
 

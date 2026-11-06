@@ -59,7 +59,10 @@ export function batch(raw: unknown): Input {
   text(original.revision, 'revision', 128);
   const value = original;
   if (value.protocol !== PROTOCOL)
-    throw new ReviewError('Invalid review protocol.', 'PROTOCOL_MISMATCH');
+    throw new ReviewError(
+      'Reload the workspace to use review batches. Pending input is retained.',
+      'PROTOCOL_MISMATCH',
+    );
   require(value.kind === undefined, 'Batch events do not have a kind');
   object(value.payload);
   const p = value.payload;

@@ -533,18 +533,6 @@ $('copy-command').onclick = async () => {
     error('Select and copy the command manually.');
   }
 };
-$('export').onclick = () => {
-  if (!review) return;
-  const blob = new Blob([JSON.stringify(review.snapshot(), null, 2)], {
-    type: 'application/json',
-  });
-  const url = URL.createObjectURL(blob),
-    link = document.createElement('a');
-  link.href = url;
-  link.download = 'humagent-review.json';
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-};
 $('take-over').onclick = () => location.reload();
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {

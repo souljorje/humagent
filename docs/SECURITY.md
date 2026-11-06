@@ -42,7 +42,6 @@ Credentials stay outside page frames.
 
 Stored input is not encrypted. Where supported, the data directory uses `0700`. Control and atomic session files use `0600`.
 Each session uses a separate file under `sessions/` in the data directory.
-Unreadable session files remain unchanged and do not prevent access to other sessions.
 Browser drafts and unconfirmed sends use local storage. Avoid shared browser profiles for sensitive work.
 
 ## Agent actions

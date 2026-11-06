@@ -86,7 +86,7 @@ Use the same data directory across commands.
 | Review is open in another tab | Close the editing tab, then reload the other tab. |
 | Agent turn ended | Send the agent a new message. |
 | Browser did not open | Open the printed URL on the same computer. |
-| Server version mismatch | Run `humagent stop`. Repeat `open`. |
+| Older server running | Run `humagent stop`. Repeat `open`. |
 | Source changed | Follow the [revision steps](SDK.md#revisions). |
 | App cannot connect | Check its HTML route and [attachment limits](SECURITY.md#network). |
 | Command fails | Run `humagent doctor`. Read `server.log` in the data directory. |
