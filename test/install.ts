@@ -201,6 +201,7 @@ try {
   assert.equal((await run('setup')).unchanged, true);
   const generated = path.join(temporary, 'readme-example', 'review.html');
   fs.mkdirSync(path.dirname(generated));
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
   const html = readme.match(/```html\n([\s\S]*?)```/)?.[1];
   assert.ok(html, 'README must include the generated-page example');
   fs.writeFileSync(generated, html);

@@ -46,38 +46,21 @@ Check `npm view humagent version` and the release archive before changing instal
 
 ## Checks
 
-Run the main check after each implementation increment:
-
 ```sh
 bun run check
 ```
 
-The main check runs formatting, lint, build, type checks, and unit tests.
-Fix failures before continuing.
+This is the agent and PR check: build, formatting, lint, types, and unit tests.
 
-After UI, SDK, or browser interaction changes, run browser tests against the checked build:
+For browser work, install Chromium once and run Playwright locally:
 
 ```sh
 bunx --no-install playwright install chromium
 bun run test:browser:built
 ```
 
-Set `HUMAGENT_BROWSER_PATH` to use an installed Chromium binary. Test output stays in `.local/`.
+Release verification adds all browser tests, packaging, installation with Node.js, and Bun runner checks. Run `bun run check:release` locally before a release.
 
-Run release checks before review of runtime, build, dependency, or package changes, and before a release:
-
-```sh
-bun run check:release
-```
-
-The release check builds, tests, packs, and verifies the package. It also checks an npm install without Bun.
-
-CI tests installation on Linux, macOS, and Windows.
-Use `HUMAGENT_TEST_ARCHIVE` to test a specific archive with `bun run test:install` after packing it.
-Check relative documentation links and the README notices in that archive.
-
-Before changing stored-session formats, follow the [compatibility procedure](docs/CLI.md#stored-session-compatibility).
-Never replace unreadable feedback with an empty session.
 
 ## Pull requests
 
@@ -94,11 +77,24 @@ Follow [AGENTS.md](AGENTS.md) for engineering and documentation rules. Use clear
 
 Keep user guides focused on installation, common use, and troubleshooting. Put maintainer and release steps in this guide.
 
-## Release
+## Changesets and release
 
-Run the GitHub **Release** workflow from `main` with the version in `package.json`.
-Set `publish: true` to publish the verified archive to npm and create a GitHub release.
-Use `publish: false` to run verification only.
+Add a Changeset for publishable behavior, API, type, or dependency changes:
 
-Configure [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) for `release.yml` and the `npm` environment.
-Enable `npm publish` in the trusted publisher settings.
+```sh
+bun run changeset
+```
+
+Commit it with the change. Tests, internal refactors, and CI-only changes usually need no Changeset.
+
+When a Changeset reaches `main`, the **Release** workflow opens or updates a version pull request.
+Merge that PR after its CI check passes.
+
+To publish, manually dispatch the **Release** workflow from `main`. The `npm` environment can require approval.
+The workflow verifies the browser and package, then publishes the **same tested tarball** to npm.
+It creates a GitHub release with the archive and SHA-256 checksum.
+
+Configure npm trusted publishing for GitHub repository `souljorje/humagent`, workflow filename `release.yml`, environment `npm`, and permission to run `npm publish`.
+The package must exist on npm before you can configure its trusted publisher. Publish the first `0.1.0` release using the checked archive with maintainer credentials, then use the workflow for later versions.
+
+See [Changesets](.changeset/README.md) for versioning instructions. The first release is not yet published.

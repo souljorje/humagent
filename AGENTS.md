@@ -15,19 +15,19 @@ Keep temporary output in `.local/`.
 
 ## Validation
 
-Run `bun run check` after each implementation increment.
-Fix failures before continuing.
+Run `bun run check` after each coding increment. CI runs this same command on pull requests.
 
-After UI, SDK, or browser interaction changes, run `bun run test:browser:built` after `bun run check`.
-Test both an existing app and a generated mini-app.
+The fast check builds required output, checks format and types, and runs unit tests.
+Run `bun run test:browser:built` locally after browser or SDK changes.
 
-For runtime, build, dependency, or package changes, run `bun run check:release` before requesting review.
+The manual release runs `bun run check:release`. It tests the browser and the exact archive before publishing.
+Never rebuild or modify the archive after acceptance testing.
 
-Run `bun pm pack` before `bun run test:install`.
+Add a Changeset with `bun run changeset` for publishable API, behavior, or dependency changes.
+Internal tests, documentation, and CI-only changes usually need no Changeset.
 
-Before requesting review, report executed commands, results, and checks that could not run.
-Do not claim unexecuted checks passed.
-Require all Check workflow jobs to pass before merging.
+Report which commands ran, failures, and limits. Do not claim unexecuted tests passed.
+
 
 ## Data and permissions
 
