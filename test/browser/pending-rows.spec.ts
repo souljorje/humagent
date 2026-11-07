@@ -5,6 +5,7 @@ test('feedback rows highlight targets, open editors, and delete independently', 
   plan: _plan,
   review,
 }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await review.addComment('h1', 'First comment');
   await review.addComment('[data-humagent-id="brief"]', 'Second comment');
   await review.expand();
