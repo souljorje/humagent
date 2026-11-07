@@ -1,5 +1,48 @@
 import { test, expect } from './fixtures.ts';
 
+test('enabling commenting discovers nested roots attached while commenting was off', async ({
+  page,
+  plan: _plan,
+  review,
+}) => {
+  await review.evaluate(() => {
+    const host = document.createElement('div');
+    host.id = 'mode-host';
+    host.attachShadow({ mode: 'open' }).innerHTML =
+      '<div id="mode-inner"></div>';
+    document.body.append(host);
+  });
+  await page.locator('#annotate').click();
+  await expect(page.locator('#annotate')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await page.locator('#annotate').click();
+  await expect(page.locator('#annotate')).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await review.evaluate(() => {
+    document
+      .querySelector('#mode-host')!
+      .shadowRoot!.querySelector('#mode-inner')!
+      .attachShadow({ mode: 'open' }).innerHTML =
+      '<button style="user-select:none"><span id="mode-words">Select this text</span></button>';
+  });
+  await page.locator('#annotate').click();
+  await expect(page.locator('#annotate')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect
+    .poll(() =>
+      review.frame
+        .locator('#mode-words')
+        .evaluate((el) => getComputedStyle(el).userSelect),
+    )
+    .toBe('text');
+});
+
 for (const existing of [false, true])
   test(`frequent updates preserve annotations without global rescans in ${existing ? 'existing apps' : 'mini-apps'}`, async ({
     page,

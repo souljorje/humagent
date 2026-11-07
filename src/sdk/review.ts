@@ -893,10 +893,11 @@ export function createPageReview(bridge: ReviewBridge) {
   observer.observe(document.body || document.documentElement, observation);
   function discoverRoots(root: Document | ShadowRoot | Element = document) {
     if (root instanceof ShadowRoot) {
-      if (root.host.matches('[data-humagent-ui]') || shadowRoots.has(root))
-        return;
-      observer.observe(root, observation);
-      shadowRoots.add(root);
+      if (root.host.matches('[data-humagent-ui]')) return;
+      if (!shadowRoots.has(root)) {
+        observer.observe(root, observation);
+        shadowRoots.add(root);
+      }
     }
     if (
       !(root instanceof Element) &&
