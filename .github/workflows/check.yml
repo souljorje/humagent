@@ -27,5 +27,7 @@ jobs:
         with:
           bun-version: '1.4.4'
       - run: bun install --frozen-lockfile
-      - run: bun run format && git diff -- scripts/release.ts
       - run: bun run check
+      # Temporary release acceptance run. Remove after confirmation.
+      - run: bunx --no-install playwright install --with-deps chromium
+      - run: bun run check:release

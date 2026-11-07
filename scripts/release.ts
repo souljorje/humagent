@@ -52,6 +52,5 @@ if (!existsSync(archive)) {
     stdio: 'inherit',
   });
   run(['run', 'test:runners'], env);
-  if (publish)
-    run(['run', 'changeset', 'publish', '--from-pack-dir', output]);
+  if (publish) run(['run', 'changeset', 'publish', '--from-pack-dir', output]);
 }
