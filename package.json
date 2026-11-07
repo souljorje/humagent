@@ -50,7 +50,8 @@
     "prepack": "bun run build",
     "test:install": "node test/install.ts",
     "test:runners": "bun test/runners.ts",
-    "check:release": "bun run check && bun run test:browser:built && bun pm pack --ignore-scripts && bun run test:install && bun run test:runners"
+    "check:release": "bun scripts/release.ts",
+    "release": "bun scripts/release.ts --publish"
   },
   "devDependencies": {
     "@changesets/cli": "3.0.3",

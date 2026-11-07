@@ -79,22 +79,18 @@ Keep user guides focused on installation, common use, and troubleshooting. Put m
 
 ## Changesets and release
 
-Add a Changeset for publishable behavior, API, type, or dependency changes:
+Add a Changeset with `bun run changeset` for publishable behavior, API, or dependency changes.
+Tests, documentation, and internal tooling usually do not need one.
 
-```sh
-bun run changeset
-```
+The Release workflow follows the same Changesets flow as [d3-maps](https://github.com/souljorje/d3-maps/blob/main/.github/workflows/release.yml).
+Changesets on `main` create a version PR. Merging that PR publishes the next version automatically.
 
-Commit it with the change. Tests, internal refactors, and CI-only changes usually need no Changeset.
+Publication runs the full browser checks and verifies the packed package under Node.js and Bun.
+Changesets publishes the **same tarball** that passed installation tests.
+The workflow then creates a Git tag and GitHub release.
 
-When a Changeset reaches `main`, the **Release** workflow opens or updates a version pull request.
-Merge that PR after its CI check passes.
+**First release:** Version `0.1.0` must be published manually after verification.
+Then configure npm trusted publishing for this repository and `.github/workflows/release.yml`.
+The trusted publisher must not require a GitHub environment name because the workflow combines versioning and publication.
 
-To publish, manually dispatch the **Release** workflow from `main`. The `npm` environment can require approval.
-The workflow verifies the browser and package, then publishes the **same tested tarball** to npm.
-It creates a GitHub release with the archive and SHA-256 checksum.
-
-Configure npm trusted publishing for GitHub repository `souljorje/humagent`, workflow filename `release.yml`, environment `npm`, and permission to run `npm publish`.
-The package must exist on npm before you can configure its trusted publisher. Publish the first `0.1.0` release using the checked archive with maintainer credentials, then use the workflow for later versions.
-
-See [Changesets](.changeset/README.md) for versioning instructions. The first release is not yet published.
+See [Changesets](.changeset/README.md) for authoring release notes.

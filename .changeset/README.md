@@ -10,6 +10,6 @@ Select `humagent`, choose a version increment, and describe the user-visible cha
 
 Internal tests, tooling, and CI-only changes do not usually need a changeset.
 
-Changesets on `main` create a version pull request. Merge it after CI. Publishing is a separate, manual Release action.
+Changesets on `main` create a version pull request. Merging it publishes the new version automatically after full verification.
 
 The initial `0.1.0` package has not yet been published. Publish that baseline before the first Changesets version PR.
