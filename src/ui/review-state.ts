@@ -71,6 +71,16 @@ export function createReview(
     if (!state.drafts.some((draft) => draft.item.id === id))
       throw new Error('Draft no longer exists');
   }
+  function copyMarker(marker?: MarkerPosition) {
+    if (marker === undefined) return undefined;
+    if (
+      !marker ||
+      !Number.isFinite(marker.x) ||
+      !Number.isFinite(marker.y)
+    )
+      throw new Error('Invalid marker position');
+    return { x: marker.x, y: marker.y };
+  }
   function stage(
     item: unknown,
     revision: string,
@@ -78,12 +88,7 @@ export function createReview(
     marker?: MarkerPosition,
   ): StageResult {
     const captured = cloneJson(item);
-    if (
-      marker !== undefined &&
-      (!marker || !Number.isFinite(marker.x) || !Number.isFinite(marker.y))
-    )
-      throw new Error('Invalid marker position');
-    const position = marker ? { x: marker.x, y: marker.y } : undefined;
+    const position = copyMarker(marker);
     const signature = fingerprint({
       item: captured,
       revision,
@@ -222,11 +227,7 @@ export function createReview(
     },
     edit(id: string, item: ReviewItem, marker?: MarkerPosition) {
       mutable(id);
-      if (
-        marker !== undefined &&
-        (!marker || !Number.isFinite(marker.x) || !Number.isFinite(marker.y))
-      )
-        throw new Error('Invalid marker position');
+      const position = copyMarker(marker);
       const draft = state.drafts.find((d) => d.item.id === id)!;
       const value = batch({
         protocol: 2,
@@ -237,7 +238,7 @@ export function createReview(
       commit((next) => {
         const updated = next.drafts.find((d) => d.item.id === id)!;
         updated.item = value.payload.items[0]!;
-        if (marker) updated.marker = { x: marker.x, y: marker.y };
+        if (position) updated.marker = position;
       });
     },
     remove(id: string) {

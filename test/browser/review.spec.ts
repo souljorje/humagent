@@ -631,9 +631,8 @@ test('attached pages retain iframe navigation and popup restrictions', async ({
   review,
 }) => {
   await review.open();
-  const sandbox = (await page.locator('#frame').getAttribute('sandbox'))!.split(
-    /\s+/,
-  );
+  const frame = page.locator('#frame');
+  const sandbox = (await frame.getAttribute('sandbox'))!.split(/\s+/);
   expect(sandbox).toEqual(
     expect.arrayContaining(['allow-scripts', 'allow-forms', 'allow-same-origin']),
   );
