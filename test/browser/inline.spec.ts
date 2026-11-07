@@ -10,16 +10,17 @@ for (const existing of [false, true])
   }) => {
     const opened = await review.open(existing ? app.origin : workspace.file());
     await review.replace('h1', 'Application wording');
+    await review.connect();
     await page.locator('#send').click();
     await expect(review.frame.locator('.marker')).toHaveCount(0);
     await review.evaluate(() => {
       document.querySelector('h1')!.firstChild!.nodeValue =
         'Application wording';
     });
-    const received = workspace.store.take(opened.session, 'same-value-test');
+    const received = await review.receive();
     if (received?.status !== 'feedback') throw new Error('Expected feedback');
     workspace.store.acknowledge(opened.session, received.receipt);
-    await expect(page.locator('#activity')).toHaveText('Completed');
+    await expect(page.locator('#agent-state')).toHaveText('No agent waiting');
     await expect(review.frame.locator('h1')).toHaveText('Application wording');
   });
 
@@ -85,9 +86,10 @@ test('acknowledgment removes an uncertain preview while retry still confirms its
     await request.fetch();
     await request.abort();
   });
+  await review.connect();
   await page.locator('#send').click();
   await expect(page.locator('#error')).toBeVisible();
-  const received = workspace.store.take(plan.session, 'uncertain-preview');
+  const received = await review.receive();
   if (received?.status !== 'feedback') throw new Error('Expected feedback');
   workspace.store.acknowledge(plan.session, received.receipt);
   await expect(review.frame.locator('h1')).toHaveText(original!);
@@ -171,10 +173,11 @@ test('submitted previews remain read only until their own receipt completes, inc
 }) => {
   const original = await review.frame.locator('h1').textContent();
   await review.replace('h1', 'First preview');
+  await review.connect();
   await page.locator('#send').click();
   await expect(review.frame.locator('.marker')).toHaveCount(0);
   await expect(review.frame.locator('h1')).toHaveText('First preview');
-  const first = workspace.store.take(plan.session, 'preview-test')!;
+  const first = await review.receive();
   expect(first.status).toBe('feedback');
   if (first.status !== 'feedback') throw new Error('Expected feedback');
   await page.reload();
@@ -201,6 +204,7 @@ test('submitted previews remain read only until their own receipt completes, inc
     .locator('[data-humagent-id="brief"]')
     .textContent();
   await review.replace('[data-humagent-id="brief"]', 'Second preview');
+  await review.connect();
   await page.locator('#send').click();
   await expect
     .poll(() => workspace.store.get(plan.session).events.length)
@@ -210,7 +214,7 @@ test('submitted previews remain read only until their own receipt completes, inc
   await expect(review.frame.locator('[data-humagent-id="brief"]')).toHaveText(
     'Second preview',
   );
-  const second = workspace.store.take(plan.session, 'preview-test')!;
+  const second = await review.receive();
   if (second.status !== 'feedback') throw new Error('Expected feedback');
   workspace.store.acknowledge(plan.session, second.receipt);
   await expect(review.frame.locator('[data-humagent-id="brief"]')).toHaveText(

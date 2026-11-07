@@ -32,7 +32,9 @@ test('new document can stage before an older snapshot response returns', async (
     expect(result.status).toBe('draft');
     release();
     await expect.poll(() => finished).toBe(true);
+    await review.connect();
     await expect(page.locator('#send')).toBeEnabled();
+    await review.connect();
     await page.locator('#send').click();
     await expect
       .poll(() => workspace.store.get(opened.session).events.length)
@@ -113,7 +115,9 @@ test('navigation stays current when a corrective request also arrives late', asy
     await expect
       .poll(() => workspace.store.get(opened.session).surfacePath)
       .toBe('/c');
+    await review.connect();
     await expect(page.locator('#send')).toBeEnabled();
+    await review.connect();
     await page.locator('#send').click();
     await expect
       .poll(() => workspace.store.get(opened.session).events.length)
@@ -164,9 +168,11 @@ test('late navigation responses cannot replace the current revision', async ({
     await review.evaluate(() =>
       window.humagent.submit({ intent: 'current', values: { page: 'b' } }),
     );
+    await review.connect();
     await expect(page.locator('#send')).toBeEnabled();
     release();
     await expect.poll(() => finished).toBe(true);
+    await review.connect();
     await page.locator('#send').click();
     await expect
       .poll(() => workspace.store.get(opened.session).events.length)
@@ -204,6 +210,7 @@ test('nested app frames preserve the attached document and keep their native for
   expect(workspace.store.get(opened.session).revision).toBe(before.revision);
   expect(workspace.store.get(opened.session).surfacePath).toBe('/a');
   await review.addComment('h1', 'Review the parent');
+  await review.connect();
   await page.locator('#send').click();
   await expect
     .poll(() => workspace.store.get(opened.session).events.length)
@@ -229,6 +236,7 @@ test('default restarts retain drafts, form values, and pending input', async ({
   await page.route(blockedEvents, (route) => route.abort());
   await review.expand();
   await page.locator('#message').fill('Keep this unsent message.');
+  await review.connect();
   await page.locator('#send').click();
   await expect(page.locator('#error')).toBeVisible();
   await expect(page.locator('#outbox')).toBeVisible();
@@ -267,6 +275,7 @@ test('default restarts retain drafts, form values, and pending input', async ({
     plan.session,
   );
   expect(restoredId).toBe(pendingId);
+  await review.connect();
   await page.getByRole('button', { name: 'Retry send', exact: true }).click();
   await expect
     .poll(
@@ -292,6 +301,7 @@ test('existing apps retain native clicks, API requests, and annotations', async 
     await review.evaluate(async () => (await fetch('/api/value')).json()),
   ).toEqual({ value: 42 });
   await review.addComment('#headline', 'Review an existing app.');
+  await review.connect();
   await page.locator('#send').click();
   await expect
     .poll(
@@ -371,6 +381,7 @@ test('HTML fragment fetches preserve the displayed app and allow submissions', a
   );
   expect(event.status).toBe('draft');
   expect(workspace.store.get(opened.session).events).toHaveLength(0);
+  await review.connect();
   await page.locator('#send').click();
   await expect
     .poll(() => workspace.store.get(opened.session).events.length)
@@ -391,6 +402,7 @@ test('dynamic HTML accepts submissions without a refresh loop', async ({
     .locator('form[data-humagent-intent] button[type="submit"]')
     .click();
   await expect(page.locator('.draft')).toHaveCount(1);
+  await review.connect();
   await page.locator('#send').click();
   await expect
     .poll(() => workspace.store.get(session.session).events.length)

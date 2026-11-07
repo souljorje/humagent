@@ -41,12 +41,26 @@ let session: SessionSnapshot,
   annotating = false,
   connected = false,
   editorDirty = false,
+  sending = false,
+  sent = false,
   manuallyToggled = false,
   flushCall: {
     id: string;
     finish(params: { error?: string; ok?: boolean }): void;
   } | null;
 const available = new Map<string, boolean>();
+let sentTimer: ReturnType<typeof setTimeout>;
+function agentAvailable() {
+  return (
+    connected &&
+    !session?.ended &&
+    (session?.agent === 'waiting' || session?.agent === 'working')
+  );
+}
+function resetSent() {
+  clearTimeout(sentTimer);
+  sent = false;
+}
 const mutations = new Map<
   string,
   { signature: string; result: RequestResult }
@@ -316,7 +330,12 @@ function render() {
     snapshot.message.revision === loadedRevision;
   const drafts = snapshot.drafts.filter((d) => !review.locked(d.item.id));
   const hasMessage = !review.messageLocked() && !!snapshot.message.text.trim();
+  if (sent && (drafts.length || hasMessage)) resetSent();
+  $('send').textContent = sending ? 'Sending…' : sent ? 'Sent' : 'Send';
+  $('send').setAttribute('aria-busy', String(sending));
   $('send').disabled =
+    sending ||
+    !agentAvailable() ||
     editorDirty ||
     unsavedMessage ||
     !mutable ||
@@ -325,52 +344,45 @@ function render() {
     drafts.some((d) => d.revision !== loadedRevision) ||
     (hasMessage && snapshot.message.revision !== loadedRevision) ||
     loadedRevision !== session?.revision;
-  $('send').dataset.tooltip = 'Send feedback to your agent';
+  $('send').dataset.tooltip = !agentAvailable()
+    ? 'Connect an agent to send feedback'
+    : 'Send feedback to your agent';
   $('outbox').hidden = !snapshot.outbox.length;
-  renderChanged($('pending-batches'), [snapshot.outbox, writable], () => {
-    for (const entry of snapshot.outbox) {
-      const div = document.createElement('div');
-      div.className = 'pending';
-      div.dataset.batchId = entry.batch.clientId;
-      div.append(
-        paragraph(
-          `${entry.batch.payload.items.length} feedback items${entry.batch.payload.message ? ' and an instruction' : ''}`,
-        ),
-      );
-      if (entry.error) div.append(paragraph(entry.error));
-      div.append(
-        button(
-          'Retry send',
-          () => deliver(entry.batch.clientId),
-          !writable,
-          true,
-        ),
-      );
-      if (entry.rejected)
+  renderChanged(
+    $('pending-batches'),
+    [snapshot.outbox, writable, sending],
+    () => {
+      for (const entry of snapshot.outbox) {
+        const div = document.createElement('div');
+        div.className = 'pending';
+        div.dataset.batchId = entry.batch.clientId;
         div.append(
-          button(
-            'Return to drafts',
-            () => review.release(entry.batch.clientId),
-            !writable,
+          paragraph(
+            `${entry.batch.payload.items.length} feedback items${entry.batch.payload.message ? ' and an instruction' : ''}`,
           ),
         );
-      $('pending-batches').append(div);
-    }
-  });
+        if (entry.error) div.append(paragraph(entry.error));
+        div.append(
+          button(
+            'Retry send',
+            () => sendFeedback(() => deliver(entry.batch.clientId)),
+            !writable || sending,
+            true,
+          ),
+        );
+        if (entry.rejected)
+          div.append(
+            button(
+              'Return to drafts',
+              () => review.release(entry.batch.clientId),
+              !writable,
+            ),
+          );
+        $('pending-batches').append(div);
+      }
+    },
+  );
   post('drafts', presentation());
-}
-function renderStatus() {
-  const event = session.events.at(-1);
-  $('activity').hidden = !event && !session.ended;
-  $('activity').textContent = session.ended
-    ? 'Session ended'
-    : !event
-      ? ''
-      : event.status === 'delivered'
-        ? 'Working'
-        : event.status === 'completed'
-          ? 'Completed'
-          : 'Sent';
 }
 function renderConnection() {
   const state = session?.ended
@@ -437,13 +449,13 @@ async function sync() {
     $('update').hidden =
       !reconnected && (!loadedRevision || loadedRevision === session.revision);
     if (session.ended) post('ended');
-    renderStatus();
     render();
     return session;
   })()
     .catch((e) => {
       connected = false;
       renderConnection();
+      render();
       error(errorMessage(e));
       $('bridge-status').textContent = 'Disconnected';
       throw e;
@@ -455,17 +467,40 @@ async function sync() {
 }
 async function deliver(clientId: string) {
   canWrite(true);
-  await review.deliver(clientId, async (value) => {
+  const result = await review.deliver(clientId, async (value) => {
     const event = await api<ReviewEvent>('events', 'POST', value);
     if (!session.events.some((existing) => existing.id === event.id))
       session.events.push(event);
     return event;
   });
   error();
-  await sync();
+  await sync().catch(() => {});
+  return result;
 }
-$('send').onclick = async () => {
+async function sendFeedback(operation: () => ReturnType<typeof deliver>) {
+  if (sending) return;
+  sending = true;
+  resetSent();
+  render();
   try {
+    const result = await operation();
+    if (result) {
+      sent = true;
+      sentTimer = setTimeout(() => {
+        resetSent();
+        render();
+      }, 1500);
+    }
+  } catch (e) {
+    resetSent();
+    error(errorMessage(e));
+  } finally {
+    sending = false;
+    render();
+  }
+}
+$('send').onclick = () =>
+  sendFeedback(async () => {
     canWrite();
     if (unsavedMessage)
       throw new Error(
@@ -474,16 +509,15 @@ $('send').onclick = async () => {
     await sync();
     await flushPage();
     await sync();
+    if (!agentAvailable())
+      throw new Error('Connect an agent before sending feedback.');
     if (editorDirty)
       throw new Error('Save or cancel your feedback before sending.');
     if (!bridgeReady || loadedRevision !== session.revision)
       throw new Error('Refresh and inspect stale feedback before sending.');
     const clientId = review.begin(loadedRevision);
-    await deliver(clientId);
-  } catch (e) {
-    error(errorMessage(e));
-  }
-};
+    return deliver(clientId);
+  });
 $('message').oninput = () => {
   try {
     canWrite();

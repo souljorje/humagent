@@ -42,6 +42,8 @@ interface Review {
   evaluate: Frame['evaluate'];
   ready(): Promise<void>;
   expand(open?: boolean): Promise<void>;
+  connect(leaseMs?: number, timeoutMs?: number): Promise<void>;
+  receive(): Promise<Feedback>;
   addComment(selector: string, comment: string): Promise<void>;
   replace(selector: string, replacement: string): Promise<void>;
   state(): Promise<ReviewState>;
@@ -113,6 +115,7 @@ export const test = base.extend<Fixtures>({
   },
 
   review: async ({ page, workspace }, use) => {
+    const receipts: Promise<Feedback | { status: string }>[] = [];
     const attachedFrame = () => {
       const frame = page
         .frames()
@@ -135,6 +138,29 @@ export const test = base.extend<Fixtures>({
         return frame.evaluate.bind(frame);
       },
       ready,
+      async connect(leaseMs = 120000, timeoutMs = 600000) {
+        const id = new URL(page.url()).searchParams.get('session')!;
+        const session = await workspace.api(`/api/sessions/${id}`);
+        if (session.agent === 'idle')
+          receipts.push(
+            workspace.api(`/api/sessions/${id}/wait`, 'POST', {
+              timeoutMs,
+              leaseMs,
+            }),
+          );
+        await expect(page.locator('#agent-state')).toHaveText(
+          /Agent (listening|working)/,
+        );
+      },
+      async receive() {
+        const id = new URL(page.url()).searchParams.get('session')!;
+        const received = receipts.length
+          ? await receipts.shift()!
+          : workspace.store.take(id, 'browser-test');
+        if (received?.status !== 'feedback' || !('receipt' in received))
+          throw new Error('Expected agent feedback');
+        return received as Feedback;
+      },
       async expand(open = true) {
         const toggle = page.locator('#toggle-review');
         if ((await toggle.getAttribute('aria-expanded')) !== String(open))

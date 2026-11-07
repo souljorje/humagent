@@ -100,6 +100,7 @@ test('pending markers are read only and disappear after matching server confirma
     await route.fetch();
     await route.abort();
   });
+  await review.connect();
   await page.locator('#send').click();
   await expect(page.locator('#error')).toBeVisible();
   await review.frame.locator('.marker').click();
@@ -391,6 +392,7 @@ for (const trigger of ['button', 'Control+Enter', 'Meta+Enter'])
     await review.frame
       .getByRole('button', { name: cancelled ? 'Cancel' : 'Save', exact: true })
       .click();
+    await review.connect();
     await page.locator('#send').click();
     await expect
       .poll(() => workspace.store.get(plan.session).events.length)
@@ -416,12 +418,13 @@ test('comments and exact deletion send in creation order without changing source
   await review.replace('h1', '');
   await expect(review.frame.locator('.marker')).toHaveCount(3);
   await page.locator('#message').fill('Apply these together.');
+  await review.connect();
   await page.locator('#send').click();
   await expect
     .poll(() => workspace.store.get(plan.session).events.length)
     .toBe(1);
   await expect(review.frame.locator('.marker:visible')).toHaveCount(0);
-  await expect(page.locator('#activity')).toHaveText('Sent');
+  await expect(page.locator('#send')).toHaveText('Sent');
   const event = workspace.store.get(plan.session).events[0];
   expect(
     event.payload.items.map((item) => item.comment || item.replacement!.after),
@@ -435,7 +438,7 @@ test('comments and exact deletion send in creation order without changing source
     revision: event.revision,
   });
   expect(await review.frame.locator('h1').textContent()).toBe('');
-  const receipt = workspace.store.take(plan.session, 'deletion-test');
+  const receipt = await review.receive();
   if (receipt?.status !== 'feedback') throw new Error('Expected feedback');
   workspace.store.acknowledge(plan.session, receipt.receipt);
   await expect(review.frame.locator('h1')).toHaveText(original!);
@@ -526,10 +529,12 @@ test('stale feedback remains visible and blocks sending after explicit refresh',
 test('a message-only batch is valid and empty reviews cannot send', async ({
   page,
   plan,
+  review,
   workspace,
 }) => {
   await expect(page.locator('#send')).toBeDisabled();
   await page.locator('#message').fill('An overall instruction.');
+  await review.connect();
   await page.locator('#send').click();
   await expect
     .poll(() => workspace.store.get(plan.session).events.length)

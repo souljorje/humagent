@@ -338,6 +338,22 @@ test('route receipts preserve target, revision, and individual event ownership',
     authorization: '',
     'x-humagent-session': new URL(first.url).hash.slice(1),
   };
+  async function listen(path: string) {
+    const pending = jsonRequest(`${path}/wait`, 'POST', {
+      consumer: 'agent',
+      timeoutMs: 5000,
+    });
+    for (
+      let attempt = 0;
+      (await json(await request(path), 200)).agent !== 'waiting';
+      attempt++
+    ) {
+      assert.ok(attempt < 100, 'Agent must start waiting');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return { pending };
+  }
+  const firstWait = await listen(base);
   const sent = await json(
     await jsonRequest(`${base}/events`, 'POST', event, sessionHeaders),
     200,
@@ -355,6 +371,7 @@ test('route receipts preserve target, revision, and individual event ownership',
     409,
     'IDEMPOTENCY_CONFLICT',
   );
+  const otherWait = await listen(other);
   const otherEvent = await json(
     await jsonRequest(`${other}/events`, 'POST', {
       ...event,
@@ -362,14 +379,9 @@ test('route receipts preserve target, revision, and individual event ownership',
     }),
     200,
   );
+  await otherWait.pending;
   assert.notEqual(otherEvent.id, sent.id);
-  const batch = await json(
-    await jsonRequest(`${base}/wait`, 'POST', {
-      consumer: 'agent',
-      timeoutMs: 100,
-    }),
-    200,
-  );
+  const batch = await json(await firstWait.pending, 200);
   assert.equal(batch.status, 'feedback');
   assert.equal(batch.session, first.session);
   assert.equal(batch.target.value, first.targetPath);
@@ -434,7 +446,7 @@ test('route receipts preserve target, revision, and individual event ownership',
   );
   assert.equal(
     (await json(await request(other), 200)).events[0].status,
-    'queued',
+    'delivered',
   );
   await json(await jsonRequest(`${base}/end`, 'POST', {}), 200);
   const last = await json(

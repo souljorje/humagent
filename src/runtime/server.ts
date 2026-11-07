@@ -264,6 +264,17 @@ export async function createRuntime(options: RuntimeOptions) {
     const id = c.req.param('id');
     const value = await body(c.req.raw);
     await (await surface(id)).checkRevision();
+    const session = store.get(id);
+    if (
+      !session.ended &&
+      !session.events.some((event) => event.clientId === value.clientId)
+    )
+      ensure(
+        view(id).agent !== 'idle',
+        'Connect an agent before sending feedback.',
+        'AGENT_UNAVAILABLE',
+        409,
+      );
     return json(200, store.send(id, value));
   });
   app.post(`${sessionPath}/surface`, async (c) => {

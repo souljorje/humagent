@@ -62,6 +62,7 @@ for (const existing of [false, true])
     await editor.press('Escape');
     await expect(target).toHaveText(after);
     expect((await review.state()).drafts[0].item).toEqual(first);
+    await review.connect();
     await page.locator('#send').click();
     await expect(review.frame.locator('.marker')).toHaveCount(0);
     await page.mouse.click(point.x, point.y);
@@ -70,7 +71,7 @@ for (const existing of [false, true])
       review.frame.getByLabel('Comment', { exact: true }),
     ).toBeFocused();
     await page.keyboard.press('Escape');
-    const received = workspace.store.take(opened.session, 'direct-edit');
+    const received = await review.receive();
     if (received?.status !== 'feedback') throw new Error('Expected feedback');
     workspace.store.acknowledge(opened.session, received.receipt);
     await expect(target).toHaveText(before);

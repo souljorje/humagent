@@ -101,16 +101,17 @@ test('agent presence follows waits and leases independently from delivery', asyn
   await expect(status).toHaveText('No agent waiting');
   await review.expand(false);
   await page.locator('#message').fill('Work on this');
+  await review.connect(1200);
   await page.locator('#send').click();
-  await expect(page.locator('#activity')).toHaveText('Sent');
-  workspace.store.take(plan.session, 'presence-test', 1200);
+  await expect(page.locator('#send')).toHaveText('Sent');
+  await review.receive();
   await expect(status).toHaveText('Agent working');
   await expect(status).toHaveText('No agent waiting', { timeout: 8000 });
   await expect(page.locator('#toggle-review')).toHaveAttribute(
     'aria-expanded',
     'false',
   );
-  await expect(page.locator('#activity')).toHaveText('Working');
+  await expect(page.locator('#activity')).toHaveCount(0);
   const pattern = `**/api/sessions/${plan.session}`;
   await page.route(pattern, (route) => route.abort());
   await expect(status).toHaveText('Connection unavailable', { timeout: 8000 });
@@ -176,7 +177,7 @@ test('tooltips explain disabled buttons with pointer and keyboard', async ({
   await review.expand(false);
   const tip = page.getByRole('tooltip');
   await page.locator('#send').hover();
-  await expect(tip).toHaveText('Send feedback to your agent');
+  await expect(tip).toHaveText('Connect an agent to send feedback');
   await page.locator('#send').locator('..').focus();
   await expect(tip).toBeVisible();
   await page.keyboard.press('Escape');
@@ -263,14 +264,14 @@ test('an initially listening agent starts collapsed and a later timeout does not
 
 test('an initially working agent starts collapsed', async ({
   page,
-  plan,
+  plan: _plan,
   review,
-  workspace,
 }) => {
   await page.locator('#message').fill('Prepare the next change');
+  await review.connect();
   await page.locator('#send').click();
-  await expect(page.locator('#activity')).toHaveText('Sent');
-  workspace.store.take(plan.session, 'initially-working', 60000);
+  await expect(page.locator('#send')).toHaveText('Sent');
+  await review.receive();
   await page.reload();
   await review.ready();
   await expect(page.locator('#agent-state')).toHaveText('Agent working');

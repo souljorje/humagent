@@ -239,6 +239,49 @@ test('wait ownership, timeout and end are typed', async () => {
     'timeout',
   );
 });
+test('new feedback requires an agent while accepted retries survive disconnect and end', async () => {
+  const openedSession = await opened();
+  const id = openedSession.session;
+  const revision = runtime.store.get(id).revision;
+  const value = {
+    protocol: 2,
+    clientId: 'presence-first',
+    revision,
+    payload: { items: [], message: 'First feedback' },
+  };
+  const send = (body = value) =>
+    api(`/api/sessions/${id}/events`, 'POST', body);
+  const unavailable = await send();
+  assert.equal(unavailable.status, 409);
+  assert.equal(unavailable.data.error, 'AGENT_UNAVAILABLE');
+  assert.equal(runtime.store.get(id).events.length, 0);
+  const waiting = api(`/api/sessions/${id}/wait`, 'POST', { timeoutMs: 5000 });
+  await until(
+    async () => (await api(`/api/sessions/${id}`)).data.agent === 'waiting',
+    'agent listening',
+  );
+  const accepted = await send();
+  assert.equal(accepted.status, 200);
+  const received = (await waiting).data;
+  const second = { ...value, clientId: 'presence-second' };
+  assert.equal((await send(second)).status, 200);
+  await api(`/api/sessions/${id}/ack`, 'POST', { receipt: received.receipt });
+  assert.equal((await api(`/api/sessions/${id}`)).data.agent, 'idle');
+  assert.equal(
+    (await send({ ...value, clientId: 'presence-third' })).status,
+    409,
+  );
+  assert.equal((await send()).data.id, accepted.data.id);
+  assert.equal((await send(second)).status, 200);
+  assert.equal(
+    (await send({ ...value, payload: { items: [], message: 'Changed' } })).data
+      .error,
+    'IDEMPOTENCY_CONFLICT',
+  );
+  await api(`/api/sessions/${id}/end`, 'POST', {});
+  assert.equal((await send()).data.id, accepted.data.id);
+  assert.equal(runtime.store.get(id).events.length, 2);
+});
 test('source change rejects stale input without saving the file', async () => {
   const s = await opened();
   const prior = (await api(`/api/sessions/${s.session}`)).data;
@@ -361,6 +404,13 @@ test('dynamic app snapshots and submissions do not refetch or change revisions',
       }
       assert.equal(requests, count);
       assert.deepEqual(changes, []);
+      const waiting = api(`/api/sessions/${id}/wait`, 'POST', {
+        timeoutMs: 5000,
+      });
+      await until(
+        async () => (await api(`/api/sessions/${id}`)).data.agent === 'waiting',
+        'agent listening',
+      );
       offline = true;
       const sent = await api(`/api/sessions/${id}/events`, 'POST', {
         protocol: 2,
@@ -369,6 +419,7 @@ test('dynamic app snapshots and submissions do not refetch or change revisions',
         payload: { message: 'Review the page I saw.', items: [] },
       });
       assert.equal(sent.status, 200);
+      await waiting;
       assert.equal(requests, count);
     } finally {
       runtime.store.off('change', changed);
@@ -742,6 +793,13 @@ test('disconnecting an SSE client removes its listener and a replacement receive
       'replacement SSE listener',
     );
     const revision = runtime.store.get(id).revision;
+    const waiting = api(`/api/sessions/${id}/wait`, 'POST', {
+      timeoutMs: 5000,
+    });
+    await until(
+      async () => (await api(`/api/sessions/${id}`)).data.agent === 'waiting',
+      'agent listening',
+    );
     const sent = await api(`/api/sessions/${id}/events`, 'POST', {
       protocol: 2,
       clientId: 'stream-change',
@@ -753,10 +811,7 @@ test('disconnecting an SSE client removes its listener and a replacement receive
       () => replacement.contents().includes('event: change\n'),
       'SSE change event',
     );
-    const batch = await api(`/api/sessions/${id}/wait`, 'POST', {
-      consumer: 'stream-test',
-      timeoutMs: 100,
-    });
+    const batch = await waiting;
     assert.equal(batch.data.events[0].id, sent.data.id);
     replacement.response.destroy();
     next.request.destroy();

@@ -62,7 +62,6 @@
           </div>
         </div>
       </section>
-      <p id="activity" role="status" hidden></p>
       <div class="bar-controls">
         <button
           id="end"
@@ -95,7 +94,9 @@
           maxlength="4000"
           placeholder="Add an instruction…"
         ></textarea>
-        <button id="send" class="primary" disabled>Send</button>
+        <button id="send" class="primary" aria-live="polite" disabled>
+          Send
+        </button>
       </div>
       <span id="bridge-status" class="sr-only" role="status">Connecting</span>
       <span id="draft-status" class="sr-only" role="status"></span>

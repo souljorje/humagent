@@ -145,6 +145,7 @@ test('form values survive reload and staged values remain a separate snapshot', 
   expect((await review.state()).drafts[0].item.values!.outcome).toBe(
     'A preserved outcome.',
   );
+  await review.connect();
   await page.locator('#send').click();
   await expect
     .poll(() => workspace.store.get(plan.session).events.length)
@@ -193,6 +194,7 @@ test('SDK and forms stage beside annotations and one batch reaches the waiting a
       timeoutMs: 10000,
     },
   );
+  await review.connect();
   await page.locator('#send').click();
   const receipt = await waiting;
   expect(receipt.events).toHaveLength(1);
@@ -201,7 +203,7 @@ test('SDK and forms stage beside annotations and one batch reaches the waiting a
   await workspace.api(`/api/sessions/${plan.session}/ack`, 'POST', {
     receipt: receipt.receipt,
   });
-  await expect(page.locator('#activity')).toContainText('Completed');
+  await expect(page.locator('#agent-state')).toHaveText('No agent waiting');
   expect(workspace.store.get(plan.session).events[0].status).toBe('completed');
 });
 
@@ -230,6 +232,7 @@ for (const reload of [false, true])
         values: { decision: 'first' },
       }),
     );
+    await review.connect();
     await page.locator('#send').click();
     await expect(page.locator('#outbox')).toBeVisible();
     await expect(page.locator('#error')).toBeVisible();
@@ -248,6 +251,7 @@ for (const reload of [false, true])
     expect(workspace.store.get(plan.session).events).toHaveLength(1);
     expect((await review.state()).drafts[0].item.values!.decision).toBe('new');
     await expect(page.locator('#message')).toHaveValue('A new instruction');
+    await review.connect();
     await page.locator('#send').click();
     await expect
       .poll(() => workspace.store.get(plan.session).events.length)
@@ -364,6 +368,7 @@ test('generated mini-app stays local until Send', async ({
     .click();
   await expect(page.locator('.draft')).toHaveCount(1);
   expect(workspace.store.get(opened.session).events).toHaveLength(0);
+  await review.connect();
   await page.locator('#send').click();
   await expect
     .poll(() => workspace.store.get(opened.session).events.length)
@@ -384,11 +389,12 @@ test('an accepted batch can be confirmed after the session ends', async ({
   await review.evaluate(() =>
     window.humagent.submit({ intent: 'review', values: { chosen: true } }),
   );
+  await review.connect();
   await page.locator('#send').click();
   await expect(page.locator('#error')).toBeVisible();
   await page.unroute(pattern);
   await workspace.api(`/api/sessions/${plan.session}/end`, 'POST', {});
-  await expect(page.locator('#activity')).toHaveText('Session ended');
+  await expect(page.locator('#agent-state')).toHaveText('Session ended');
   await page.getByRole('button', { name: 'Retry send' }).click();
   await expect(page.locator('#outbox')).toBeHidden();
   expect(workspace.store.get(plan.session).events).toHaveLength(1);

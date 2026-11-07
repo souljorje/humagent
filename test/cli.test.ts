@@ -71,6 +71,14 @@ test('Bun CLI preserves runtime and origin through an agent loop and restart', a
       '--lease',
       '600',
     );
+    for (
+      let attempt = 0;
+      (await run('status', opened.session)).agent !== 'waiting';
+      attempt++
+    ) {
+      assert.ok(attempt < 50, 'Agent must start waiting');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
     const response = await fetch(
       `${record.origin}/api/sessions/${opened.session}/events`,
       {

@@ -151,6 +151,14 @@ try {
     '--lease',
     '60',
   );
+  for (
+    let attempt = 0;
+    (await run('status', opened.session)).agent !== 'waiting';
+    attempt++
+  ) {
+    assert.ok(attempt < 50, 'Agent must start waiting');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
   const response = await fetch(
     `${record.origin}/api/sessions/${opened.session}/events`,
     {
