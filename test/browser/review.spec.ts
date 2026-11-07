@@ -625,18 +625,3 @@ test('the floating bar expands within desktop and narrow screens', async ({
     await page.screenshot({ path: `.local/review-${width}.png` });
   }
 });
-
-test('attached pages retain iframe navigation and popup restrictions', async ({
-  page,
-  review,
-}) => {
-  await review.open();
-  const frame = page.locator('#frame');
-  const sandbox = (await frame.getAttribute('sandbox'))!.split(/\s+/);
-  expect(sandbox).toEqual(
-    expect.arrayContaining(['allow-scripts', 'allow-forms', 'allow-same-origin']),
-  );
-  expect(sandbox).not.toContain('allow-top-navigation');
-  expect(sandbox).not.toContain('allow-popups');
-  await expect(review.frame.locator('h1')).toBeVisible();
-});

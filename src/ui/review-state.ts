@@ -73,11 +73,7 @@ export function createReview(
   }
   function copyMarker(marker?: MarkerPosition) {
     if (marker === undefined) return undefined;
-    if (
-      !marker ||
-      !Number.isFinite(marker.x) ||
-      !Number.isFinite(marker.y)
-    )
+    if (!marker || !Number.isFinite(marker.x) || !Number.isFinite(marker.y))
       throw new Error('Invalid marker position');
     return { x: marker.x, y: marker.y };
   }
