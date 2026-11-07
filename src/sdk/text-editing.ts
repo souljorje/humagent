@@ -194,14 +194,29 @@ export function createTextEditing(hooks: {
     get endpoint() {
       rememberCaret();
       const rect = editing?.endpoint?.getBoundingClientRect();
-      if (rect?.height) return { x: rect.left, y: rect.bottom };
+      if (rect?.height) return { x: rect.left, y: rect.top + rect.height / 2 };
       const fallback = editing?.element.getBoundingClientRect();
-      return fallback ? { x: fallback.left, y: fallback.bottom } : undefined;
+      return fallback
+        ? { x: fallback.left, y: fallback.top + fallback.height / 2 }
+        : undefined;
     },
     get connected() {
       if (!editing?.element.isConnected) return false;
       const preview = nodes.get(editing.node);
       return !preview || valid(preview);
+    },
+    get lineEnd() {
+      const point = this.endpoint;
+      if (!point || !editing) return point;
+      const range = document.createRange();
+      range.selectNodeContents(editing.element);
+      const line = [...range.getClientRects()].filter(
+        (rect) => rect.top <= point.y && rect.bottom >= point.y,
+      );
+      return {
+        x: Math.max(point.x, ...line.map((rect) => rect.right)),
+        y: point.y,
+      };
     },
     open(node: Text, start: number, end: number, before: string) {
       close();

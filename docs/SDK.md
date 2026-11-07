@@ -104,14 +104,14 @@ File changes also trigger revision checks.
 
 Confirm or cancel unfinished feedback before sending. The first outside click focuses the editor. The second discards unconfirmed changes.
 Typing resets this sequence. Escape cancels immediately. Cancellation preserves previously saved feedback.
-Click another saved marker to switch comments. This discards unconfirmed changes to the previous saved comment.
+Click a saved marker to switch feedback. This discards unconfirmed input in the current editor.
 
 Click plain text while commenting to edit at the caret. Drag to select a portion before typing.
 Enter confirms, Shift+Enter adds a newline, and Escape cancels.
 Add an optional comment in the popover. Confirmation saves the text and comment together.
 Plain button and link labels also support text editing. Annotation mode prevents their normal activation.
 Mixed-format selections and native input fields remain comment targets. Repeated edits preserve the original text and item ID.
-Text-edit markers follow the final caret. Comment markers retain the confirmed popover position.
+Text-edit markers align beside the edited line. Comment markers retain the confirmed popover position.
 Marker placement stays in browser drafts and does not enter submitted batches.
 Confirmed previews stay visible after Send until their batch is acknowledged. Deletion or a source revision change removes previews.
 Preview cleanup does not overwrite subsequent application changes. Humagent never saves rendered page content as source.

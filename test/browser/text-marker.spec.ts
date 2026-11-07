@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures.ts';
 
 for (const shadow of [false, true])
-  test(`text markers follow the final edit caret${shadow ? ' in a shadow root' : ''}`, async ({
+  test(`text markers align beside the edited line${shadow ? ' in a shadow root' : ''}`, async ({
     page,
     plan: _plan,
     review,
@@ -22,6 +22,9 @@ for (const shadow of [false, true])
       name: 'Edit text',
       exact: true,
     });
+    await expect(
+      review.frame.getByLabel('Comment', { exact: true }),
+    ).toHaveAttribute('placeholder', 'Add a comment…');
     await editor.press('Home');
     for (let i = 0; i < 6; i++) await editor.press('ArrowRight');
     await page.keyboard.type('new ');
@@ -38,9 +41,10 @@ for (const shadow of [false, true])
         );
         range.collapse(false);
         const rect = range.getBoundingClientRect();
-        return { x: rect.left, y: rect.bottom };
+        return { x: rect.left, y: rect.top + rect.height / 2 };
       }, offset);
     const expected = await endpoint(10);
+    const line = (await editor.boundingBox())!;
     await review.frame
       .getByLabel('Comment', { exact: true })
       .fill('Explain the edit');
@@ -49,8 +53,11 @@ for (const shadow of [false, true])
       .click();
     const marker = review.frame.locator('.marker');
     await expect(marker).toBeVisible();
-    expect((await marker.boundingBox())!.x).toBeCloseTo(expected.x, 0);
-    expect((await marker.boundingBox())!.y).toBeCloseTo(expected.y, 0);
+    const firstBox = (await marker.boundingBox())!;
+    expect(firstBox.x).toBeCloseTo(line.x + line.width + 8, 0);
+    expect(
+      Math.abs(firstBox.y + firstBox.height / 2 - expected.y),
+    ).toBeLessThanOrEqual(0.5);
     const first = (await review.state()).drafts[0];
     expect(first.item.target?.coordinates).toEqual({
       x: Math.round(expected.x),
@@ -66,8 +73,11 @@ for (const shadow of [false, true])
       .getByRole('button', { name: 'Save', exact: true })
       .click();
     await expect(review.frame.locator('#panel')).toBeHidden();
-    expect((await marker.boundingBox())!.x).toBeCloseTo(next.x, 0);
-    expect((await marker.boundingBox())!.y).toBeCloseTo(next.y, 0);
+    const nextBox = (await marker.boundingBox())!;
+    expect(nextBox.x).toBeCloseTo(next.x + 8, 0);
+    expect(
+      Math.abs(nextBox.y + nextBox.height / 2 - next.y),
+    ).toBeLessThanOrEqual(0.5);
     expect((await review.state()).drafts[0].item.id).toBe(first.item.id);
     if (!shadow) {
       await page.reload();

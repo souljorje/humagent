@@ -241,9 +241,7 @@ export function createPageReview(bridge: ReviewBridge) {
     $('panel').hidden = false;
     const existing = captured.draft?.item;
     $('note').value = existing?.comment || '';
-    $('note').placeholder = replacement
-      ? 'Add a comment (optional)…'
-      : 'Add a comment…';
+    $('note').placeholder = 'Add a comment…';
     $('confirm').setAttribute(
       'aria-label',
       replacement ? 'Confirm text edit' : 'Add comment',
@@ -473,7 +471,10 @@ export function createPageReview(bridge: ReviewBridge) {
     const current = captured;
     const endpoint =
       replacement && text.value !== text.initial ? text.endpoint : undefined;
-    const textMarker = endpoint ? anchor(current.el, endpoint) : undefined;
+    const lineEnd = endpoint ? text.lineEnd : undefined;
+    const textMarker = lineEnd
+      ? anchor(current.el, { x: lineEnd.x + 8, y: lineEnd.y - 16 })
+      : undefined;
     saving = true;
     updateEditor();
     try {
@@ -488,7 +489,9 @@ export function createPageReview(bridge: ReviewBridge) {
       else {
         const rect = $('panel').getBoundingClientRect();
         const targetRect = current.el.getBoundingClientRect();
-        const feedbackPoint = textMarker || current.point;
+        const feedbackPoint = endpoint
+          ? anchor(current.el, endpoint)
+          : current.point;
         const coordinates = {
           x: Math.round(targetRect.left + feedbackPoint.x + scrollX),
           y: Math.round(targetRect.top + feedbackPoint.y + scrollY),
@@ -808,8 +811,7 @@ export function createPageReview(bridge: ReviewBridge) {
         marker.dataset.draftId = draft.item.id;
         marker.onclick = (event) => {
           if (saving) return;
-          if (captured?.draft && captured.draft.item.id !== draft.item.id)
-            close();
+          if (captured && captured.draft?.item.id !== draft.item.id) close();
           edit(draft.item.id, clickPoint(event) || center(marker));
         };
         markers.set(draft.item.id, marker);

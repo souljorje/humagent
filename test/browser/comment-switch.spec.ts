@@ -1,6 +1,37 @@
 import { test, expect } from './fixtures.ts';
 
 for (const textEdit of [false, true])
+  test(`saved bubbles replace an unfinished new ${textEdit ? 'text edit' : 'comment'}`, async ({
+    plan: _plan,
+    review,
+  }) => {
+    await review.addComment('h2 >> nth=0', 'Saved comment');
+    const target = review.frame.locator('h1');
+    const before = await target.textContent();
+    const box = (await target.boundingBox())!;
+    await target.click(
+      textEdit ? {} : { position: { x: box.width - 4, y: box.height / 2 } },
+    );
+    if (textEdit)
+      await review.frame
+        .getByRole('textbox', { name: 'Edit text', exact: true })
+        .fill('Unconfirmed wording');
+    await review.frame
+      .getByLabel('Comment', { exact: true })
+      .fill('Unconfirmed comment');
+    await review.frame.locator('.marker').click();
+    await expect(
+      review.frame.getByLabel('Comment', { exact: true }),
+    ).toHaveValue('Saved comment');
+    await expect(review.frame.locator('.marker')).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    await expect(target).toHaveText(before!);
+    expect((await review.state()).drafts).toHaveLength(1);
+  });
+
+for (const textEdit of [false, true])
   test(`clicking saved bubbles switches the open ${textEdit ? 'text edit' : 'comment'}`, async ({
     plan: _plan,
     review,
