@@ -35,6 +35,8 @@
     "url": "https://github.com/souljorje/humagent.git"
   },
   "scripts": {
+    "changeset": "changeset",
+    "version:packages": "changeset version && bun install --lockfile-only --ignore-scripts",
     "build": "bun scripts/build.ts",
     "lint": "bunx --bun --no-install oxlint src scripts test",
     "format": "bunx --bun --no-install oxfmt src test scripts tsconfig*.json package.json",
@@ -50,6 +52,7 @@
     "check:release": "bun run check && bun run test:browser:built && bun pm pack --ignore-scripts && bun run test:install && bun run test:runners"
   },
   "devDependencies": {
+    "@changesets/cli": "3.0.3",
     "@playwright/test": "1.56.1",
     "@types/bun": "1.4.4",
     "@types/node": "25.1.0",
