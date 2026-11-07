@@ -16,6 +16,7 @@ interface Editing {
   parent: Node;
   initial: string;
   before: string;
+  caret?: Range;
 }
 
 /** Own only the selected text node. Restore it only while our editor or preview still owns it. */
@@ -81,11 +82,38 @@ export function createTextEditing(hooks: {
   }
   function close() {
     if (!editing) return;
+    document.removeEventListener('selectionchange', rememberCaret);
     const { node, element, parent } = editing;
     // A framework may have replaced the parent or removed the editor.
     if (element.isConnected && element.parentNode === parent)
       element.replaceWith(node);
     editing = undefined;
+  }
+  function rememberCaret() {
+    if (!editing) return;
+    const selection = getSelection();
+    if (!selection?.rangeCount) return;
+    let range = selection.getRangeAt(0).cloneRange();
+    const roots: ShadowRoot[] = [];
+    let root = editing.element.getRootNode();
+    while (root instanceof ShadowRoot) {
+      roots.push(root);
+      root = root.host.getRootNode();
+    }
+    const composed = selection as Selection & {
+      getComposedRanges?: (options: {
+        shadowRoots: ShadowRoot[];
+      }) => StaticRange[];
+      direction?: string;
+    };
+    const current = composed.getComposedRanges?.({ shadowRoots: roots })[0];
+    if (current) {
+      range.setStart(current.startContainer, current.startOffset);
+      range.setEnd(current.endContainer, current.endOffset);
+    }
+    if (!editing.element.contains(range.commonAncestorContainer)) return;
+    range.collapse(composed.direction === 'backward');
+    editing.caret = range;
   }
   function reconcile(drafts: Draft[]) {
     const wanted = new Map(drafts.map((draft) => [draft.item.id, draft]));
@@ -167,6 +195,18 @@ export function createTextEditing(hooks: {
     get initial() {
       return editing?.initial ?? '';
     },
+    endpoint() {
+      if (!editing) return;
+      rememberCaret();
+      const caret = editing.caret?.getBoundingClientRect();
+      const rect = caret?.height
+        ? caret
+        : editing.element.getBoundingClientRect();
+      return {
+        x: (caret?.height ? rect.right : rect.left) + 4,
+        y: rect.top + rect.height / 2 - 16,
+      };
+    },
     open(
       node: Text,
       start: number,
@@ -178,13 +218,15 @@ export function createTextEditing(hooks: {
       const element = document.createElement('span');
       element.dataset.humagentUi = '';
       element.dataset.humagentText = '';
-      element.contentEditable = 'plaintext-only';
+      // Native plaintext-only editing forces pre-wrap, exposing HTML indentation.
+      // Preserve application whitespace and handle plain-text input below.
+      element.contentEditable = 'true';
       element.setAttribute('role', 'textbox');
       element.setAttribute('aria-label', 'Edit text');
       element.setAttribute('aria-multiline', 'true');
       element.spellcheck = false;
       element.style.cssText =
-        'display:inline;white-space:pre-wrap;outline:none;cursor:text;min-width:1ch;';
+        'display:inline;white-space:inherit;outline:none;cursor:text;min-width:1ch;';
       element.textContent = initial;
       if (!initial) element.style.display = 'inline-block';
       editing = {
@@ -198,27 +240,34 @@ export function createTextEditing(hooks: {
       element.addEventListener('input', (event) => {
         event.stopPropagation();
         element.style.display = element.textContent ? 'inline' : 'inline-block';
+        rememberCaret();
         hooks.input();
       });
       element.addEventListener('change', (event) => event.stopPropagation());
       function insert(value: string) {
-        if (element.contentEditable !== 'plaintext-only') return;
+        if (element.contentEditable !== 'true') return;
         const selection = getSelection();
         if (!selection?.rangeCount) return;
         const range = selection.getRangeAt(0);
         if (!element.contains(range.commonAncestorContainer)) return;
         range.deleteContents();
-        const line = document.createTextNode(value);
-        range.insertNode(line);
+        const fragment = document.createDocumentFragment();
+        for (const [index, line] of value.split('\n').entries()) {
+          if (index) fragment.append(document.createElement('br'));
+          fragment.append(document.createTextNode(line));
+        }
+        const last = fragment.lastChild as Text;
+        range.insertNode(fragment);
         if (!element.querySelector('[data-humagent-placeholder]')) {
           const end = document.createElement('br');
           end.dataset.humagentPlaceholder = '';
           element.append(end);
         }
-        range.setStart(line, line.length);
+        range.setStart(last, last.length);
         range.collapse(true);
         selection.removeAllRanges();
         selection.addRange(range);
+        rememberCaret();
         hooks.input();
       }
       element.addEventListener('paste', (event) => {
@@ -229,9 +278,23 @@ export function createTextEditing(hooks: {
             '',
         );
       });
+      element.addEventListener('drop', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        insert(
+          event.dataTransfer?.getData('text/plain').replace(/\r\n/g, '\n') ||
+            '',
+        );
+      });
       element.addEventListener('beforeinput', (event) => {
         if (event.isComposing) return;
-        if (event.inputType === 'insertLineBreak') {
+        if (
+          /^(format|insertOrderedList|insertUnorderedList|insertLink|insertHorizontalRule)/.test(
+            event.inputType,
+          )
+        ) {
+          event.preventDefault();
+        } else if (event.inputType === 'insertLineBreak') {
           event.preventDefault();
           insert('\n');
         } else if (event.inputType === 'insertParagraph') {
@@ -261,10 +324,11 @@ export function createTextEditing(hooks: {
         selection?.removeAllRanges();
         selection?.addRange(range);
       }
+      rememberCaret();
+      document.addEventListener('selectionchange', rememberCaret);
     },
     setReadOnly(value: boolean) {
-      if (editing)
-        editing.element.contentEditable = value ? 'false' : 'plaintext-only';
+      if (editing) editing.element.contentEditable = value ? 'false' : 'true';
     },
   };
 }

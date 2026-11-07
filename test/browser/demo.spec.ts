@@ -1,6 +1,70 @@
 import fs from 'node:fs';
 import { test, expect } from './fixtures.ts';
 
+for (const width of [1440, 390])
+  test(`editing demo text preserves its layout at ${width}px`, async ({
+    page,
+    review,
+    workspace,
+  }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await review.open(workspace.file('plan.html'));
+    await review.expand(false);
+    await page.locator('#annotate').click();
+    for (const selector of [
+      'h1',
+      '.intro p',
+      '.plan-heading p',
+      '.choice-title',
+      '.guide li p',
+      '.page-footer p',
+    ]) {
+      const target = review.frame.locator(selector).first();
+      await target.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+      const original = await target.textContent();
+      const glyph = () =>
+        target.evaluate((el) => {
+          const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+          let node: Text | null;
+          while ((node = walker.nextNode() as Text | null)) {
+            const offset = node.data.search(/\S/);
+            if (offset < 0) continue;
+            const range = document.createRange();
+            range.setStart(node, offset);
+            range.setEnd(node, offset + 1);
+            const rect = range.getBoundingClientRect();
+            const parent = el.getBoundingClientRect();
+            return {
+              x: rect.x,
+              y: rect.y,
+              clickX: rect.x - parent.x + 2,
+              clickY: rect.y - parent.y + rect.height / 2,
+            };
+          }
+          throw new Error('Missing visible text');
+        });
+      const before = await glyph();
+      await target.click({
+        position: { x: before.clickX, y: before.clickY },
+      });
+      const editor = review.frame.getByRole('textbox', {
+        name: 'Edit text',
+        exact: true,
+      });
+      await expect(editor).toBeFocused();
+      const after = await glyph();
+      expect(after.x, selector).toBeCloseTo(before.x, 1);
+      expect(after.y, selector).toBeCloseTo(before.y, 1);
+      if (selector === '.guide li p')
+        await page.screenshot({
+          path: test.info().outputPath(`guide-edit-${width}.png`),
+          animations: 'disabled',
+        });
+      await editor.press('Escape');
+      await expect(target).toHaveText(original!);
+    }
+  });
+
 test('the plan demo combines text edits, comments, and choices without changing source', async ({
   page,
   review,

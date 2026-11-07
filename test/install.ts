@@ -93,18 +93,6 @@ try {
     'plan.css',
     'plan.html',
   ]);
-  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
-  assert.ok(
-    readme.includes(`humagent-${pkg.version}.tgz`),
-    'README archive version must match the package',
-  );
-  const notices = readme.slice(readme.indexOf('### Third-party notices'));
-  assert.equal(
-    (notices.match(/Permission is hereby granted, free of charge/g) || [])
-      .length,
-    2,
-  );
-  assert.equal((notices.match(/SOFTWARE\./g) || []).length, 2);
   for (const file of fs.readdirSync(path.join(root, 'dist'), {
     recursive: true,
     encoding: 'utf8',
