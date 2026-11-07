@@ -37,11 +37,11 @@ v0.1 excludes remote sites, Markdown rendering, rich-text edits, and MCP Apps. B
 
 Keep session URLs private. Their fragments carry a session credential. The workspace moves it to session storage and removes the fragment.
 
-That credential permits input, saved state, transcript access, and session ending. Only the separate control token permits opening targets, waits, acknowledgments, and agent replies.
+That credential permits input, saved state, event access, and session ending. Only the separate control token permits opening targets, waits, acknowledgments, and lease renewal.
 Credentials stay outside page frames.
 
 Stored input is not encrypted. Where supported, the data directory uses `0700`. Control and atomic session files use `0600`.
-Each session uses a separate file under `sessions/` in the data directory. Older stores migrate automatically and retain a backup.
+Each session uses a separate file under `sessions/` in the data directory.
 Browser drafts and unconfirmed sends use local storage. Avoid shared browser profiles for sensitive work.
 
 ## Agent actions

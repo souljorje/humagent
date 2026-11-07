@@ -1,94 +1,118 @@
 # Forms and SDK
 
-Humagent adds `window.humagent` to attached pages. Use a marked form to send named values:
+Humagent injects its SDK into supported local HTML and HTTP localhost apps. Generic comments and text previews need no integration.
+
+## Declarative forms
 
 ```html
 <form id="plan" data-humagent-intent="revise_plan" data-humagent-persist>
-  <label>Approach <select name="approach">
-    <option value="pilot">Pilot first</option>
-    <option value="platform">Platform first</option>
-  </select></label>
-  <button type="submit">Revise plan</button>
+  <label>Approach
+    <select name="approach">
+      <option value="pilot">Pilot first</option>
+      <option value="platform">Platform first</option>
+    </select>
+  </label>
+  <button type="submit">Add choices to review</button>
 </form>
 ```
 
-`revise_plan` names a request for the agent. It needs no server handler and grants no permission to execute the plan.
+| Attribute | Purpose |
+| --- | --- |
+| `data-humagent-intent` | Stage a request with named form values |
+| `data-humagent-message` | Add the item's comment |
+| `data-humagent-persist` | Restore nonsensitive values when the form has a stable ID |
+| `data-humagent-id` | Identify annotation targets |
 
-Add `data-humagent-message` for context. Use a stable form ID and `data-humagent-persist` to save nonsensitive values across refresh.
-
-Unmarked forms keep their normal behavior. Marked forms send values on submission.
+Marked forms stage decisions and show **Added to review**. They do not send feedback. Unmarked forms behave normally.
 
 | Control | Value |
 | --- | --- |
 | Single checkbox | Boolean |
-| Checkbox group | Array of checked values |
+| Checkbox group or repeated name | Array |
 | Radio group | Selected value or `null` |
-| Multiple selection or repeated name | Array of values |
-| Other controls | String, including numbers and ranges |
+| Multiple selection | Array |
+| Other named controls | String, including number and range inputs |
 
-The SDK collects named, enabled controls. It skips disabled fieldsets and file, password, hidden, submit, reset, and button inputs.
-It rejects names that could change JavaScript prototypes.
+The SDK excludes disabled controls and file, password, hidden, submit, reset, and button inputs. It rejects unsafe field names.
+
+Opted-in values persist independently of staged decisions. Restoration emits an input event. Later form changes never alter staged decisions. A pending save can block browser reload.
 
 ## JavaScript
 
-Wait for `humagent:ready`. If the SDK already exists, await `window.humagent.ready`.
+The only public method is `window.humagent.submit()`:
 
-| API | Effect |
+```js
+const result = await window.humagent.submit({
+  intent: 'revise_plan',
+  values: { strategy: 'pilot-first' },
+  message: 'Revise the plan. Do not execute it.',
+});
+// { draftId: '...', status: 'draft' }
+```
+
+`intent` is a nonempty request name, not a handler or permission. `values` must be a JSON object. `message` is an optional item comment.
+
+`submit()` waits for the bridge and persists a draft. It does **not** confirm delivery. The human chooses **Send**. Show submission errors so the human can retry.
+
+## Advanced: batch contract
+
+Each **Send** produces one protocol-v2 event, with an optional overall instruction and ordered items:
+
+```json
+{
+  "protocol": 2,
+  "clientId": "stable-batch-id",
+  "revision": "source-revision",
+  "payload": {
+    "message": "Keep changes small.",
+    "items": [
+      { "id": "comment-1", "target": { "selector": "h1" }, "comment": "Shorten this." },
+      { "id": "edit-1", "target": { "selector": "#intro" }, "replacement": { "before": "Old", "after": "New" } },
+      { "id": "choice-1", "intent": "revise_plan", "values": { "strategy": "pilot-first" } }
+    ]
+  }
+}
+```
+
+Each item needs a unique ID and an actionable comment, replacement, or decision. A replacement needs a target and nonempty original text. Empty `after` means deletion.
+
+A message-only batch is valid. An empty review is invalid. Event and item `kind` fields and item `type` are unsupported.
+
+### Validation limits
+
+| Field | Limit |
 | --- | --- |
-| `ready` | Resolve after connection and form restoration. |
-| `submit({intent, values, message?})` | Store a request. Return its event or an error. |
-| `getState()` | Return a JSON copy of saved state. |
-| `setState(patch)` | Merge top-level fields against the current state version. |
-| `on('reply', handler)` | Receive replies while the page exists. Return an unsubscribe function. |
+| Request including envelope | 256 KiB |
+| JSON nesting | Fewer than 24 levels |
+| Items per batch | 100 |
+| Client ID / revision / item ID | 100 / 128 / 150 characters |
+| Intent / comment / overall instruction | 200 / 4,000 / 4,000 characters |
+| Each replacement string | 50,000 characters |
 
-Show submission errors so users can retry. Success means Humagent stored the request, not that the agent completed it.
+Use finite JSON values and reject `__proto__`, `constructor`, and `prototype` keys at every depth. Explicit target revisions must match the batch.
 
-Identical unconfirmed submissions reuse their original client ID within the same session and revision, including after reload.
-Changed values or revisions create separate requests. After confirmation, another explicit submission creates a new request.
+### Targets
 
-State writes run in sequence. Stale writes fail instead of replacing newer values. Reserve the `forms` key for saved form values.
+Targets include source URL, viewed revision, selector, tag, and up to 4,000 characters of normalized text. They include stable IDs and quote context when available. Open shadow-root targets include selector paths.
 
-Saving state does not change the application's database. Refresh can reset application memory. Replies stay in the workspace.
+`coordinates: { x, y, space: "document" }` records the click in CSS pixels. Keyboard annotations use the target center. Marker offsets remain in browser drafts.
 
-## Events
+Targets describe rendered content, not guaranteed source lines. Missing or ambiguous targets remain unavailable.
 
-Protocol version is `1`. The SDK builds the envelope. The server adds identity, timestamps, status, and delivery count.
+### Revisions
 
-| Kind | Payload |
-| --- | --- |
-| `message` | `text` |
-| `annotation` | `target`, `text` |
-| `edit` | `target`, `before`, `after`, optional `explanation` |
-| `submission` | `intent`, `values`, optional `message` |
+Source revisions hash served HTML with SHA-256, excluding other assets. An HTTP revision follows the attached document, not nested frames, fragments, or status reads. File changes also trigger revision checks.
 
-An empty `edit.after` proposes deletion. Targets can include IDs, selectors, tags, text, URLs, and quote context. They describe rendered content, not guaranteed source lines.
+Stale feedback cannot be silently rebound. See [refresh and recovery](USAGE.md#refresh-and-recovery).
 
-Requests must contain JSON and stay within 256 KiB. Nesting must stay below 24 levels, including the envelope.
+### Delivery and recovery
 
-| Text | Maximum characters |
-| --- | --- |
-| Client ID / revision | 100 / 128 |
-| Intent | 200 |
-| Message / annotation | 4,000 |
-| Each edit string | 50,000 |
+The workspace owns drafts and delivery. The SDK owns targeting and temporary editors.
 
-See [delivery commands](CLI.md#receive-input) for receipts and retries.
+Before sending, the browser persists an immutable batch. Retries reuse its ID and payload. Only matching confirmation removes captured drafts and unchanged instructions. New batches require a listening or working agent. Accepted batches remain confirmable after disconnection or session ending.
 
-## Revisions
+The SDK retains staging request identities until confirmation, including across reload. At most 200 unresolved requests are retained per session. Page confirmation clears identities without removing drafts.
 
-Source revisions hash served HTML with SHA-256. Other assets do not affect the hash.
+Confirmed local previews remain until matching receipt acknowledgment. Cleanup cannot overwrite application changes or save rendered DOM into source.
 
-For HTTP apps, revisions change when Humagent serves HTML for document navigation. HTML fragment fetches remain unchanged and do not change the active revision.
-Status reads and submissions do not fetch another page. Refresh the app to load new output.
-File changes still trigger revision checks.
-
-Stale input returns `STALE_REVISION`. Stale state writes return `STATE_CONFLICT`.
-
-For stale input:
-
-1. Refresh the page.
-2. Check the target.
-3. Discard the old pending submission.
-4. Submit the checked request again.
-
-Keep old feedback associated with its original revision. Failed sends retain drafts. Accepted events stay queued until acknowledgment.
+See [CLI receipts](CLI.md#receive-input) and [security constraints](SECURITY.md).

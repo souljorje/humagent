@@ -3,25 +3,20 @@
 [![Check](https://github.com/souljorje/humagent/actions/workflows/check.yml/badge.svg)](https://github.com/souljorje/humagent/actions/workflows/check.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Collaborate with AI-agent in HTML: make edits, leave comments, generate interactive plans.
+**Collaborate with AI-agent in HTML: make edits, leave comments, generate interactive plans.**
+
+Works with any harness. Runs on your computer. Needs no account or API key.
 
 ```mermaid
-flowchart TB
+flowchart LR
   I["HTML / Web App"]
   A["AI agent"]
   H["Human"]
-  A -->|"creates or connects"| I
-  I -->|"feedback"| A
+  I <-->|"feedback"| A
   H -->|"interact, edit, annotate"| I
 ```
 
-Works with your harness. Runs on your computer. Needs no account or API key.
-
-## Use cases
-
-- Interactive plans and reports
-- Disposable prototypes
-- Design refinement
+[![humagent.png](./docs/humagent.png)](./docs/humagent.png)
 
 ## Install
 
@@ -31,40 +26,50 @@ Requires Node.js 24+, or Bun 1.4.4+.
 npm i -g humagent
 ```
 
+Or run without installation:
+
 ```sh
 npx humagent@latest
 ```
 
 ## Quick start
 
-1. Install the agent skill:
+Install the agent skill:
 
 ```sh
 humagent setup
 ```
 
-2. Open a local page or the built-in demo. Run one of these commands:
+Try demo:
 
 ```sh
 humagent demo
 ```
 
-Use `humagent open http://127.0.0.1:3000` for a local app.
+Or open your own file or local app:
 
-3. Ask your agent:
+```sh
+humagent open ./page.html
 
-> Read `.agents/skills/humagent/SKILL.md`. Wait for feedback from the open page.
+humagent open http://127.0.0.1:3000
+```
 
-[Commands](docs/CLI.md) · [Forms and SDK](docs/SDK.md) · [Security and limits](docs/SECURITY.md)
+Generate an interactive page:
 
-## Contributing
+> Read the Humagent skill. Create an interactive plan for next feature and open it in Humagent.
 
-Contributions are welcome. See [CONTRIBUTING.md](https://github.com/souljorje/humagent/blob/main/CONTRIBUTING.md).
+## Docs
+
+- [Usage](docs/USAGE.md)
+- [CLI](docs/CLI.md)
+- [SDK](docs/SDK.md)
+- [Security](docs/SECURITY.md)
+- [Contributing](CONTRIBUTING.md)
 
 ## Inspiration
 
-Humagent is inspired by [Lavish AXI](https://github.com/kunchenguid/lavish-axi) and [Human Review](https://github.com/petergyang/human-review).
+Humagent inspired with [Lavish AXI](https://github.com/kunchenguid/lavish-axi) and [Human Review](https://github.com/petergyang/human-review).
 
 ## Licence
 
-Humagent uses the [MIT License](LICENSE)
+[MIT License](LICENSE)

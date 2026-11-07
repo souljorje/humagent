@@ -1,12 +1,15 @@
 ---
 name: humagent
-description: Work with a human through local HTML, a localhost app, or a generated mini-app. Receive choices, comments, and exact edits. Revise source and reply.
+description: Work with a human through local or generated pages and localhost apps. Receive feedback, revise source, and acknowledge its receipt.
 ---
 
 # Humagent
 
 Use the installed `humagent` command with Node.js 24+ or Bun 1.4.4+.
-Use `npx humagent@latest` when no global command exists. Apply this prefix to each command below.
+When no global command exists, use npx with a verified package archive or a published version.
+For an archive, use `npx --yes --package /path/to/humagent-VERSION.tgz humagent`.
+Replace the path and version with the verified archive. Apply that prefix to each command below.
+Do not assume npm contains this development version. See the [installation guide](https://github.com/souljorje/humagent#install).
 
 Read `humagent --help`. Use `--json` for command results.
 
@@ -22,14 +25,15 @@ Keep task-specific interactions in page code.
 For structured input, use named controls in a form with `data-humagent-intent`.
 Use a stable form ID and `data-humagent-persist` for nonsensitive values that must survive refresh.
 
-Keep local interactions independent of model calls. Custom mini-apps can send explicit requests through `window.humagent.submit()`.
+Keep local interactions independent of model calls. Custom mini-apps can stage structured feedback through `window.humagent.submit()`.
+Forms and SDK calls add pending items. The human chooses **Send** to deliver them.
 See the [SDK guide](https://github.com/souljorje/humagent/blob/main/docs/SDK.md).
 
 ## Open and wait
 
 ```sh
 humagent open TARGET --json
-humagent wait SESSION --consumer your-harness --timeout 50 --lease 600
+humagent wait SESSION
 ```
 
 Use the returned session ID. Keep the URL private: it contains a session credential.
@@ -42,7 +46,10 @@ Repeat `wait` after a timeout while review remains active. Stop when the session
 
 ## Apply input
 
-Read the full batch. Preserve `edit.after` exactly. Interpret comments and submission intents using the task context.
+Read every review event in the receipt. Process each event's `payload.message` and ordered `payload.items` together.
+Preserve `replacement.before` and `replacement.after` exactly. An empty `replacement.after` proposes deletion.
+Interpret `comment`, `intent`, and `values` using the task context. Field presence describes each item.
+Each event represents one **Send** action. A receipt can contain several events.
 
 Targets describe rendered content, not guaranteed source lines. Read current source before editing. Reconcile newer changes. Humagent does not apply edits itself.
 
@@ -50,21 +57,23 @@ Apply only authorized changes. A plan choice does not authorize execution or pub
 
 Renew the receipt before lease expiry. Check event IDs and earlier changes before repeating actions from a redelivered batch.
 
-## Reply
+## Complete work
 
-Check the result. Send a reply:
+Check the result. Acknowledge the receipt:
 
 ```sh
-humagent reply SESSION --receipt RECEIPT --message "Describe changes and remaining limits."
+humagent ack SESSION --receipt RECEIPT
 ```
 
-The receipt completes only its batch. A reply without a receipt does not acknowledge work. Use `ack --receipt` to complete work without a reply.
+Describe changes and remaining limits in your agent chat. The receipt completes only its reserved events.
 
 Run `wait` again to continue. Save important results in the task's source files.
 
 ## Limits
 
-Propose edit captures text replacements, not rich-text formatting. Humagent preserves its own drafts and explicit form state, not all application memory.
+Direct text edits preview confirmed wording locally. They do not change source files or provide rich-text formatting.
+The agent applies authoritative source changes. Matching receipt acknowledgment removes submitted previews.
+Humagent preserves review drafts and explicit form values. Other application memory can reset on refresh.
 
 File access stays within the shared artifact directory. Never replace application source with serialized DOM.
 

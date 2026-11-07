@@ -9,7 +9,7 @@ Use `--json` for JSON results. Piped results also use JSON.
 ```sh
 humagent open ./page.html
 humagent open http://127.0.0.1:3000/path
-humagent demo [plan|calculator|existing]
+humagent demo
 humagent setup [--directory PATH] [--force]
 ```
 
@@ -17,20 +17,23 @@ humagent setup [--directory PATH] [--force]
 
 Keep the page and its assets in one directory. Humagent serves supported files from that directory. See [network restrictions](SECURITY.md#network).
 
-Demos use editable copies under `demos/VERSION` in the data directory. They preserve existing files.
+The demo opens an editable plan under `demos/VERSION/plan` in the data directory. It preserves existing files.
 
 Setup installs the skill at `.agents/skills/humagent` by default. It preserves changed instructions unless you pass `--force`.
 
 ## Receive input
 
 ```sh
+humagent wait SESSION
 humagent wait SESSION --consumer my-agent --timeout 50 --lease 600
-humagent reply SESSION --receipt RECEIPT --message "Updated the page."
 humagent ack SESSION --receipt RECEIPT
 humagent renew SESSION --receipt RECEIPT --lease 600
 ```
 
-Use the session ID from `open`. `wait` reserves a batch of events and returns its receipt.
+Use the session ID from `open`. `wait` reserves queued events and returns their receipt.
+
+Each **Send** action creates one protocol v2 event. Its `payload` contains an optional `message` and ordered `items`.
+One receipt can cover several review events. Process each event's overall instruction and items together.
 
 | Option | Seconds | Default |
 | --- | --- | --- |
@@ -39,12 +42,12 @@ Use the session ID from `open`. `wait` reserves a batch of events and returns it
 
 | Result | Action |
 | --- | --- |
-| `feedback` | Read the batch. Apply authorized changes. Reply or acknowledge its receipt. |
+| `feedback` | Read the batch. Apply authorized changes. Acknowledge its receipt. |
 | `timeout` | Repeat `wait` while review remains active. |
 | `ended` | Stop waiting. Reopen only on request. |
 | `interrupted` | Check server status before resuming. |
 
-`reply --receipt` completes only that batch. Without a receipt, a reply completes no events. `ack` completes a batch without replying.
+`ack --receipt` completes only the events reserved by that receipt.
 
 Renew before the lease expires. Events remain stored and can arrive again after expiry. Check event IDs before repeating consequential actions.
 
@@ -77,11 +80,38 @@ Use the same data directory across commands.
 
 | Problem | Action |
 | --- | --- |
-| No agent listening | Ask the agent to run `wait`. Queued input remains available. |
+| No agent listening | Ask the agent to run `wait`. New sends require a listening or working agent. |
+| Feedback remains a draft | Choose Send from the floating bar. Forms and SDK calls only stage feedback. |
+| Review is open in another tab | Close the editing tab, then reload the other tab. |
 | Agent turn ended | Send the agent a new message. |
 | Browser did not open | Open the printed URL on the same computer. |
 | Older server running | Run `humagent stop`. Repeat `open`. |
-| Source changed | Follow the [revision steps](SDK.md#revisions). |
+| Source changed | Follow [refresh and recovery](USAGE.md#refresh-and-recovery) and inspect [revision rules](SDK.md#revisions). |
 | App cannot connect | Check its HTML route and [attachment limits](SECURITY.md#network). |
+| Stored session is unreadable | Follow [stored-session compatibility](#stored-session-compatibility). Preserve the original files. |
 | Command fails | Run `humagent doctor`. Read `server.log` in the data directory. |
 | Port conflict | Free the saved workspace port. Set `HUMAGENT_PORT=0` only if you want a new browser origin. |
+
+## Stored-session compatibility
+
+The on-disk container still uses storage protocol 1. Current feedback events use batch protocol 2.
+An empty older session can load. A session containing protocol 1 events cannot load in this version.
+The service reports the unreadable session and leaves its file unchanged. It does not silently discard or convert stored feedback.
+
+Use this manual transition before replacing an older development checkout:
+
+1. Stop every Humagent server that uses the original data directory.
+2. Back up the entire directory, including `sessions/`.
+3. Preserve the browser profile that contains unsent drafts.
+4. Use the matching older checkout against a copy of the directory.
+5. Finish its sessions or inspect their original JSON feedback with your agent.
+6. Record which source changes the agent completed before repeating any work.
+7. Start this version with a different data directory:
+
+```sh
+humagent demo --home ./humagent-current
+```
+
+Keep the original directory until you check every feedback item. Do not copy protocol 1 events into current session files.
+There is no automatic converter. Reuse the original view only with its matching version.
+See [storage security](SECURITY.md#credentials-and-storage) before copying private session data.

@@ -16,6 +16,16 @@ import {
   type Surface,
 } from './surfaces.js';
 import { writeJson } from './storage.js';
+import { browserAsset } from './assets.js';
+import type { Session } from './protocol.js';
+
+export interface SessionSnapshot extends Omit<
+  Session,
+  'viewKey' | 'lease' | 'acknowledged'
+> {
+  agent: 'working' | 'waiting' | 'idle';
+  surface: { origin: string; frameUrl: string; channel: string };
+}
 
 const UI = fileURLToPath(new URL('../ui/', import.meta.url));
 const equal = (a: unknown, b: string) =>
@@ -124,7 +134,7 @@ export async function createRuntime(options: RuntimeOptions) {
     }
     return surfaces.get(id)!;
   }
-  function view(id: string) {
+  function view(id: string): Omit<SessionSnapshot, 'surface'> {
     const { viewKey: _key, lease, acknowledged: _ack, ...s } = store.get(id);
     return {
       ...s,
@@ -136,7 +146,7 @@ export async function createRuntime(options: RuntimeOptions) {
             : 'idle',
     };
   }
-  async function snapshot(id: string) {
+  async function snapshot(id: string): Promise<SessionSnapshot> {
     const panel = await surfaces.get(id);
     ensure(
       panel,
@@ -171,7 +181,8 @@ export async function createRuntime(options: RuntimeOptions) {
     if (
       pathname === '/health' ||
       pathname === '/workspace' ||
-      ['/app.js', '/app.css'].includes(pathname)
+      ['/app.js', '/app.css'].includes(pathname) ||
+      /^\/(ui|shared)\/[a-z][a-z0-9-]*\.(js|css)$/.test(pathname)
     ) {
       await next();
       return;
@@ -187,7 +198,7 @@ export async function createRuntime(options: RuntimeOptions) {
         401,
       );
       ensure(
-        !['wait', 'ack', 'reply', 'renew'].includes(match[2] ?? '') || control,
+        !['wait', 'ack', 'renew'].includes(match[2] ?? '') || control,
         'This operation requires the agent credential',
         'UNAUTHORIZED',
         401,
@@ -208,6 +219,22 @@ export async function createRuntime(options: RuntimeOptions) {
   app.all('/health', () =>
     json(200, { app: 'humagent', protocol: 1, pid: process.pid, version }),
   );
+  for (const root of ['ui', 'shared']) {
+    app.get(`/${root}/:file`, async (c) => {
+      const name = `${root}/${c.req.param('file')}`;
+      const asset = await browserAsset(name, ['ui', 'shared']);
+      ensure(asset, 'Not found', 'NOT_FOUND', 404);
+      return new Response(asset, {
+        headers: {
+          'content-type': name.endsWith('.css')
+            ? 'text/css'
+            : 'text/javascript',
+          'cache-control': 'no-store',
+          'x-content-type-options': 'nosniff',
+        },
+      });
+    });
+  }
   for (const route of ['/workspace', '/app.js', '/app.css']) {
     app.all(route, (c) => {
       ensure(c.req.method === 'GET', 'Method not allowed', 'METHOD', 405);
@@ -236,8 +263,24 @@ export async function createRuntime(options: RuntimeOptions) {
   app.post(`${sessionPath}/events`, async (c) => {
     const id = c.req.param('id');
     const value = await body(c.req.raw);
+    const session = store.get(id);
+    if (session.events.some((event) => event.clientId === value.clientId))
+      return json(200, store.send(id, value));
     await (await surface(id)).checkRevision();
+    if (!store.get(id).ended)
+      ensure(
+        view(id).agent !== 'idle',
+        'Connect an agent before sending feedback.',
+        'AGENT_UNAVAILABLE',
+        409,
+      );
     return json(200, store.send(id, value));
+  });
+  app.post(`${sessionPath}/surface`, async (c) => {
+    const id = c.req.param('id');
+    const value = await body(c.req.raw);
+    (await surface(id)).activate(value.documentId);
+    return json(200, view(id));
   });
   app.put(`${sessionPath}/state`, async (c) => {
     const value = await body(c.req.raw);
@@ -248,14 +291,6 @@ export async function createRuntime(options: RuntimeOptions) {
     await body(c.req.raw);
     store.end(c.req.param('id'));
     return json(200, view(c.req.param('id')));
-  });
-  app.post(`${sessionPath}/reply`, async (c) => {
-    const value = await body(c.req.raw);
-    const id = c.req.param('id');
-    if (value.receipt !== undefined)
-      store.acknowledge(id, value.receipt, value.message as string);
-    else store.reply(id, value.message);
-    return json(200, view(id));
   });
   app.post(`${sessionPath}/ack`, async (c) => {
     const value = await body(c.req.raw);

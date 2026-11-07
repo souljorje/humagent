@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Plan a review · Humagent</title>
+    <link rel="stylesheet" href="plan.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <span class="brand">Humagent</span>
+      <span class="demo-label">Interactive plan</span>
+    </header>
+    <main>
+      <section class="intro" aria-labelledby="headline">
+        <h1 id="headline" data-humagent-id="headline">
+          Show your agent what you mean.
+        </h1>
+        <p>
+          Comment on a page, edit its wording, or work through a decision.
+          Collect your feedback, then send it to your agent as one review.
+        </p>
+      </section>
+
+      <section class="plan" aria-labelledby="plan-title">
+        <div class="plan-heading">
+          <h2 id="plan-title">Plan your next change.</h2>
+          <p>
+            Try the review tools on this plan. You can edit this heading or
+            leave a comment on any element.
+          </p>
+        </div>
+        <form
+          id="review-plan"
+          data-humagent-intent="plan_review"
+          data-humagent-message="Use these preferences to propose the next change. Do not execute or publish anything."
+          data-humagent-persist
+        >
+          <div class="plan-fields">
+            <fieldset>
+              <legend>What are you working on?</legend>
+              <label class="choice">
+                <input
+                  type="radio"
+                  name="workflow"
+                  value="existing-page"
+                  checked
+                />
+                <span>
+                  <span class="choice-title">Review an existing page</span>
+                  <span class="choice-description"
+                    >Point out changes in local HTML or a running local
+                    app.</span
+                  >
+                </span>
+              </label>
+              <label class="choice">
+                <input type="radio" name="workflow" value="generated-page" />
+                <span>
+                  <span class="choice-title">Work through a plan</span>
+                  <span class="choice-description"
+                    >Ask your agent for an interactive page. Compare options and
+                    give it your choices.</span
+                  >
+                </span>
+              </label>
+              <label class="choice">
+                <input type="radio" name="workflow" value="prototype" />
+                <span>
+                  <span class="choice-title">Explore a prototype</span>
+                  <span class="choice-description"
+                    >Try local interactions. Send the decisions and refinements
+                    that matter.</span
+                  >
+                </span>
+              </label>
+            </fieldset>
+            <div class="details">
+              <label class="field">
+                What would a good result look like?
+                <input
+                  type="text"
+                  name="outcome"
+                  value="Make the next change clear."
+                />
+              </label>
+              <label class="field">
+                Where should the agent focus?
+                <select name="focus">
+                  <option value="clarity">Wording and clarity</option>
+                  <option value="layout">Layout and visual details</option>
+                  <option value="behavior">Behavior and interactions</option>
+                </select>
+              </label>
+              <label class="field">
+                Anything to preserve?
+                <textarea
+                  name="notes"
+                  rows="2"
+                  placeholder="Existing behavior, tone, or constraints…"
+                ></textarea>
+              </label>
+              <label class="preserve">
+                <input type="checkbox" name="preserveBehavior" checked />
+                Preserve what already works
+              </label>
+            </div>
+          </div>
+          <div class="plan-actions">
+            <button type="submit">Add plan to feedback</button>
+            <p>Choose Send in the floating bar when your review is ready.</p>
+          </div>
+        </form>
+      </section>
+
+      <section class="guide" aria-labelledby="guide-title">
+        <h2 id="guide-title">Try the whole review loop.</h2>
+        <ol>
+          <li>
+            <h3>Connect your agent</h3>
+            <p>
+              Expand the floating bar. Copy its connection command into your
+              agent chat. Wait for Agent listening.
+            </p>
+          </li>
+          <li>
+            <h3>Point and comment</h3>
+            <p>
+              Enable commenting in the bar. Click an element to leave feedback.
+              A numbered marker keeps it attached.
+            </p>
+          </li>
+          <li>
+            <h3>Edit the wording</h3>
+            <p>
+              Click plain text while commenting is on. Type your change, then
+              press Enter to confirm its local preview.
+            </p>
+          </li>
+          <li>
+            <h3>Send one review</h3>
+            <p>
+              Add this plan and any comments to your feedback. Choose Send to
+              deliver them together to your agent.
+            </p>
+          </li>
+        </ol>
+      </section>
+      <footer class="page-footer">
+        <p>
+          Text edits preview locally. Your agent applies source changes and
+          acknowledges the review when finished.
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>
