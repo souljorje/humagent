@@ -16,6 +16,10 @@ for (const width of [1440, 390])
       '.intro p',
       '.plan-heading p',
       '.choice-title',
+      '.field',
+      '.preserve',
+      'button[type="submit"]',
+      '.guide li h3',
       '.guide li p',
       '.page-footer p',
     ]) {
@@ -61,7 +65,7 @@ for (const width of [1440, 390])
           animations: 'disabled',
         });
       await editor.press('Escape');
-      await expect(target).toHaveText(original!);
+      expect(await target.textContent()).toBe(original);
     }
   });
 

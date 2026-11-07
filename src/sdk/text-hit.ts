@@ -1,3 +1,26 @@
+/** Use the same browser caret geometry for annotation and plain-text drops. */
+export function caretAtPoint(
+  point: { x: number; y: number },
+  shadowRoots: ShadowRoot[],
+): Range | null {
+  const doc = document as Document & {
+    caretPositionFromPoint?: (
+      x: number,
+      y: number,
+      options: { shadowRoots: ShadowRoot[] },
+    ) => { offsetNode: Node; offset: number } | null;
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  };
+  const caret = doc.caretPositionFromPoint?.(point.x, point.y, {
+    shadowRoots,
+  });
+  if (!caret) return doc.caretRangeFromPoint?.(point.x, point.y) || null;
+  const range = document.createRange();
+  range.setStart(caret.offsetNode, caret.offset);
+  range.collapse(true);
+  return range;
+}
+
 /** Resolve the text actually under the pointer, rather than the nearest text in page padding. */
 export function hitTestText(
   point: { x: number; y: number },
@@ -13,19 +36,8 @@ export function hitTestText(
     element = inner;
   }
   if (!element || element.closest('[data-humagent-ui]')) return null;
-  const doc = document as Document & {
-    caretPositionFromPoint?: (
-      x: number,
-      y: number,
-      options: { shadowRoots: ShadowRoot[] },
-    ) => { offsetNode: Node; offset: number } | null;
-    caretRangeFromPoint?: (x: number, y: number) => Range | null;
-  };
-  const caret = doc.caretPositionFromPoint?.(point.x, point.y, {
-    shadowRoots: [...roots],
-  });
-  const fallback = caret ? null : doc.caretRangeFromPoint?.(point.x, point.y);
-  const node = caret?.offsetNode || fallback?.startContainer || null;
+  const caret = caretAtPoint(point, [...roots]);
+  const node = caret?.startContainer || null;
   if (eligible(node) && element.contains(node)) {
     const range = document.createRange();
     range.selectNodeContents(node);
@@ -42,10 +54,7 @@ export function hitTestText(
         element,
         text: {
           node,
-          offset: Math.max(
-            0,
-            Math.min(caret?.offset ?? fallback!.startOffset, node.length),
-          ),
+          offset: Math.max(0, Math.min(caret!.startOffset, node.length)),
         },
       };
   }

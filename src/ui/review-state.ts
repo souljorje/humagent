@@ -73,9 +73,23 @@ export function createReview(
   }
   function copyMarker(marker?: MarkerPosition) {
     if (marker === undefined) return undefined;
-    if (!marker || !Number.isFinite(marker.x) || !Number.isFinite(marker.y))
+    if (
+      !marker ||
+      !Number.isFinite(marker.x) ||
+      !Number.isFinite(marker.y) ||
+      (marker.textOffset !== undefined &&
+        (!Number.isInteger(marker.textOffset) ||
+          marker.textOffset < 0 ||
+          marker.textOffset > 50000))
+    )
       throw new Error('Invalid marker position');
-    return { x: marker.x, y: marker.y };
+    return {
+      x: marker.x,
+      y: marker.y,
+      ...(marker.textOffset !== undefined
+        ? { textOffset: marker.textOffset }
+        : {}),
+    };
   }
   function stage(
     item: unknown,

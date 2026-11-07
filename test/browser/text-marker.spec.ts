@@ -23,7 +23,7 @@ for (const shadow of [false, true])
       x: Math.round(bounds.x + 40),
       y: Math.round(bounds.y + 14),
     };
-    await page.mouse.click(point.x, point.y);
+    await target.click({ position: { x: 40, y: 14 } });
     const editor = review.frame.getByRole('textbox', {
       name: 'Edit text',
       exact: true,
@@ -50,9 +50,15 @@ for (const shadow of [false, true])
       .click();
     const marker = review.frame.locator('.marker');
     await expect(marker).toBeVisible();
-    const firstBox = (await marker.boundingBox())!;
-    expect(firstBox.x).toBe(Math.round(firstEnd.x));
-    expect(firstBox.y).toBe(Math.round(firstEnd.y));
+    const expectCaret = async (point: { x: number; y: number }) => {
+      await expect
+        .poll(async () => {
+          const box = (await marker.boundingBox())!;
+          return { x: box.x, y: box.y };
+        })
+        .toEqual({ x: Math.round(point.x), y: Math.round(point.y) });
+    };
+    await expectCaret(firstEnd);
     const first = (await review.state()).drafts[0];
     expect(first.item.target?.coordinates).toEqual({
       ...point,
@@ -65,13 +71,26 @@ for (const shadow of [false, true])
       .getByRole('button', { name: 'Save', exact: true })
       .click();
     await expect(review.frame.locator('#panel')).toBeHidden();
-    const nextBox = (await marker.boundingBox())!;
-    expect(nextBox.x).toBe(Math.round(nextEnd.x));
-    expect(nextBox.y).toBe(Math.round(nextEnd.y));
+    await expectCaret(nextEnd);
     const updated = (await review.state()).drafts[0];
     expect(updated.item.id).toBe(first.item.id);
     expect(updated.marker).not.toEqual(first.marker);
     expect(updated.item.replacement?.before).toBe('Alpha beta gamma');
+    await target.evaluate((el) => {
+      el.style.width = '180px';
+    });
+    const reflowed = await target.evaluate((el) => {
+      const range = document.createRange();
+      range.setStart(el.firstChild!, el.firstChild!.textContent!.length);
+      range.collapse(true);
+      const rect = range.getBoundingClientRect();
+      return { x: rect.right + 4, y: rect.top + rect.height / 2 - 16 };
+    });
+    await expectCaret(reflowed);
+    await target.evaluate((el) => {
+      el.style.width = '';
+    });
+    await expectCaret(nextEnd);
 
     // A note-only change keeps the saved endpoint, rather than the marker click.
     await marker.click();
@@ -79,6 +98,7 @@ for (const shadow of [false, true])
     await review.frame
       .getByRole('button', { name: 'Save', exact: true })
       .click();
+    await expect(review.frame.locator('#panel')).toBeHidden();
     expect((await review.state()).drafts[0].marker).toEqual(updated.marker);
 
     // Editing a word in the middle anchors to that caret, not the whole run's end.
@@ -94,11 +114,60 @@ for (const shadow of [false, true])
     const middle = await caret(7);
     await editor.press('Enter');
     await expect(review.frame.locator('#panel')).toBeHidden();
-    const middleBox = (await marker.boundingBox())!;
-    expect(middleBox.x).toBe(Math.round(middle.x));
-    expect(middleBox.y).toBe(Math.round(middle.y));
+    await expectCaret(middle);
     await page.screenshot({
       path: test.info().outputPath('text-marker.png'),
       animations: 'disabled',
     });
+
+    await marker.click();
+    await editor.fill('Line one');
+    await editor.press('End');
+    await editor.press('Shift+Enter');
+    const blankLine = await editor
+      .locator('[data-humagent-placeholder]')
+      .evaluate((el) => {
+        const rect = el.getBoundingClientRect();
+        return { x: rect.right + 4, y: rect.top + rect.height / 2 - 16 };
+      });
+    await review.frame.getByLabel('Comment', { exact: true }).fill('New line');
+    await review.frame
+      .getByRole('button', { name: 'Save', exact: true })
+      .click();
+    await expect(review.frame.locator('#panel')).toBeHidden();
+    expect((await review.state()).drafts[0].item.replacement?.after).toBe(
+      'Line one\n',
+    );
+    await expectCaret(blankLine);
+
+    await marker.click();
+    await editor.fill('Alpha beta gamma');
+    const beforeDrop = (await editor.textContent())!;
+    await editor.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
+    await editor.press(process.platform === 'darwin' ? 'Meta+B' : 'Control+B');
+    await expect(editor.locator('b,strong')).toHaveCount(0);
+    await editor.evaluate((el) => {
+      const point = document.createRange();
+      point.setStart(el.firstChild!, 6);
+      point.collapse(true);
+      const rect = point.getBoundingClientRect();
+      const dataTransfer = new DataTransfer();
+      dataTransfer.setData('text/plain', 'X');
+      dataTransfer.setData('text/html', '<b>X</b>');
+      el.dispatchEvent(
+        new DragEvent('drop', {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect.x,
+          clientY: rect.y + rect.height / 2,
+          dataTransfer,
+        }),
+      );
+    });
+    await expect(editor.locator('b,strong')).toHaveCount(0);
+    await editor.press('Enter');
+    await expect(editor).toHaveCount(0);
+    expect((await review.state()).drafts[0].item.replacement?.after).toBe(
+      beforeDrop.slice(0, 6) + 'X' + beforeDrop.slice(6),
+    );
   });

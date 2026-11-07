@@ -1,4 +1,5 @@
-import type { Draft } from '../shared/review.js';
+import type { Draft, MarkerPosition } from '../shared/review.js';
+import { caretAtPoint } from './text-hit.js';
 
 interface Preview {
   draft: Draft;
@@ -16,7 +17,7 @@ interface Editing {
   parent: Node;
   initial: string;
   before: string;
-  caret?: Range;
+  endpoint?: MarkerPosition;
 }
 
 /** Own only the selected text node. Restore it only while our editor or preview still owns it. */
@@ -89,31 +90,45 @@ export function createTextEditing(hooks: {
       element.replaceWith(node);
     editing = undefined;
   }
-  function rememberCaret() {
-    if (!editing) return;
-    const selection = getSelection();
-    if (!selection?.rangeCount) return;
-    let range = selection.getRangeAt(0).cloneRange();
+  function editorRoots() {
     const roots: ShadowRoot[] = [];
-    let root = editing.element.getRootNode();
+    let root = editing?.element.getRootNode();
     while (root instanceof ShadowRoot) {
       roots.push(root);
       root = root.host.getRootNode();
     }
-    const composed = selection as Selection & {
-      getComposedRanges?: (options: {
-        shadowRoots: ShadowRoot[];
-      }) => StaticRange[];
-      direction?: string;
-    };
-    const current = composed.getComposedRanges?.({ shadowRoots: roots })[0];
-    if (current) {
-      range.setStart(current.startContainer, current.startOffset);
-      range.setEnd(current.endContainer, current.endOffset);
-    }
+    return roots;
+  }
+  function rememberCaret() {
+    if (!editing) return;
+    const selection = getSelection();
+    if (!selection?.rangeCount) return;
+    const range = selectionRange(selection, editorRoots());
     if (!editing.element.contains(range.commonAncestorContainer)) return;
-    range.collapse(composed.direction === 'backward');
-    editing.caret = range;
+    range.collapse(
+      (selection as Selection & { direction?: string }).direction ===
+        'backward',
+    );
+    let caret = range.getBoundingClientRect();
+    const { startContainer: node, startOffset: offset } = range;
+    let next =
+      node instanceof Text
+        ? offset === node.length
+          ? node.nextSibling
+          : null
+        : node.childNodes[offset];
+    while (next instanceof Text && !next.length) next = next.nextSibling;
+    // Empty text can report the previous line. Its following BR owns the caret line.
+    if (next instanceof HTMLBRElement) caret = next.getBoundingClientRect();
+    const rect = caret.height ? caret : editing.element.getBoundingClientRect();
+    const parent = editing.element.parentElement!.getBoundingClientRect();
+    range.setStart(editing.element, 0);
+    editing.endpoint = {
+      x: (caret.height ? rect.right : rect.left) + 4 - parent.left,
+      y: rect.top + rect.height / 2 - 16 - parent.top,
+      textOffset: plainText(range.cloneContents()).replace(/\r\n/g, '\n')
+        .length,
+    };
   }
   function reconcile(drafts: Draft[]) {
     const wanted = new Map(drafts.map((draft) => [draft.item.id, draft]));
@@ -195,16 +210,42 @@ export function createTextEditing(hooks: {
     get initial() {
       return editing?.initial ?? '';
     },
+    markerPoint(draft: Draft) {
+      const offset = draft.marker?.textOffset;
+      const preview = previews.get(draft.item.id);
+      if (
+        offset === undefined ||
+        !preview ||
+        !valid(preview) ||
+        !preview.node.isConnected
+      )
+        return;
+      // A trailing preserved newline has no rendered caret line in a bare Text node.
+      // Keep its measured editor-line anchor instead.
+      if (
+        offset === preview.node.length &&
+        preview.node.data.endsWith('\n') &&
+        /^(pre|pre-wrap|pre-line|break-spaces)$/.test(
+          getComputedStyle(preview.target).whiteSpace,
+        )
+      )
+        return;
+      const range = document.createRange();
+      range.setStart(preview.node, Math.min(offset, preview.node.length));
+      range.collapse(true);
+      const rect = range.getBoundingClientRect();
+      if (rect.height)
+        return { x: rect.right + 4, y: rect.top + rect.height / 2 - 16 };
+    },
     endpoint() {
-      if (!editing) return;
+      if (!editing?.element.isConnected) return;
       rememberCaret();
-      const caret = editing.caret?.getBoundingClientRect();
-      const rect = caret?.height
-        ? caret
-        : editing.element.getBoundingClientRect();
+      if (!editing.endpoint) return;
+      const rect = editing.element.parentElement!.getBoundingClientRect();
       return {
-        x: (caret?.height ? rect.right : rect.left) + 4,
-        y: rect.top + rect.height / 2 - 16,
+        x: rect.left + editing.endpoint.x,
+        y: rect.top + editing.endpoint.y,
+        textOffset: editing.endpoint.textOffset,
       };
     },
     open(
@@ -248,7 +289,7 @@ export function createTextEditing(hooks: {
         if (element.contentEditable !== 'true') return;
         const selection = getSelection();
         if (!selection?.rangeCount) return;
-        const range = selection.getRangeAt(0);
+        const range = selectionRange(selection, editorRoots());
         if (!element.contains(range.commonAncestorContainer)) return;
         range.deleteContents();
         const fragment = document.createDocumentFragment();
@@ -281,6 +322,14 @@ export function createTextEditing(hooks: {
       element.addEventListener('drop', (event) => {
         event.preventDefault();
         event.stopPropagation();
+        const range = caretAtPoint(
+          { x: event.clientX, y: event.clientY },
+          editorRoots(),
+        );
+        if (!range || !element.contains(range.commonAncestorContainer)) return;
+        const selection = getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
         insert(
           event.dataTransfer?.getData('text/plain').replace(/\r\n/g, '\n') ||
             '',
@@ -331,6 +380,24 @@ export function createTextEditing(hooks: {
       if (editing) editing.element.contentEditable = value ? 'false' : 'true';
     },
   };
+}
+
+/** Native selections may be retargeted at shadow hosts. */
+export function selectionRange(
+  selection: Selection,
+  shadowRoots: ShadowRoot[],
+) {
+  const composed = selection as Selection & {
+    getComposedRanges?: (options: {
+      shadowRoots: ShadowRoot[];
+    }) => StaticRange[];
+  };
+  const current = composed.getComposedRanges?.({ shadowRoots })[0];
+  if (!current) return selection.getRangeAt(0).cloneRange();
+  const range = document.createRange();
+  range.setStart(current.startContainer, current.startOffset);
+  range.setEnd(current.endContainer, current.endOffset);
+  return range;
 }
 
 export function selectedRun(range: Range) {

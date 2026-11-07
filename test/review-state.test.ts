@@ -249,12 +249,22 @@ test('marker presentation persists without entering the submitted payload', () =
   resumed.edit(
     staged.draftId,
     { id: staged.draftId, ...decision(2) },
-    { x: 42, y: 80 },
+    { x: 42, y: 80, textOffset: 8 },
   );
   assert.deepEqual(createReview(saved, 'markers').snapshot().drafts[0].marker, {
     x: 42,
     y: 80,
+    textOffset: 8,
   });
+  assert.throws(
+    () =>
+      resumed.edit(
+        staged.draftId,
+        { id: staged.draftId, ...decision(2) },
+        { x: 0, y: 0, textOffset: -1 },
+      ),
+    /marker/,
+  );
   resumed.begin('r');
   assert.equal(
     'marker' in resumed.snapshot().outbox[0].batch.payload.items[0],

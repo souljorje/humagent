@@ -4,6 +4,7 @@ import {
   createTextEditing,
   selectedRun,
   isEditableText,
+  selectionRange,
 } from './text-editing.js';
 import { hitTestText } from './text-hit.js';
 import type {
@@ -12,12 +13,17 @@ import type {
   Requests,
 } from '../shared/bridge.js';
 import type { DraftItem, ReviewTarget } from '../shared/batch.js';
-import type { Availability, Draft, StageResult } from '../shared/review.js';
+import type {
+  Availability,
+  Draft,
+  MarkerPosition,
+  StageResult,
+} from '../shared/review.js';
 import { errorMessage } from '../shared/errors.js';
 
 interface ReviewBridge {
   boot: Bootstrap;
-  stage(item: DraftItem, marker?: Point): Promise<StageResult>;
+  stage(item: DraftItem, marker?: MarkerPosition): Promise<StageResult>;
   edit(params: Requests['edit']['params']): Promise<unknown>;
   remove(draftId: string): Promise<unknown>;
   notice(message: string): void;
@@ -384,24 +390,7 @@ export function createPageReview(bridge: ReviewBridge) {
     const selection = document.getSelection();
     if (!selection || !selection.rangeCount || !selection.toString().trim())
       return false;
-    let range = selection.getRangeAt(0).cloneRange();
-    // Native Selection ranges are retargeted at shadow hosts in some browsers.
-    const composed = selection as Selection & {
-      getComposedRanges?: (options: {
-        shadowRoots: ShadowRoot[];
-      }) => StaticRange[];
-    };
-    if (composed.getComposedRanges) {
-      const ranges = composed.getComposedRanges({
-        shadowRoots: [...shadowRoots],
-      });
-      const current = ranges[0];
-      if (current) {
-        range = document.createRange();
-        range.setStart(current.startContainer, current.startOffset);
-        range.setEnd(current.endContainer, current.endOffset);
-      }
-    }
+    const range = selectionRange(selection, [...shadowRoots]);
     const node = range.commonAncestorContainer;
     const el = node instanceof Element ? node : node.parentElement;
     if (ignored(el)) return false;
@@ -449,7 +438,9 @@ export function createPageReview(bridge: ReviewBridge) {
     const current = captured;
     const endpoint =
       replacement && text.value !== text.initial ? text.endpoint() : undefined;
-    const marker = endpoint ? anchor(current.el, endpoint) : undefined;
+    const marker = endpoint
+      ? { ...anchor(current.el, endpoint), textOffset: endpoint.textOffset }
+      : undefined;
     saving = true;
     updateEditor();
     try {
@@ -790,7 +781,17 @@ export function createPageReview(bridge: ReviewBridge) {
         if (marker.getAttribute(name!) !== value)
           marker.setAttribute(name!, value!);
       const offset = draft.marker || { x: rect.width / 2, y: rect.height / 2 };
-      place(marker, rect.left + offset.x, rect.top + offset.y);
+      const point = text.markerPoint(draft) || {
+        x: rect.left + offset.x,
+        y: rect.top + offset.y,
+      };
+      if (draft.marker?.textOffset !== undefined)
+        place(
+          marker,
+          Math.max(12, Math.min(point.x, innerWidth - 44)),
+          Math.max(12, Math.min(point.y, innerHeight - 44)),
+        );
+      else place(marker, point.x, point.y);
     }
     $('highlight').hidden = !highlight;
     if (highlight) {

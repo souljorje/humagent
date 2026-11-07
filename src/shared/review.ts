@@ -9,6 +9,7 @@ export interface Draft {
 export interface MarkerPosition {
   x: number;
   y: number;
+  textOffset?: number;
 }
 export interface OverallInstruction {
   text: string;
