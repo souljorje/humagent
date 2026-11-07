@@ -158,7 +158,6 @@ export function createReview(
     const operation = (async () => {
       const entry = state.outbox.find((e) => e.batch.clientId === clientId);
       if (!entry) return;
-      const uncertain = !!entry.uncertain;
       commit((next) => {
         const pending = next.outbox.find((e) => e.batch.clientId === clientId)!;
         pending.uncertain = true;
@@ -177,8 +176,8 @@ export function createReview(
             (e) => e.batch.clientId === clientId,
           )!;
           pending.error = errorMessage(error);
-          pending.rejected = rejected && !uncertain;
-          pending.uncertain = uncertain || !rejected;
+          pending.rejected = rejected;
+          pending.uncertain = !rejected;
         });
         throw error;
       }

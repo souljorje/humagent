@@ -153,7 +153,18 @@ async function api<T = void>(
     const failure = Object.assign(
       new Error(`${result.error}: ${result.message}`),
       {
-        rejected: response.status >= 400 && response.status < 500,
+        // Only explicit event rejections prove the batch was never stored.
+        rejected:
+          action === 'events' &&
+          [
+            'STALE_REVISION',
+            'AGENT_UNAVAILABLE',
+            'ENDED',
+            'SESSION_FULL',
+            'INVALID_INPUT',
+            'PROTOCOL_MISMATCH',
+            'TOO_LARGE',
+          ].includes(result.error),
       },
     );
     throw failure;

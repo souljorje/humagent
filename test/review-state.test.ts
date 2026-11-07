@@ -94,7 +94,7 @@ test('a lost response retries the exact batch across reload', async () => {
   assert.deepEqual(requests[0], requests[1]);
   assert.equal(resumed.snapshot().drafts.length, 0);
 });
-test('a later rejection cannot unlock an earlier uncertain batch', async () => {
+test('a later uncertain rejection cannot unlock an earlier uncertain batch', async () => {
   const review = createReview(storage(), 's');
   review.stage(decision(1), 'revision');
   const clientId = review.begin('revision');
@@ -105,11 +105,30 @@ test('a later rejection cannot unlock an earlier uncertain batch', async () => {
   );
   await assert.rejects(
     review.deliver(clientId, async () => {
-      throw Object.assign(new Error('Unauthorized'), { rejected: true });
+      throw Object.assign(new Error('Unauthorized'), { rejected: false });
     }),
   );
   assert.throws(() => review.release(clientId), /Retry unconfirmed/);
 });
+test('a definitive server rejection unlocks a previously uncertain batch', async () => {
+  const review = createReview(storage(), 's');
+  review.stage(decision(1), 'old');
+  const clientId = review.begin('old');
+  await assert.rejects(
+    review.deliver(clientId, async () => {
+      throw new Error('Connection lost');
+    }),
+  );
+  await assert.rejects(
+    review.deliver(clientId, async () => {
+      throw Object.assign(new Error('Stale revision'), { rejected: true });
+    }),
+  );
+  review.release(clientId);
+  assert.equal(review.snapshot().outbox.length, 0);
+  assert.equal(review.snapshot().drafts.length, 1);
+});
+
 test('a confirmed initial rejection can return feedback to drafts without rewriting its revision', async () => {
   const review = createReview(storage(), 's');
   review.stage(decision(1), 'old');
