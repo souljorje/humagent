@@ -3,103 +3,68 @@
 [![Check](https://github.com/souljorje/humagent/actions/workflows/check.yml/badge.svg)](https://github.com/souljorje/humagent/actions/workflows/check.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Review existing pages or generate interactive pages with your AI agent.
-Collect comments, local text edits, and structured decisions. Send them together as one feedback batch.
-The agent applies authorized changes to source files.
+**Review existing pages or create interactive pages with your AI agent.** Comment, preview text edits, and make choices. Send one feedback batch for the agent to apply to source.
 
 ```mermaid
-flowchart TB
-  I["HTML / Web App"]
-  A["AI agent"]
-  H["Human"]
-  A -->|"creates or connects"| I
-  I -->|"Send: one review batch"| A
-  H -->|"interact and add feedback"| I
+flowchart LR
+  Agent["Your AI agent"] -->|Creates or connects| Page["HTML or local app"]
+  You["You"] -->|Interact and review| Page
+  Page -->|Send feedback| Agent
 ```
 
 ## Install
 
-Use Node.js 24 or later. Bun 1.4.4 or later is an alternative runtime.
-Installed archives contain compiled code. npm and npx users do not need Bun.
-
-This branch contains version **0.1.0**, which is not published to npm. No GitHub release archive is available yet.
-[Build an archive](CONTRIBUTING.md#build-an-archive) before trying these examples.
-Run the following commands from the directory that contains `humagent-0.1.0.tgz`.
+Version **0.1.0** on this branch is not yet published to npm. Build a local archive with Bun 1.4.4+:
 
 ```sh
-npx --yes --package ./humagent-0.1.0.tgz humagent --help
-npx --yes --package ./humagent-0.1.0.tgz humagent setup
+git clone --branch codex/unified-review https://github.com/souljorje/humagent.git
+cd humagent
+bun install --frozen-lockfile
+bun run build
+bun pm pack --ignore-scripts --destination .local
+npm install --global ./.local/humagent-0.1.0.tgz
 ```
 
-After npm publication, the equivalent prefix is `npx --yes humagent@0.1.0`.
-Do not use that registry command before the package exists.
-Global installation is optional:
+The installed CLI runs on Node.js 24+ or Bun 1.4.4+. It needs no build step or model API key. After publication, `npx humagent@latest` will work without building an archive.
+
+## Quick start
+
+From your project directory, install the agent skill:
 
 ```sh
-npm install --global ./humagent-0.1.0.tgz
+humagent setup
 ```
 
-## Review an existing page
-
-Open the existing-page example:
+**Review an existing page:**
 
 ```sh
-npx --yes --package ./humagent-0.1.0.tgz humagent demo existing
+humagent demo existing
+# Or open your own file or local app:
+humagent open ./page.html
+humagent open http://127.0.0.1:3000
 ```
 
-For your own page, use `open ./page.html` instead of `demo existing`.
-For a running local app, use `open http://127.0.0.1:3000`.
-Humagent attaches its review interface automatically. The application keeps its renderer and normal interactions.
-
-Ask your agent to read `.agents/skills/humagent/SKILL.md` and run the command shown in the expanded bar.
-The command includes the current session ID. Wait for **Agent listening** before sending feedback.
-
-## Generate an interactive page
-
-Ask your agent to create `review.html` in the archive directory. This example stages structured choices:
-
-```html
-<!doctype html>
-<html lang="en">
-  <meta charset="utf-8">
-  <title>Review a plan</title>
-  <h1>Choose the next step</h1>
-  <form id="plan" data-humagent-intent="revise_plan" data-humagent-persist>
-    <label>Approach
-      <select name="approach">
-        <option value="pilot">Pilot first</option>
-        <option value="platform">Platform first</option>
-      </select>
-    </label>
-    <button type="submit">Add choices to review</button>
-  </form>
-</html>
-```
-
-Open the generated page:
+**Generate an interactive page:**
 
 ```sh
-npx --yes --package ./humagent-0.1.0.tgz humagent open ./review.html
+humagent demo plan
 ```
 
-Ask your agent to connect with the command in the bar. Submit the form, then choose **Send**.
-Forms stage decisions. They do not send feedback or authorize the agent to execute a plan.
+Or ask your agent:
+
+> Read the Humagent skill. Create an interactive plan with choices, open it in Humagent, and wait for my review.
+
+The floating bar shows the session's `humagent wait` command. Ask your agent to run it in its active chat.
 
 ## Give feedback
 
-Enable commenting in the floating bar. Click an element to comment, or click plain text to edit its local preview.
-Press Enter to confirm. Click a numbered marker to edit saved feedback.
-Disable commenting for normal page interactions.
+Enable commenting to annotate elements or edit eligible text in a **local preview**. Use numbered markers to revisit feedback. Add an overall instruction if needed, then choose **Send**.
 
-Collect several items and an overall instruction before choosing **Send**. An overall instruction is not required.
-Text previews never change source files. The agent reads the batch, edits source, and acknowledges its receipt.
+Forms marked with `data-humagent-intent` and calls to `window.humagent.submit()` add structured choices to the same review. They do not send immediately.
 
-[Usage](docs/USAGE.md) · [CLI](docs/CLI.md) · [Forms and SDK](docs/SDK.md) · [Security](docs/SECURITY.md)
+The agent edits the underlying source and explains the result in its own chat. Humagent never saves preview text as source.
 
-## Development
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks, and release procedures.
-Coding agents must follow [AGENTS.md](AGENTS.md).
+[Usage](docs/USAGE.md) · [CLI](docs/CLI.md) · [Forms and SDK](docs/SDK.md) · [Security](docs/SECURITY.md) · [Contributing](CONTRIBUTING.md)
 
 ## Attribution
 
