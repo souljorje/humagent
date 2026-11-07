@@ -79,7 +79,10 @@ try {
     'skills/humagent/SKILL.md',
     'docs/CLI.md',
     'docs/SDK.md',
+    'docs/USAGE.md',
     'docs/SECURITY.md',
+    'CONTRIBUTING.md',
+    'AGENTS.md',
     'LICENSE',
     'README.md',
     ...Object.values(
@@ -87,6 +90,18 @@ try {
     ).flatMap(Object.values),
   ])
     assert.ok(fs.existsSync(path.join(root, file)), file);
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  assert.ok(
+    readme.includes(`humagent-${pkg.version}.tgz`),
+    'README archive version must match the package',
+  );
+  const notices = readme.slice(readme.indexOf('### Third-party notices'));
+  assert.equal(
+    (notices.match(/Permission is hereby granted, free of charge/g) || [])
+      .length,
+    2,
+  );
+  assert.equal((notices.match(/SOFTWARE\./g) || []).length, 2);
   for (const file of fs.readdirSync(path.join(root, 'dist'), {
     recursive: true,
     encoding: 'utf8',
@@ -193,6 +208,23 @@ try {
   );
   await run('setup');
   assert.equal((await run('setup')).unchanged, true);
+  const existingExample = await run('demo', 'existing', '--no-open');
+  assert.equal(
+    (await run('status', existingExample.session)).target.kind,
+    'file',
+  );
+  const generated = path.join(temporary, 'readme-example', 'review.html');
+  fs.mkdirSync(path.dirname(generated));
+  const html = readme.match(/```html\n([\s\S]*?)```/)?.[1];
+  assert.ok(html, 'README must include the generated-page example');
+  fs.writeFileSync(generated, html);
+  const generatedExample = await run('open', generated, '--no-open');
+  const generatedState = await run('status', generatedExample.session);
+  assert.match(
+    await (await fetch(generatedState.surface.frameUrl)).text(),
+    /data-humagent-intent="revise_plan"/,
+  );
+  assert.equal(fs.readFileSync(generated, 'utf8'), html);
   app = http.createServer((req, res) => {
     res.setHeader('content-type', 'text/html');
     res.end('<h1>Installed package proxy</h1>');
@@ -227,6 +259,23 @@ try {
   });
   assert.equal(npxResult.stdout.trim(), pkg.version);
   console.log('PASS npx executes the installed tarball with Node.js');
+  const clean = path.join(temporary, 'npx-archive');
+  fs.mkdirSync(clean);
+  const fromArchive = await execute(
+    npx,
+    ['--offline', '--yes', '--package', archive, 'humagent', '--version'],
+    {
+      cwd: clean,
+      env,
+      encoding: 'utf8',
+      timeout: 30000,
+      shell: process.platform === 'win32',
+    },
+  );
+  assert.equal(fromArchive.stdout.trim(), pkg.version);
+  console.log(
+    'PASS documented npx archive command works without a global installation',
+  );
   const prefix = path.join(temporary, 'global');
   await npmRun([
     'install',

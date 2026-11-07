@@ -1,12 +1,15 @@
 ---
 name: humagent
-description: Work with a human through local HTML, a localhost app, or a generated mini-app. Receive choices, comments, and exact edits. Revise source and acknowledge input.
+description: Work with a human through local or generated pages and localhost apps. Receive feedback, revise source, and acknowledge its receipt.
 ---
 
 # Humagent
 
 Use the installed `humagent` command with Node.js 24+ or Bun 1.4.4+.
-Use `npx humagent@latest` when no global command exists. Apply this prefix to each command below.
+When no global command exists, use npx with a verified package archive or a published version.
+For an archive, use `npx --yes --package /path/to/humagent-VERSION.tgz humagent`.
+Replace the path and version with the verified archive. Apply that prefix to each command below.
+Do not assume npm contains this development version. See the [installation guide](https://github.com/souljorje/humagent#install).
 
 Read `humagent --help`. Use `--json` for command results.
 
@@ -30,7 +33,7 @@ See the [SDK guide](https://github.com/souljorje/humagent/blob/main/docs/SDK.md)
 
 ```sh
 humagent open TARGET --json
-humagent wait SESSION --consumer your-harness --timeout 50 --lease 600
+humagent wait SESSION
 ```
 
 Use the returned session ID. Keep the URL private: it contains a session credential.
@@ -68,7 +71,8 @@ Run `wait` again to continue. Save important results in the task's source files.
 
 ## Limits
 
-Replacement proposals capture exact text. They do not change rendered content or provide rich-text formatting.
+Direct text edits preview confirmed wording locally. They do not change source files or provide rich-text formatting.
+The agent applies authoritative source changes. Matching receipt acknowledgment removes submitted previews.
 Humagent preserves review drafts and explicit form values. Other application memory can reset on refresh.
 
 File access stays within the shared artifact directory. Never replace application source with serialized DOM.

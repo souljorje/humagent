@@ -5,7 +5,6 @@ import { fixture } from './fixtures.ts';
 import path from 'node:path';
 import { Store } from '../dist/runtime/store.js';
 import { input, jsonValue } from '../dist/runtime/protocol.js';
-import { buildContext } from '../dist/sdk/targets.js';
 import { cloneJson } from '../dist/shared/json.js';
 const directories: string[] = [];
 afterAll(() =>
@@ -165,20 +164,6 @@ test('ending a session rejects writes but delivers previously queued work', () =
   store.acknowledge(id, batch.receipt);
   assert.equal(store.take(id, 'agent')?.status, 'ended');
 });
-test('quote context preserves exact text at document boundaries', () => {
-  assert.deepEqual(buildContext('one\n two', 0, 8), {
-    prefix: '',
-    quote: 'one\n two',
-    suffix: '',
-  });
-  const text = 'left: hello. right: hello.';
-  const start = text.lastIndexOf('hello');
-  assert.deepEqual(buildContext(text, start, start + 5, 7), {
-    prefix: 'right: ',
-    quote: 'hello',
-    suffix: '.',
-  });
-});
 test('session writes leave other session files untouched', () => {
   const { dir, store, id } = setup();
   const other = store.open(
@@ -218,6 +203,47 @@ test('corruption in one session does not hide other sessions', () => {
     assert.equal(recovered.errors()[0].id, id);
     assert.equal(fs.readFileSync(corrupt, 'utf8'), content);
   }
+});
+
+test('storage format 1 loads empty sessions and rejects v1 events without changing stored feedback', () => {
+  const { dir, store, id } = setup();
+  const file = path.join(dir, 'sessions', `${id}.json`);
+  const empty = fs.readFileSync(file, 'utf8');
+  assert.equal(new Store(dir).get(id).events.length, 0);
+  assert.equal(fs.readFileSync(file, 'utf8'), empty);
+  const events = ['message', 'annotation', 'edit', 'submission'].map(
+    (kind) => ({
+      protocol: 1,
+      clientId: `v1-${kind}`,
+      kind,
+      revision: 'v1',
+      id: `event-${kind}`,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      status: 'queued',
+      deliveries: 0,
+      payload:
+        kind === 'message'
+          ? { text: 'Keep this feedback' }
+          : kind === 'annotation'
+            ? { text: 'Keep this annotation', target: { selector: 'h1' } }
+            : kind === 'edit'
+              ? {
+                  target: { selector: 'h1' },
+                  before: 'Original',
+                  after: 'Proposed',
+                }
+              : { intent: 'review', values: { choice: 'keep' } },
+    }),
+  );
+  const saved = JSON.stringify({
+    protocol: 1,
+    session: { ...store.get(id), events },
+  });
+  fs.writeFileSync(file, saved);
+  const recovered = new Store(dir);
+  assert.throws(() => recovered.get(id), /unreadable or unsupported/);
+  assert.equal(recovered.errors()[0]?.id, id);
+  assert.equal(fs.readFileSync(file, 'utf8'), saved);
 });
 test('SDK JSON validation rejects lossy values before copying', () => {
   const cyclic: { self?: unknown } = {};

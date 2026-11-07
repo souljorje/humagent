@@ -1,3 +1,4 @@
+/** Adapted helpers. See [notices](../../README.md#third-party-notices). */
 export function selector(el: Element | null) {
   if (!el || !el.tagName) return '';
   const parts = [];
@@ -48,18 +49,5 @@ export function context(el: Element, text: string) {
     selector: selector(el),
     tag: el.tagName.toLowerCase(),
     text: text.trim().replace(/\s+/g, ' ').slice(0, 4000),
-  };
-}
-
-export function buildContext(
-  text: string,
-  start: number,
-  end: number,
-  pad = 32,
-) {
-  return {
-    prefix: text.slice(Math.max(0, start - pad), start),
-    quote: text.slice(start, end),
-    suffix: text.slice(end, Math.min(text.length, end + pad)),
   };
 }

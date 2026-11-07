@@ -6,7 +6,7 @@ Do not report vulnerabilities in public issues. Read [Security and limits](docs/
 
 ## Setup
 
-Install Node.js 24 or later. Install Bun 1.4.4 or later.
+Install Node.js 24 or later. Use Bun 1.4.4 for development.
 
 ```sh
 git clone https://github.com/souljorje/humagent.git
@@ -27,6 +27,22 @@ Source files belong to one package:
 
 All executable source uses TypeScript. The build compiles application and example modules into `dist/`, then copies HTML and CSS.
 Scripts and tests remain in `scripts/` and `test/`. The main check also checks their types.
+
+## Build an archive
+
+Run these commands from the repository root:
+
+```sh
+bun run check
+bun pm pack --ignore-scripts --destination .local
+npx --yes --package ./.local/humagent-0.1.0.tgz humagent --version
+```
+
+The archive includes compiled code, browser assets, examples, the agent skill, and all public guides.
+Use its absolute path when running npx from another directory. npm installation does not build or download application assets.
+
+Version 0.1.0 is not published to npm. The README uses the local archive until a release exists.
+Check `npm view humagent version` and the release archive before changing installation instructions.
 
 ## Checks
 
@@ -57,6 +73,11 @@ bun run check:release
 The release check builds, tests, packs, and verifies the package. It also checks an npm install without Bun.
 
 CI tests installation on Linux, macOS, and Windows.
+Use `HUMAGENT_TEST_ARCHIVE` to test a specific archive with `bun run test:install` after packing it.
+Check relative documentation links and the README notices in that archive.
+
+Before changing stored-session formats, follow the [compatibility procedure](docs/CLI.md#stored-session-compatibility).
+Never replace unreadable feedback with an empty session.
 
 ## Pull requests
 
