@@ -189,6 +189,7 @@ if (window.parent === window.top) {
     if (data.method === 'annotate' && !ended)
       review.setMode(data.params.enabled, data.params.keyboard);
     if (data.method === 'edit') review.edit(data.params.draftId);
+    if (data.method === 'highlight') review.highlight(data.params.draftId);
     if (data.method === 'outside') review.outside();
     if (data.method === 'ended') {
       ended = true;

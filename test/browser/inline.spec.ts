@@ -259,7 +259,7 @@ test('outside clicks focus, then discard, reset after typing, and never trigger 
   await expect(page.locator('#error')).toBeHidden();
 });
 
-test('cursor and text edits work in open shadow roots and restore application cursors', async ({
+test('text edits work in open shadow roots without changing application cursors', async ({
   page,
   plan: _plan,
   review,
@@ -276,7 +276,7 @@ test('cursor and text edits work in open shadow roots and restore application cu
   await target.hover({ position: { x: 300, y: 5 } });
   await expect
     .poll(() => target.evaluate((el) => getComputedStyle(el).cursor))
-    .toContain('data:image/svg+xml');
+    .toBe('help');
   await review.evaluate(() => {
     const el = document
       .querySelector('#text-host')!
@@ -382,10 +382,18 @@ for (const change of ['node', 'element', 'text', 'relocation'])
         el.replaceWith(next);
       } else el.firstChild!.textContent = 'Application update';
     }, change);
-    await expect(review.frame.locator('.marker:visible')).toHaveCount(0);
+    await expect(review.frame.locator('.marker:visible')).toHaveCount(
+      change === 'relocation' ? 0 : 1,
+    );
     await review.expand();
-    await expect(page.locator('#drafts')).toContainText('Target unavailable');
-    await page.getByRole('button', { name: 'Remove', exact: true }).click();
+    if (change === 'relocation')
+      await expect(page.locator('.draft-status')).toContainText(
+        'Target unavailable',
+      );
+    else await expect(page.locator('.draft-status')).toHaveCount(0);
+    await page
+      .getByRole('button', { name: 'Delete feedback 1', exact: true })
+      .click();
     await expect(review.frame.locator('h1')).toHaveText(
       change === 'relocation' ? 'Local preview' : 'Application update',
     );

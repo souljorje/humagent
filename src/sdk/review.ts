@@ -5,7 +5,6 @@ import {
   selectedRun,
   isEditableText,
 } from './text-editing.js';
-import { createCommentCursor } from './comment-cursor.js';
 import { hitTestText } from './text-hit.js';
 import type {
   Bootstrap,
@@ -42,8 +41,6 @@ interface Point {
 export function createPageReview(bridge: ReviewBridge) {
   const { boot, stage, notice, availability } = bridge;
   const { $ } = createReviewView();
-  const anchors = new Map<string, Element>();
-  const bound = new Map<string, Element | null>();
   const markers = new Map<string, HTMLButtonElement>();
   let drafts: Draft[] = [],
     previews: Draft[] = [],
@@ -51,6 +48,7 @@ export function createPageReview(bridge: ReviewBridge) {
     writable = false;
   let captured: Capture | null = null,
     hovered: Element | undefined;
+  let highlightedDraft: string | undefined;
   let enabled = false,
     replacement = false,
     saving = false,
@@ -78,11 +76,6 @@ export function createPageReview(bridge: ReviewBridge) {
         !locked.has(existing.item.id))
     );
   }
-  const commentCursor = createCommentCursor((root) => {
-    observer.observe(root, observation);
-    observed.add(root);
-    shadowRoots.add(root);
-  }, canEditText);
   const ignored = (el: EventTarget | null) =>
     !(el instanceof Element) ||
     el.closest('[data-humagent-ui],script,style,head') ||
@@ -101,15 +94,6 @@ export function createPageReview(bridge: ReviewBridge) {
   function targetContext(el: Element) {
     return context(el, exactText(el));
   }
-  function matchesTarget(el: Element, target: ReviewTarget) {
-    const current = targetContext(el);
-    return (
-      current.text === target.text &&
-      (target.id === undefined || current.id === String(target.id)) &&
-      JSON.stringify(current.shadowPath || []) ===
-        JSON.stringify(target.shadowPath || [])
-    );
-  }
   const isEditor = () => !$('panel').hidden || !!text.element;
   const mutable = () =>
     writable && (!captured?.draft || !locked.has(captured.draft.item.id));
@@ -122,8 +106,7 @@ export function createPageReview(bridge: ReviewBridge) {
   }
   function validInput() {
     return replacement
-      ? text.connected &&
-          text.value.length <= 50000 &&
+      ? text.value.length <= 50000 &&
           (!!captured?.draft ||
             text.value !== captured?.before ||
             !!$('note').value.trim())
@@ -193,11 +176,6 @@ export function createPageReview(bridge: ReviewBridge) {
     text.close();
     text.reconcile(previews);
     outsideClicks = 0;
-    if (
-      captured &&
-      !drafts.some((d) => d.item.target?.anchorId === captured!.target.anchorId)
-    )
-      anchors.delete(String(captured.target.anchorId));
     captured = null;
     activeInput = null;
     hovered = undefined;
@@ -219,7 +197,7 @@ export function createPageReview(bridge: ReviewBridge) {
     }
     close();
     enabled = value && writable;
-    commentCursor.set(enabled);
+    syncSelection();
     bridge.mode(enabled);
     $('keyboard-hint').hidden = !enabled || !keyboard;
     if (enabled && keyboard) {
@@ -301,7 +279,6 @@ export function createPageReview(bridge: ReviewBridge) {
         suffix: suffix.toString().slice(0, 32),
       };
     }
-    anchors.set(String(target.anchorId), el);
     watchRoots(el);
     captured = {
       target,
@@ -343,7 +320,6 @@ export function createPageReview(bridge: ReviewBridge) {
       textNode: [...el.childNodes].indexOf(node),
       anchor: { quote: before },
     };
-    anchors.set(String(target.anchorId), el);
     watchRoots(el);
     captured = {
       target,
@@ -353,7 +329,13 @@ export function createPageReview(bridge: ReviewBridge) {
       point: anchor(el, point),
     };
     replacement = true;
-    text.open(node, start, end, before);
+    text.open(
+      node,
+      start,
+      draft ? (existing?.item.replacement?.after.length ?? end) : end,
+      before,
+      existing?.item.replacement?.after,
+    );
     activeInput = text.element!;
     text.element!.onfocus = () => {
       activeInput = text.element!;
@@ -372,8 +354,8 @@ export function createPageReview(bridge: ReviewBridge) {
     }
     if (draft.item.replacement) {
       const node = text.nodeFor(draft, el);
-      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-      if (node)
+      if (node) {
+        el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         showText(
           node,
           0,
@@ -381,7 +363,8 @@ export function createPageReview(bridge: ReviewBridge) {
           draft,
           point || center(markers.get(draftId)),
         );
-      return;
+        return;
+      }
     }
     close();
     returnFocus = markers.get(draftId) || document.activeElement;
@@ -454,16 +437,14 @@ export function createPageReview(bridge: ReviewBridge) {
   async function save(remove = false) {
     if (!captured || saving || !mutable()) return;
     if (!remove && (!validInput() || (!!captured.draft && !changed()))) return;
-    if (
-      !captured.el.isConnected ||
-      !matchesTarget(captured.el, captured.target)
-    ) {
-      const output = $('local-error');
-      output.textContent =
-        'Target changed. Cancel this edit and inspect the page.';
-      output.hidden = false;
+    const el = findTarget(captured.target);
+    if (!el) {
+      $('local-error').textContent =
+        'Target unavailable. Cancel this edit and inspect the page.';
+      $('local-error').hidden = false;
       return;
     }
+    captured.el = el;
     const current = captured;
     saving = true;
     updateEditor();
@@ -519,11 +500,7 @@ export function createPageReview(bridge: ReviewBridge) {
     'pointermove',
     (event) => {
       if (!enabled) return;
-      if (ownEvent(event)) {
-        commentCursor.clear();
-        return;
-      }
-      commentCursor.move(event.clientX, event.clientY);
+      if (ownEvent(event)) return;
       if (captured || ignored(event.target)) return;
       hovered = event
         .composedPath()
@@ -536,7 +513,6 @@ export function createPageReview(bridge: ReviewBridge) {
     { passive: true },
   );
   document.addEventListener('pointerleave', () => {
-    commentCursor.clear();
     if (!captured) {
       hovered = undefined;
       schedule();
@@ -683,59 +659,39 @@ export function createPageReview(bridge: ReviewBridge) {
     },
     true,
   );
+  function findTarget(target: ReviewTarget): Element | null {
+    try {
+      let root: Document | ShadowRoot = document;
+      if (Array.isArray(target.shadowPath)) {
+        for (const selector of target.shadowPath) {
+          const hosts: NodeListOf<Element> = root.querySelectorAll(
+            String(selector),
+          );
+          if (hosts.length !== 1 || !hosts[0]!.shadowRoot) return null;
+          root = hosts[0]!.shadowRoot!;
+        }
+      }
+      const matches = target.id
+        ? root.querySelectorAll(
+            `[data-humagent-id="${CSS.escape(String(target.id))}"],#${CSS.escape(String(target.id))}`,
+          )
+        : root.querySelectorAll(String(target.selector || ''));
+      if (matches.length !== 1 || ignored(matches[0]!)) return null;
+      watchRoots(matches[0]!);
+      return matches[0]!;
+    } catch {
+      return null;
+    }
+  }
   function resolve(draft: Draft): Element | null {
     const target = draft.item.target;
     if (
       !target ||
-      text.unavailable(draft.item.id) ||
       draft.revision !== boot.revision ||
       target.url !== boot.sourceUrl
     )
       return null;
-    const anchor = target.anchor;
-    const quote =
-      anchor && typeof anchor === 'object' && !Array.isArray(anchor)
-        ? anchor.quote
-        : undefined;
-    let el = bound.has(draft.item.id)
-      ? bound.get(draft.item.id)
-      : typeof target.anchorId === 'string'
-        ? anchors.get(target.anchorId)
-        : undefined;
-    if (el === null) return null;
-    if (el && !el.isConnected) {
-      bound.set(draft.item.id, null);
-      return null;
-    }
-    if (!el) {
-      try {
-        let root: Document | ShadowRoot = document;
-        if (Array.isArray(target.shadowPath)) {
-          for (const selector of target.shadowPath) {
-            const hosts: NodeListOf<Element> = root.querySelectorAll(
-              String(selector),
-            );
-            if (hosts.length !== 1 || !hosts[0]!.shadowRoot) return null;
-            root = hosts[0]!.shadowRoot!;
-          }
-        }
-        const matches = target.id
-          ? root.querySelectorAll(
-              `[data-humagent-id="${CSS.escape(String(target.id))}"],#${CSS.escape(String(target.id))}`,
-            )
-          : root.querySelectorAll(String(target.selector || ''));
-        if (matches.length !== 1) return null;
-        el = matches[0];
-      } catch {
-        return null;
-      }
-    }
-    if (!el || ignored(el)) return null;
-    if (!matchesTarget(el, target)) return null;
-    if (anchor && !exactText(el).includes(String(quote))) return null;
-    bound.set(draft.item.id, el);
-    watchRoots(el);
-    return el;
+    return findTarget(target);
   }
 
   function place(el: HTMLElement, x: number, y: number) {
@@ -744,12 +700,6 @@ export function createPageReview(bridge: ReviewBridge) {
   function position() {
     scheduled = false;
     text.reconcile(previews);
-    if (text.element && !text.connected) {
-      $('confirm').disabled = $('save').disabled = true;
-      $('local-error').hidden = false;
-      $('local-error').textContent =
-        'Target changed. Cancel this edit and inspect the page.';
-    }
     const available: Availability[] = [];
     const layouts: {
       draft: Draft;
@@ -769,14 +719,21 @@ export function createPageReview(bridge: ReviewBridge) {
       )
         layouts.push({ draft, index, rect });
     });
-    const target = captured
-      ? matchesTarget(captured.el, captured.target)
-        ? captured.el
-        : undefined
-      : hovered;
-    const highlight = target?.isConnected
-      ? target.getBoundingClientRect()
+    const target = captured ? findTarget(captured.target) : hovered;
+    if (captured && target) captured.el = target;
+    const highlighted = highlightedDraft
+      ? drafts.find((draft) => draft.item.id === highlightedDraft)
+      : undefined;
+    const highlightedTarget = highlighted ? resolve(highlighted) : target;
+    const highlight = highlightedTarget?.isConnected
+      ? highlightedTarget.getBoundingClientRect()
       : null;
+    const editorAnchor =
+      target === highlightedTarget
+        ? highlight
+        : target?.isConnected
+          ? target.getBoundingClientRect()
+          : null;
     const panel = !$('panel').hidden ? $('panel') : null;
     const panelRect = panel?.getBoundingClientRect();
     const visible = new Set(layouts.map((layout) => layout.draft.item.id));
@@ -796,6 +753,10 @@ export function createPageReview(bridge: ReviewBridge) {
         $('markers').append(marker);
       }
       marker.hidden = false;
+      marker.classList.toggle(
+        'highlighted',
+        draft.item.id === highlightedDraft,
+      );
       marker.textContent = String(index + 1);
       marker.setAttribute(
         'aria-label',
@@ -814,11 +775,11 @@ export function createPageReview(bridge: ReviewBridge) {
       $('highlight').style.width = `${highlight.width}px`;
       $('highlight').style.height = `${highlight.height}px`;
     }
-    if (panel && panelRect && highlight && captured) {
+    if (panel && panelRect && editorAnchor && captured) {
       const viewportHeight = window.visualViewport?.height || innerHeight;
       const point = {
-        x: highlight.left + captured.point.x,
-        y: highlight.top + captured.point.y,
+        x: editorAnchor.left + captured.point.x,
+        y: editorAnchor.top + captured.point.y,
       };
       const preferredX =
         point.x + 10 + panelRect.width <= innerWidth - 12
@@ -875,7 +836,7 @@ export function createPageReview(bridge: ReviewBridge) {
       )
     )
       return;
-    if (enabled) commentCursor.discover();
+    if (enabled) discoverRoots();
     schedule();
   });
   const observed = new WeakSet<ShadowRoot>();
@@ -896,16 +857,37 @@ export function createPageReview(bridge: ReviewBridge) {
       'href',
     ],
   };
+  const selectionStyle = new CSSStyleSheet();
+  selectionStyle.replaceSync(
+    '*:not([data-humagent-ui],input,textarea,select,option){user-select:text!important;-webkit-user-select:text!important}',
+  );
   observer.observe(document.body || document.documentElement, observation);
-  function watchRoots(el: Element) {
-    commentCursor.watch(el);
-    let root = el.getRootNode();
-    while (root instanceof ShadowRoot) {
+  function discoverRoots(root: Document | ShadowRoot = document) {
+    if (root instanceof ShadowRoot) {
+      if (root.host.matches('[data-humagent-ui]')) return;
       if (!observed.has(root)) {
         observer.observe(root, observation);
         observed.add(root);
         shadowRoots.add(root);
       }
+    }
+    if (enabled && !root.adoptedStyleSheets.includes(selectionStyle))
+      root.adoptedStyleSheets = [...root.adoptedStyleSheets, selectionStyle];
+    for (const element of root.querySelectorAll('*'))
+      if (element.shadowRoot) discoverRoots(element.shadowRoot);
+  }
+  function syncSelection() {
+    if (enabled) discoverRoots();
+    else
+      for (const root of [document, ...shadowRoots])
+        root.adoptedStyleSheets = root.adoptedStyleSheets.filter(
+          (sheet) => sheet !== selectionStyle,
+        );
+  }
+  function watchRoots(el: Element) {
+    let root = el.getRootNode();
+    while (root instanceof ShadowRoot) {
+      if (!observed.has(root)) discoverRoots(root);
       root = root.host.getRootNode();
     }
   }
@@ -913,10 +895,14 @@ export function createPageReview(bridge: ReviewBridge) {
     flush,
     outside,
     edit,
+    highlight(draftId?: string) {
+      highlightedDraft = draftId;
+      schedule();
+    },
     setMode,
     end() {
       enabled = false;
-      commentCursor.set(false);
+      syncSelection();
       writable = false;
       bridge.mode(false);
       updateEditor();
@@ -928,24 +914,17 @@ export function createPageReview(bridge: ReviewBridge) {
       locked = new Set(presentation.locked);
       writable = presentation.writable;
       const ids = new Set(drafts.map((draft) => draft.item.id));
-      const previewIds = new Set(previews.map((draft) => draft.item.id));
-      const references = new Set(
-        [...drafts, ...previews].map((draft) => draft.item.target?.anchorId),
-      );
-      for (const id of bound.keys())
-        if (!ids.has(id) && !previewIds.has(id)) bound.delete(id);
+      if (highlightedDraft && !ids.has(highlightedDraft))
+        highlightedDraft = undefined;
       for (const [id, marker] of markers)
         if (!ids.has(id)) {
           marker.remove();
           markers.delete(id);
         }
-      for (const id of anchors.keys())
-        if (!references.has(id) && id !== captured?.target.anchorId)
-          anchors.delete(id);
       if (captured?.draft && !ids.has(captured.draft.item.id)) close(true);
       if (!writable) {
         enabled = false;
-        commentCursor.set(false);
+        syncSelection();
       }
       text.reconcile(previews);
       updateEditor();

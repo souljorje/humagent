@@ -6,6 +6,13 @@ test('compact controls, reversible expansion, content growth, and reduced motion
 }) => {
   expect(
     await page
+      .locator('#toggle-review')
+      .evaluate((el) => getComputedStyle(el).color),
+  ).toBe(
+    await page.locator('#end').evaluate((el) => getComputedStyle(el).color),
+  );
+  expect(
+    await page
       .locator('.bar-controls')
       .evaluate((el) =>
         [...el.children].map(

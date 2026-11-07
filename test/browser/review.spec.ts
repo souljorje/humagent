@@ -156,7 +156,9 @@ test('editors fit viewport edges and reduced motion disables transitions', async
   for (const width of [1440, 390, 320]) {
     await page.setViewportSize({ width, height: 844 });
     await review.expand();
-    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Edit feedback 1', exact: true })
+      .click();
     await expect
       .poll(async () => {
         const panel = await review.frame.locator('#panel').boundingBox();
@@ -496,7 +498,7 @@ for (const attribute of ['data-humagent-id', 'id'])
     expect((await review.state()).drafts[0].item.target).toEqual(target);
   });
 
-test('removed targets remain unavailable instead of binding to replacements', async ({
+test('comments follow their selector when the application replaces an element', async ({
   page,
   plan: _plan,
   review,
@@ -507,10 +509,11 @@ test('removed targets remain unavailable instead of binding to replacements', as
     const h = document.querySelector('h1')!;
     h.replaceWith(h.cloneNode(true));
   });
-  await expect(page.locator('.draft-status')).toContainText(
-    'Target unavailable',
+  await review.frame.locator('.marker').click();
+  await expect(review.frame.getByLabel('Comment', { exact: true })).toHaveValue(
+    'Keep my original target',
   );
-  await expect(review.frame.locator('.marker:visible')).toHaveCount(0);
+  await expect(page.locator('.draft-status')).toHaveCount(0);
 });
 
 test('stale feedback remains visible and blocks sending after explicit refresh', async ({

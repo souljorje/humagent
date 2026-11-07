@@ -118,4 +118,6 @@ Preview cleanup does not overwrite subsequent application changes. Humagent neve
 
 Mixed or stale draft revisions block sending. Refresh the page, inspect the feedback, then recreate or remove affected items.
 An overall instruction can be explicitly confirmed for the displayed page. Existing target anchors never receive a new revision automatically.
-Missing or ambiguous targets show as unavailable. Humagent does not bind them to a replacement element automatically.
+All feedback follows its unique selector or stable ID when text changes or the application replaces an element.
+Missing or ambiguous targets show as unavailable. Text changes do not invalidate feedback.
+Local previews stop after application changes and never overwrite those changes.

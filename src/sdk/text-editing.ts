@@ -28,7 +28,7 @@ export function createTextEditing(hooks: {
 }) {
   const previews = new Map<string, Preview>();
   const nodes = new WeakMap<Text, Preview>();
-  const unavailable = new Set<string>();
+  const suppressed = new Set<string>();
   let editing: Editing | undefined;
   function plainText(node: Node): string {
     if (node instanceof Text) return node.data;
@@ -94,17 +94,20 @@ export function createTextEditing(hooks: {
       if (!wanted.has(id)) {
         if (valid(preview)) preview.node.data = preview.before;
         forget(id, preview);
-      } else if (!valid(preview) || !hooks.resolve(wanted.get(id)!)) {
-        // Never bind the same feedback to a framework's replacement node.
-        unavailable.add(id);
+      } else if (
+        !valid(preview) ||
+        hooks.resolve(wanted.get(id)!) !== preview.target
+      ) {
+        // Stop drawing a preview after application changes. Keep the feedback attached.
+        suppressed.add(id);
         if (valid(preview)) preview.node.data = preview.before;
         forget(id, preview);
       }
     }
-    for (const id of unavailable) if (!wanted.has(id)) unavailable.delete(id);
+    for (const id of suppressed) if (!wanted.has(id)) suppressed.delete(id);
     for (const draft of drafts) {
       const replacement = draft.item.replacement;
-      if (!replacement || unavailable.has(draft.item.id)) continue;
+      if (!replacement || suppressed.has(draft.item.id)) continue;
       const previous = previews.get(draft.item.id);
       if (
         editing &&
@@ -119,7 +122,7 @@ export function createTextEditing(hooks: {
       if (!target) continue;
       const node = previous?.node || nodeFor(draft, target);
       if (!node || (!previous && node.data !== replacement.before)) {
-        unavailable.add(draft.item.id);
+        suppressed.add(draft.item.id);
         continue;
       }
       const preview: Preview = previous || {
@@ -149,7 +152,6 @@ export function createTextEditing(hooks: {
     canonicalText,
     reconcile,
     close,
-    unavailable: (id: string) => unavailable.has(id),
     nodeFor,
     existing(node: Text) {
       return [...previews.values()].find(
@@ -165,12 +167,13 @@ export function createTextEditing(hooks: {
     get initial() {
       return editing?.initial ?? '';
     },
-    get connected() {
-      if (!editing?.element.isConnected) return false;
-      const preview = nodes.get(editing.node);
-      return !preview || valid(preview);
-    },
-    open(node: Text, start: number, end: number, before: string) {
+    open(
+      node: Text,
+      start: number,
+      end: number,
+      before: string,
+      initial = node.data,
+    ) {
       close();
       const element = document.createElement('span');
       element.dataset.humagentUi = '';
@@ -182,13 +185,13 @@ export function createTextEditing(hooks: {
       element.spellcheck = false;
       element.style.cssText =
         'display:inline;white-space:pre-wrap;outline:none;cursor:text;min-width:1ch;';
-      element.textContent = node.data;
-      if (!node.data) element.style.display = 'inline-block';
+      element.textContent = initial;
+      if (!initial) element.style.display = 'inline-block';
       editing = {
         node,
         element,
         parent: node.parentNode!,
-        initial: node.data,
+        initial,
         before,
       };
       node.replaceWith(element);

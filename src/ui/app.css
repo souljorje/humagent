@@ -1,10 +1,9 @@
 :root {
   color-scheme: dark;
   --ink: #f5f5f5;
-  --muted: #bcbcbc;
-  --line: #454545;
-  --paper: #252525;
-  --soft: #353535;
+  --muted: #c8c8cc;
+  --line: #ffffff1f;
+  --soft: #ffffff0b;
   font:
     14px/1.5 ui-sans-serif,
     system-ui,
@@ -59,7 +58,7 @@ button {
     transform 140ms;
 }
 button:hover {
-  background: #414141;
+  background: #ffffff14;
 }
 button:active {
   transform: scale(0.97);
@@ -80,9 +79,10 @@ textarea:focus-visible {
   flex-shrink: 0;
 }
 .primary {
-  background: #f2f2f2;
+  background: #ffffffeb;
   color: #222;
   font-weight: 550;
+  box-shadow: inset 0 1px 0 #ffffff80;
 }
 .primary:hover {
   background: #fff;
@@ -96,7 +96,7 @@ textarea {
   scrollbar-color: #777 #353535;
 }
 textarea::placeholder {
-  color: #bcbcbc;
+  color: #c8c8cc;
 }
 #connecting {
   position: fixed;
@@ -114,8 +114,6 @@ textarea::placeholder {
   width: min(460px, calc(100% - 24px));
   overflow: clip;
   border-radius: 24px;
-  background: var(--paper);
-  box-shadow: 0 8px 32px #0003;
   z-index: 2;
 }
 .bar-controls {
@@ -128,11 +126,8 @@ textarea::placeholder {
   margin-inline: 6px;
 }
 .bar-controls #annotate[aria-pressed='true'] {
-  background: #eee;
+  background: #ffffffeb;
   color: #222;
-}
-.bar-controls #toggle-review {
-  color: var(--muted);
 }
 #toggle-review svg {
   width: 24px;
@@ -157,7 +152,7 @@ textarea::placeholder {
   padding: 14px 14px 0;
   max-height: min(60dvh, 480px);
   overflow: auto;
-  scrollbar-color: #777 #252525;
+  scrollbar-color: #888 transparent;
   scrollbar-width: thin;
 }
 .connection-heading {
@@ -165,6 +160,9 @@ textarea::placeholder {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+#end {
+  margin-right: -12px;
 }
 .connection h2 {
   font-size: 13px;
@@ -239,12 +237,55 @@ textarea::placeholder {
   counter-reset: feedback;
 }
 .draft {
+  position: relative;
+  isolation: isolate;
   counter-increment: feedback;
   padding: 12px 0;
   border-top: 1px solid var(--line);
   overflow-wrap: anywhere;
+  transition: background 140ms;
+}
+.draft:has(.draft-open:not(:disabled):hover),
+.draft:focus-within {
+  background: #ffffff0a;
+}
+.draft-content {
+  position: relative;
+  pointer-events: none;
+}
+.draft > .tooltip-anchor:has(.draft-open) {
+  position: absolute;
+  inset: 0;
+  display: block;
+  border-radius: 8px;
+}
+.draft-open {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border-radius: 8px;
+  background: transparent !important;
+  transform: none !important;
+}
+.draft > .tooltip-anchor:has(.draft-remove) {
+  position: absolute;
+  right: 0;
+  top: 8px;
+  z-index: 1;
+}
+.draft-remove {
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+}
+.draft-remove svg {
+  width: 16px;
+  height: 16px;
 }
 .draft-title {
+  min-height: 24px;
+  padding-right: 40px;
+  align-items: center;
   font-weight: 550;
   display: flex;
   gap: 10px;
@@ -258,44 +299,28 @@ textarea::placeholder {
   margin: 6px 0;
   white-space: pre-wrap;
 }
-.draft blockquote {
-  font-size: 12px;
-  color: var(--muted);
-  margin: 6px 0;
-  max-height: 70px;
-  overflow: auto;
-  white-space: pre-wrap;
-}
 .draft-status {
   font-size: 12px;
   color: var(--muted);
 }
-.actions {
-  display: flex;
-  gap: 6px;
-  margin-top: 6px;
-}
-.actions button {
-  min-height: 32px;
-  font-size: 12px;
-  padding: 6px 10px;
-  background: #353535;
-}
 .replacement {
   margin: 8px 0;
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  gap: 6px 8px;
   font-size: 13px;
-}
-.replacement dd {
+  line-height: 1.6;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   max-height: 100px;
   overflow: auto;
 }
-.replacement dt,
-.replacement dd:first-of-type {
+.replacement span,
+.replacement del {
   color: var(--muted);
+}
+.replacement ins {
+  text-decoration: none;
+}
+.replacement del + ins {
+  margin-inline-start: 0.25em;
 }
 dl {
   display: grid;
@@ -319,7 +344,7 @@ dd {
   margin: 8px 0;
   padding: 10px 12px;
   border-radius: 12px;
-  background: #3b3b3b;
+  background: #ffffff0d;
   font-size: 13px;
 }
 #error {

@@ -1,19 +1,22 @@
+import { materialStyles } from './material-styles.js';
+
 /** Tooltips stay outside clipped panels. Disabled buttons retain a keyboard focus target. */
 export function installTooltips(root: Document | ShadowRoot) {
   const container = root instanceof Document ? root.body : root;
   const sheet = new CSSStyleSheet();
   sheet.replaceSync(`
+    ${materialStyles}
     .tooltip-anchor{display:inline-flex;flex-shrink:0;border-radius:18px}
     .tooltip-anchor[hidden]{display:none!important}
     .tooltip-anchor:focus-visible{outline:2px solid #eee;outline-offset:2px}
-    .control-tooltip{position:fixed;z-index:2147483647;pointer-events:none;box-sizing:border-box;width:max-content;max-width:calc(100vw - 24px);padding:6px 9px;border:1px solid #555;border-radius:8px;background:#303030;color:#f5f5f5;box-shadow:0 3px 12px #0002;font:12px/1.4 system-ui,sans-serif;overflow-wrap:anywhere;transition:opacity 120ms,translate 120ms,display 120ms allow-discrete}
+    .control-tooltip{position:fixed;z-index:2147483647;pointer-events:none;box-sizing:border-box;width:max-content;max-width:calc(100vw - 24px);padding:6px 9px;border:0;border-radius:8px;--glass-fill:rgb(24 24 27 / 90%);color:#f5f5f5;font:12px/1.4 system-ui,sans-serif;overflow-wrap:anywhere;transition:opacity 120ms,translate 120ms,display 120ms allow-discrete}
     .control-tooltip[hidden]{display:none;opacity:0;translate:0 3px}
     @starting-style{.control-tooltip:not([hidden]){opacity:0;translate:0 3px}}
     @media(prefers-reduced-motion:reduce){.control-tooltip{transition:none}}
   `);
   root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
   const tooltip = document.createElement('div');
-  tooltip.className = 'control-tooltip';
+  tooltip.className = 'control-tooltip glass-surface';
   tooltip.id = `tooltip-${crypto.randomUUID()}`;
   tooltip.role = 'tooltip';
   tooltip.hidden = true;

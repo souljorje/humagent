@@ -1,4 +1,5 @@
 import { createReview } from './review-state.js';
+import { textDiff } from './text-diff.js';
 import type { SessionSnapshot } from '../runtime/server.js';
 import type { Event as ReviewEvent } from '../runtime/protocol.js';
 import type { StageResult, StateResult } from '../shared/review.js';
@@ -14,6 +15,7 @@ import { errorMessage } from '../shared/errors.js';
 import { createExpansion } from './expansion.js';
 import { installTooltips } from '../shared/tooltips.js';
 import { inputStyles } from '../shared/input-styles.js';
+import { materialStyles } from '../shared/material-styles.js';
 
 type Controls = Record<string, HTMLElement> & {
   frame: HTMLIFrameElement;
@@ -73,7 +75,7 @@ $('copy-command').innerHTML = icon('copy');
 $('agent-command').textContent = `humagent wait ${id}`;
 installTooltips(document);
 const inputStyle = new CSSStyleSheet();
-inputStyle.replaceSync(inputStyles);
+inputStyle.replaceSync(materialStyles + inputStyles);
 document.adoptedStyleSheets = [...document.adoptedStyleSheets, inputStyle];
 const expand = createExpansion($('tray'), $('tray-content'));
 const rendered = new WeakMap<HTMLElement, string>();
@@ -111,6 +113,7 @@ function error(message = '') {
 function openTray(open = true) {
   expand(open);
   $('toggle-review').setAttribute('aria-expanded', String(open));
+  if (!open) post('highlight');
 }
 function canWrite(retry = false) {
   if (!writable)
@@ -240,7 +243,7 @@ function render() {
       [...available],
     ],
     () => {
-      for (const draft of snapshot.drafts) {
+      for (const [index, draft] of snapshot.drafts.entries()) {
         const item = draft.item,
           locked = review.locked(item.id);
         const stale =
@@ -250,6 +253,9 @@ function render() {
         li.className = 'draft';
         li.dataset.draftId = item.id;
         li.dataset.stale = String(stale);
+        const content = document.createElement('div');
+        content.className = 'draft-content';
+        li.append(content);
         const title = document.createElement('div');
         title.className = 'draft-title';
         title.textContent = String(
@@ -257,35 +263,29 @@ function render() {
             ? 'Text edit'
             : item.intent || item.target?.id || item.target?.tag || 'Comment',
         );
-        li.append(title);
-        if (item.target && !item.replacement) {
-          const quote = document.createElement('blockquote'),
-            anchor = item.target.anchor;
-          quote.textContent = String(
-            (anchor && typeof anchor === 'object' && !Array.isArray(anchor)
-              ? anchor.quote
-              : '') ||
-              item.target.text ||
-              '',
-          );
-          li.append(quote);
-        }
+        content.append(title);
         if (item.replacement) {
-          const replacement = document.createElement('dl');
+          const replacement = document.createElement('p');
           replacement.className = 'replacement';
-          for (const [label, value] of [
-            ['Before', item.replacement.before],
-            ['After', item.replacement.after || 'Delete this text'],
-          ]) {
-            const term = document.createElement('dt'),
-              content = document.createElement('dd');
-            term.textContent = label!;
-            content.textContent = value!;
-            replacement.append(term, content);
+          replacement.setAttribute('role', 'group');
+          replacement.setAttribute('aria-label', 'Text changes');
+          for (const part of textDiff(
+            item.replacement.before,
+            item.replacement.after,
+          )) {
+            const content = document.createElement(
+              part.kind === 'remove'
+                ? 'del'
+                : part.kind === 'add'
+                  ? 'ins'
+                  : 'span',
+            );
+            content.textContent = part.text;
+            replacement.append(content);
           }
-          li.append(replacement);
+          content.append(replacement);
         }
-        if (item.comment) li.append(paragraph(item.comment));
+        if (item.comment) content.append(paragraph(item.comment));
         if (item.values) {
           const values = document.createElement('dl');
           for (const [key, value] of Object.entries(item.values)) {
@@ -296,7 +296,7 @@ function render() {
               typeof value === 'string' ? value : JSON.stringify(value);
             values.append(label, content);
           }
-          li.append(values);
+          content.append(values);
         }
         const status = locked
           ? 'Awaiting confirmation'
@@ -305,24 +305,43 @@ function render() {
             : available.get(item.id) === false
               ? 'Target unavailable. Inspect or remove this item.'
               : '';
-        if (status) li.append(paragraph(status, 'draft-status'));
-        const actions = document.createElement('div');
-        actions.className = 'actions';
-        if (item.target)
-          actions.append(
-            button(
-              'Edit',
-              () => {
-                $('frame').focus();
-                post('edit', { draftId: item.id });
-              },
-              !mutable || locked || stale || available.get(item.id) === false,
-            ),
+        if (status) content.append(paragraph(status, 'draft-status'));
+        if (item.target) {
+          const open = button(
+            '',
+            () => {
+              $('frame').focus();
+              post('edit', { draftId: item.id });
+            },
+            !mutable || locked || stale || available.get(item.id) === false,
           );
-        actions.append(
-          button('Remove', () => review.remove(item.id), !mutable || locked),
+          open.className = 'draft-open';
+          open.setAttribute('aria-label', `Edit feedback ${index + 1}`);
+          open.setAttribute('aria-haspopup', 'dialog');
+          open.dataset.tooltip = status || 'Edit feedback';
+          li.prepend(open);
+          li.onpointerenter = () => post('highlight', { draftId: item.id });
+          li.onpointerleave = () => post('highlight');
+          li.addEventListener('focusin', () =>
+            post('highlight', { draftId: item.id }),
+          );
+          li.addEventListener('focusout', (event) => {
+            if (
+              !li.contains(event.relatedTarget as Node | null) &&
+              !li.matches(':hover')
+            )
+              post('highlight');
+          });
+        }
+        const remove = button(
+          '',
+          () => review.remove(item.id),
+          !mutable || locked,
         );
-        li.append(actions);
+        remove.className = 'draft-remove';
+        remove.innerHTML = icon('trash');
+        remove.setAttribute('aria-label', `Delete feedback ${index + 1}`);
+        li.append(remove);
         $('drafts').append(li);
       }
     },

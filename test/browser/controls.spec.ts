@@ -162,7 +162,7 @@ test('popover follows its click point through scrolling and flips within viewpor
   expect(box.y + box.height).toBeLessThanOrEqual(510);
 });
 
-test('actual text selection uses the release point and caret cursor without changing control cursors', async ({
+test('text selection uses the release point while retaining application cursors', async ({
   page,
   plan: _plan,
   review,
@@ -193,7 +193,7 @@ test('actual text selection uses the release point and caret cursor without chan
   await page.mouse.move(bounds.x, bounds.y);
   await expect
     .poll(() => target.evaluate((el) => getComputedStyle(el).cursor))
-    .toBe('text');
+    .toBe('help');
   await page.mouse.move(600, 245);
   await expect
     .poll(() =>
@@ -201,7 +201,7 @@ test('actual text selection uses the release point and caret cursor without chan
         .locator('#cursor-host')
         .evaluate((el) => getComputedStyle(el).cursor),
     )
-    .toContain('data:image/svg+xml');
+    .toBe('auto');
   expect(
     await review.frame
       .getByRole('button', { name: 'Native control' })
@@ -227,7 +227,7 @@ test('actual text selection uses the release point and caret cursor without chan
     .toBe('help');
 });
 
-test('ARIA controls use annotation cursors and restore their native cursors', async ({
+test('ARIA controls retain their native cursors while commenting', async ({
   page,
   plan: _plan,
   review,
@@ -264,19 +264,17 @@ test('ARIA controls use annotation cursors and restore their native cursors', as
       .evaluate((el) => getComputedStyle(el).cursor);
   await expect.poll(() => cursor('#custom-checkbox')).toBe('pointer');
   await review.frame.locator('#unstyled-switch').hover();
-  await expect
-    .poll(() => cursor('#unstyled-switch'))
-    .toContain('data:image/svg+xml');
+  await expect.poll(() => cursor('#unstyled-switch')).toBe('auto');
   await review.frame.locator('#control-text').hover();
-  await expect.poll(() => cursor('#control-text')).toBe('text');
+  await expect.poll(() => cursor('#control-text')).toBe('pointer');
   await review.frame
     .locator('#control-host')
     .evaluate((el) => el.setAttribute('role', 'button'));
-  await expect.poll(() => cursor('#control-text')).toBe('text');
+  await expect.poll(() => cursor('#control-text')).toBe('pointer');
   await review.frame
     .locator('#control-host')
     .evaluate((el) => el.removeAttribute('role'));
-  await expect.poll(() => cursor('#control-text')).toBe('text');
+  await expect.poll(() => cursor('#control-text')).toBe('pointer');
   await page.locator('#annotate').click();
   await expect.poll(() => cursor('#control-text')).toBe('pointer');
 });

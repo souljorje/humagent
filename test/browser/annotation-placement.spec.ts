@@ -134,11 +134,11 @@ for (const shadow of [false, true])
     await button.hover({ position: { x: 5, y: 5 } });
     await expect
       .poll(() => button.evaluate((el) => getComputedStyle(el).cursor))
-      .toContain('data:image/svg+xml');
+      .toBe('pointer');
     await label.hover();
     await expect
       .poll(() => label.evaluate((el) => getComputedStyle(el).cursor))
-      .toBe('text');
+      .toBe('pointer');
     await label.click();
     const editor = review.frame.getByRole('textbox', {
       name: 'Edit text',
