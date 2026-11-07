@@ -744,10 +744,22 @@ export function createPageReview(bridge: ReviewBridge) {
         marker = document.createElement('button');
         marker.className = 'marker';
         marker.dataset.draftId = draft.item.id;
-        marker.onclick = (event) => {
+        const activate = (event: MouseEvent) => {
           if (saving) return;
           if (captured && captured.draft?.item.id !== draft.item.id) close();
           edit(draft.item.id, clickPoint(event) || center(marker));
+        };
+        marker.onpointerdown = (event) => {
+          if (event.button !== 0 || !event.isPrimary) return;
+          event.preventDefault();
+          event.stopPropagation();
+          activate(event);
+        };
+        marker.onclick = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          // Keyboard activation has no preceding pointer press.
+          if (event.detail === 0) activate(event);
         };
         markers.set(draft.item.id, marker);
         $('markers').append(marker);
