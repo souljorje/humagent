@@ -89,8 +89,16 @@ Publication runs the full browser checks and verifies the packed package under N
 Changesets publishes the **same tarball** that passed installation tests.
 The workflow then creates a Git tag and GitHub release.
 
-**First release:** Version `0.1.0` must be published manually after verification.
-Then configure npm trusted publishing for this repository and `.github/workflows/release.yml`.
+**First release:** Version `0.1.0` requires maintainer publication before trusted publishing is available:
+
+```sh
+bunx --no-install playwright install --with-deps chromium
+bun run check:release
+npm publish .local/release/packages/humagent-0.1.0.tgz --access public
+```
+
+Configure npm trusted publishing for repository `souljorje/humagent` and workflow `release.yml`.
+Do not specify a GitHub environment because this workflow combines version PRs and publication.
 The trusted publisher must not require a GitHub environment name because the workflow combines versioning and publication.
 
 See [Changesets](.changeset/README.md) for authoring release notes.
