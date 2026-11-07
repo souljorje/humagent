@@ -55,6 +55,7 @@ export function createPageReview(bridge: ReviewBridge) {
     scheduled = false;
   let lastAvailability = '',
     lastDirty = false;
+  const addedTrees = new Set<Element>();
   let returnFocus: Element | null = null;
   let candidates: Element[] = [],
     cursor = -1;
@@ -695,10 +696,14 @@ export function createPageReview(bridge: ReviewBridge) {
   }
 
   function place(el: HTMLElement, x: number, y: number) {
-    el.style.transform = `translate(${Math.round(x)}px,${Math.round(y)}px)`;
+    const transform = `translate(${Math.round(x)}px,${Math.round(y)}px)`;
+    if (el.style.transform !== transform) el.style.transform = transform;
   }
   function position() {
     scheduled = false;
+    for (const tree of addedTrees)
+      if (enabled && tree.isConnected) discoverRoots(tree);
+    addedTrees.clear();
     text.reconcile(previews);
     const available: Availability[] = [];
     const layouts: {
@@ -769,15 +774,17 @@ export function createPageReview(bridge: ReviewBridge) {
         'highlighted',
         draft.item.id === highlightedDraft,
       );
-      marker.textContent = String(index + 1);
-      marker.setAttribute(
-        'aria-label',
-        `Comment ${index + 1}: ${draft.item.comment || 'Text edit'}`,
-      );
-      marker.setAttribute(
-        'aria-expanded',
-        String(captured?.draft?.item.id === draft.item.id),
-      );
+      const number = String(index + 1);
+      if (marker.textContent !== number) marker.textContent = number;
+      for (const [name, value] of [
+        [
+          'aria-label',
+          `Comment ${number}: ${draft.item.comment || 'Text edit'}`,
+        ],
+        ['aria-expanded', String(captured?.draft?.item.id === draft.item.id)],
+      ])
+        if (marker.getAttribute(name!) !== value)
+          marker.setAttribute(name!, value!);
       const offset = draft.marker || { x: rect.width / 2, y: rect.height / 2 };
       place(marker, rect.left + offset.x, rect.top + offset.y);
     }
@@ -848,10 +855,20 @@ export function createPageReview(bridge: ReviewBridge) {
       )
     )
       return;
-    if (enabled) discoverRoots();
+    if (enabled)
+      for (const record of records) {
+        for (const node of record.addedNodes)
+          if (node instanceof Element && !node.closest('[data-humagent-ui]'))
+            addedTrees.add(node);
+        if (
+          record.target instanceof Element &&
+          record.target.shadowRoot &&
+          !shadowRoots.has(record.target.shadowRoot)
+        )
+          addedTrees.add(record.target);
+      }
     schedule();
   });
-  const observed = new WeakSet<ShadowRoot>();
   const shadowRoots = new Set<ShadowRoot>();
   const observation = {
     subtree: true,
@@ -874,32 +891,38 @@ export function createPageReview(bridge: ReviewBridge) {
     '*:not([data-humagent-ui],input,textarea,select,option){user-select:text!important;-webkit-user-select:text!important}',
   );
   observer.observe(document.body || document.documentElement, observation);
-  function discoverRoots(root: Document | ShadowRoot = document) {
+  function discoverRoots(root: Document | ShadowRoot | Element = document) {
     if (root instanceof ShadowRoot) {
-      if (root.host.matches('[data-humagent-ui]')) return;
-      if (!observed.has(root)) {
-        observer.observe(root, observation);
-        observed.add(root);
-        shadowRoots.add(root);
-      }
+      if (root.host.matches('[data-humagent-ui]') || shadowRoots.has(root))
+        return;
+      observer.observe(root, observation);
+      shadowRoots.add(root);
     }
-    if (enabled && !root.adoptedStyleSheets.includes(selectionStyle))
+    if (
+      !(root instanceof Element) &&
+      enabled &&
+      !root.adoptedStyleSheets.includes(selectionStyle)
+    )
       root.adoptedStyleSheets = [...root.adoptedStyleSheets, selectionStyle];
+    if (root instanceof Element && root.shadowRoot)
+      discoverRoots(root.shadowRoot);
     for (const element of root.querySelectorAll('*'))
       if (element.shadowRoot) discoverRoots(element.shadowRoot);
   }
   function syncSelection() {
+    for (const root of [document, ...shadowRoots]) {
+      root.adoptedStyleSheets = root.adoptedStyleSheets.filter(
+        (sheet) => sheet !== selectionStyle,
+      );
+      if (enabled)
+        root.adoptedStyleSheets = [...root.adoptedStyleSheets, selectionStyle];
+    }
     if (enabled) discoverRoots();
-    else
-      for (const root of [document, ...shadowRoots])
-        root.adoptedStyleSheets = root.adoptedStyleSheets.filter(
-          (sheet) => sheet !== selectionStyle,
-        );
   }
   function watchRoots(el: Element) {
     let root = el.getRootNode();
     while (root instanceof ShadowRoot) {
-      if (!observed.has(root)) discoverRoots(root);
+      if (!shadowRoots.has(root)) discoverRoots(root);
       root = root.host.getRootNode();
     }
   }

@@ -86,35 +86,45 @@ export function installTooltips(root: Document | ShadowRoot) {
   root.addEventListener('pointerdown', hide, true);
   root.addEventListener('keydown', hide, true);
   root.addEventListener('scroll', hide, true);
-  function prepare() {
-    for (const button of root.querySelectorAll<HTMLButtonElement>(
-      'button:not(.marker)',
-    )) {
-      let wrapper = button.parentElement!;
-      if (!wrapper.classList.contains('tooltip-anchor')) {
-        wrapper = document.createElement('span');
-        wrapper.className = 'tooltip-anchor';
-        button.before(wrapper);
-        wrapper.append(button);
-      }
-      wrapper.hidden = button.hidden;
-      wrapper.tabIndex = button.disabled ? 0 : -1;
-      wrapper.setAttribute('aria-label', label(button));
-      wrapper.dataset.tooltip = label(button);
+  function prepare(button: HTMLButtonElement) {
+    if (button.classList.contains('marker')) return;
+    let wrapper = button.parentElement!;
+    if (!wrapper.classList.contains('tooltip-anchor')) {
+      wrapper = document.createElement('span');
+      wrapper.className = 'tooltip-anchor';
+      button.before(wrapper);
+      wrapper.append(button);
     }
-    if (active && !tooltip.hidden && tooltip.textContent !== label(active))
-      tooltip.textContent = label(active);
+    wrapper.hidden = button.hidden;
+    wrapper.tabIndex = button.disabled ? 0 : -1;
+    const text = label(button);
+    if (wrapper.getAttribute('aria-label') !== text)
+      wrapper.setAttribute('aria-label', text);
+    if (wrapper.dataset.tooltip !== text) wrapper.dataset.tooltip = text;
   }
-  prepare();
+  function collect(node: Node, buttons: Set<HTMLButtonElement>) {
+    if (!(node instanceof Element)) return;
+    if (node instanceof HTMLButtonElement) buttons.add(node);
+    for (const button of node.querySelectorAll<HTMLButtonElement>(
+      'button:not(.marker)',
+    ))
+      buttons.add(button);
+  }
+  for (const button of root.querySelectorAll<HTMLButtonElement>(
+    'button:not(.marker)',
+  ))
+    prepare(button);
   new MutationObserver((records) => {
-    if (
-      records.some(
-        (r) =>
-          (r.type === 'childList' && r.target !== tooltip) ||
-          r.target instanceof HTMLButtonElement,
-      )
-    )
-      prepare();
+    const buttons = new Set<HTMLButtonElement>();
+    for (const record of records) {
+      if (record.target === tooltip) continue;
+      if (record.target instanceof Element) {
+        const button = record.target.closest('button');
+        if (button) buttons.add(button);
+      }
+      for (const node of record.addedNodes) collect(node, buttons);
+    }
+    for (const button of buttons) if (button.isConnected) prepare(button);
     if (active && !tooltip.hidden && tooltip.textContent !== label(active))
       tooltip.textContent = label(active);
   }).observe(root, {

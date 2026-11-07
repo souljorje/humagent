@@ -79,6 +79,7 @@ inputStyle.replaceSync(materialStyles + inputStyles);
 document.adoptedStyleSheets = [...document.adoptedStyleSheets, inputStyle];
 const expand = createExpansion($('tray'), $('tray-content'));
 const rendered = new WeakMap<HTMLElement, string>();
+let lastPresentation = '';
 function renderChanged(element: HTMLElement, value: unknown, draw: () => void) {
   const key = JSON.stringify(value);
   if (rendered.get(element) === key) return;
@@ -87,7 +88,7 @@ function renderChanged(element: HTMLElement, value: unknown, draw: () => void) {
     active && element.contains(active)
       ? active.closest<HTMLElement>('[data-draft-id],[data-batch-id]')?.dataset
       : null;
-  const label = active?.textContent;
+  const label = active?.getAttribute('aria-label') ?? active?.textContent;
   element.replaceChildren();
   draw();
   rendered.set(element, key);
@@ -99,8 +100,11 @@ function renderChanged(element: HTMLElement, value: unknown, draw: () => void) {
       ...(element.querySelector(selector)?.querySelectorAll('button') || []),
     ];
     const next =
-      buttons.find((el) => el.textContent === label && !el.disabled) ||
-      buttons.find((el) => !el.disabled);
+      buttons.find(
+        (el) =>
+          (el.getAttribute('aria-label') ?? el.textContent) === label &&
+          !el.disabled,
+      ) || buttons.find((el) => !el.disabled);
     next?.focus({ preventScroll: true });
   }
 }
@@ -181,8 +185,7 @@ function button(
   disabled = false,
   retry = false,
 ) {
-  const el = document.createElement('button');
-  el.textContent = label;
+  const el = element('button', label);
   el.disabled = disabled;
   el.onclick = () =>
     Promise.resolve()
@@ -193,14 +196,18 @@ function button(
       .catch((e) => error(errorMessage(e)));
   return el;
 }
-function paragraph(text: string, className?: string) {
-  const el = document.createElement('p');
+function element<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  text = '',
+  className?: string,
+) {
+  const el = document.createElement(tag);
   el.textContent = text;
   if (className) el.className = className;
   return el;
 }
-function presentation(): ReviewPresentation {
-  const items = review?.snapshot().drafts || [];
+function presentation(snapshot = review?.snapshot()): ReviewPresentation {
+  const items = snapshot?.drafts || [];
   const previews = new Map(items.map((draft) => [draft.item.id, draft]));
   for (const event of session?.events || []) {
     for (const item of event.payload.items) {
@@ -216,7 +223,7 @@ function presentation(): ReviewPresentation {
         draft.revision === session?.revision &&
         draft.revision === loadedRevision,
     ),
-    locked: items.filter((d) => review.locked(d.item.id)).map((d) => d.item.id),
+    locked: snapshot?.outbox.flatMap((entry) => entry.draftIds) || [],
     writable: writable && !session?.ended,
   };
 }
@@ -227,6 +234,7 @@ function resizeMessage() {
 function render() {
   if (!review) return;
   const snapshot = review.snapshot();
+  const lockedIds = new Set(snapshot.outbox.flatMap((entry) => entry.draftIds));
   const count = snapshot.drafts.length;
   $('pending-count').hidden = !count;
   $('pending-count').textContent = count ? `Pending feedback (${count})` : '';
@@ -236,65 +244,65 @@ function render() {
     $('drafts'),
     [
       snapshot.drafts,
-      snapshot.outbox,
+      [...lockedIds],
       mutable,
       loadedRevision,
       session?.revision,
-      [...available],
+      snapshot.drafts.map((draft) => available.get(draft.item.id)),
     ],
     () => {
       for (const [index, draft] of snapshot.drafts.entries()) {
         const item = draft.item,
-          locked = review.locked(item.id);
+          locked = lockedIds.has(item.id);
         const stale =
           draft.revision !== loadedRevision ||
           draft.revision !== session?.revision;
-        const li = document.createElement('li');
-        li.className = 'draft';
+        const li = element('li', '', 'draft');
         li.dataset.draftId = item.id;
         li.dataset.stale = String(stale);
-        const content = document.createElement('div');
-        content.className = 'draft-content';
+        const content = element('div', '', 'draft-content');
         li.append(content);
-        const title = document.createElement('div');
-        title.className = 'draft-title';
-        title.textContent = String(
-          item.replacement
-            ? 'Text edit'
-            : item.intent || item.target?.id || item.target?.tag || 'Comment',
+        const title = element(
+          'div',
+          String(
+            item.replacement
+              ? 'Text edit'
+              : item.intent || item.target?.id || item.target?.tag || 'Comment',
+          ),
+          'draft-title',
         );
         content.append(title);
         if (item.replacement) {
-          const replacement = document.createElement('p');
-          replacement.className = 'replacement';
+          const replacement = element('p', '', 'replacement');
           replacement.setAttribute('role', 'group');
           replacement.setAttribute('aria-label', 'Text changes');
           for (const part of textDiff(
             item.replacement.before,
             item.replacement.after,
           )) {
-            const content = document.createElement(
+            const content = element(
               part.kind === 'remove'
                 ? 'del'
                 : part.kind === 'add'
                   ? 'ins'
                   : 'span',
+              part.text,
             );
-            content.textContent = part.text;
             replacement.append(content);
           }
           content.append(replacement);
         }
-        if (item.comment) content.append(paragraph(item.comment));
+        if (item.comment) content.append(element('p', item.comment));
         if (item.values) {
-          const values = document.createElement('dl');
+          const values = element('dl');
           for (const [key, value] of Object.entries(item.values)) {
-            const label = document.createElement('dt'),
-              content = document.createElement('dd');
-            label.textContent = key;
-            content.textContent =
-              typeof value === 'string' ? value : JSON.stringify(value);
-            values.append(label, content);
+            values.append(
+              element('dt', key),
+              element(
+                'dd',
+                typeof value === 'string' ? value : JSON.stringify(value),
+              ),
+            );
           }
           content.append(values);
         }
@@ -305,7 +313,7 @@ function render() {
             : available.get(item.id) === false
               ? 'Target unavailable. Inspect or remove this item.'
               : '';
-        if (status) content.append(paragraph(status, 'draft-status'));
+        if (status) content.append(element('p', status, 'draft-status'));
         if (item.target) {
           const open = button(
             '',
@@ -354,7 +362,7 @@ function render() {
     !snapshot.message.text.trim() ||
     review.messageLocked() ||
     snapshot.message.revision === loadedRevision;
-  const drafts = snapshot.drafts.filter((d) => !review.locked(d.item.id));
+  const drafts = snapshot.drafts.filter((d) => !lockedIds.has(d.item.id));
   const hasMessage = !review.messageLocked() && !!snapshot.message.text.trim();
   if (
     sent &&
@@ -383,15 +391,15 @@ function render() {
     [snapshot.outbox, writable, sending],
     () => {
       for (const entry of snapshot.outbox) {
-        const div = document.createElement('div');
-        div.className = 'pending';
+        const div = element('div', '', 'pending');
         div.dataset.batchId = entry.batch.clientId;
         div.append(
-          paragraph(
+          element(
+            'p',
             `${entry.batch.payload.items.length} feedback items${entry.batch.payload.message ? ' and an instruction' : ''}`,
           ),
         );
-        if (entry.error) div.append(paragraph(entry.error));
+        if (entry.error) div.append(element('p', entry.error));
         div.append(
           button(
             'Retry send',
@@ -412,7 +420,12 @@ function render() {
       }
     },
   );
-  post('drafts', presentation());
+  const params = presentation(snapshot);
+  const signature = JSON.stringify(params);
+  if (lastPresentation !== signature) {
+    lastPresentation = signature;
+    post('drafts', params);
+  }
 }
 function renderConnection() {
   const state = session?.ended
@@ -678,6 +691,7 @@ window.addEventListener('message', async (event) => {
   if (msg.method === 'hello') {
     if (latestDocument !== msg.documentId) {
       editorDirty = false;
+      lastPresentation = '';
       mutations.clear();
     }
     latestDocument = msg.documentId;
