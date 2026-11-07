@@ -435,3 +435,18 @@ test('lost staging acknowledgments retry without duplicate drafts', async ({
   expect((await review.state()).drafts).toHaveLength(1);
   await expect(page.locator('.draft')).toHaveCount(1);
 });
+
+test('separate concurrent SDK calls with equal values stage separate drafts', async ({
+  review,
+}) => {
+  await review.open();
+  const results = await review.evaluate(() =>
+    Promise.all([
+      window.humagent.submit({ intent: 'repeat', values: { choice: 'A' } }),
+      window.humagent.submit({ intent: 'repeat', values: { choice: 'A' } }),
+    ]),
+  );
+  expect(results[0]!.draftId).not.toBe(results[1]!.draftId);
+  const drafts = (await review.state()).drafts;
+  expect(drafts.filter((d) => d.item.intent === 'repeat')).toHaveLength(2);
+});

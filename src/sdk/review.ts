@@ -912,11 +912,11 @@ export function createPageReview(bridge: ReviewBridge) {
   }
   function syncSelection() {
     for (const root of [document, ...shadowRoots]) {
-      root.adoptedStyleSheets = root.adoptedStyleSheets.filter(
+      const sheets = root.adoptedStyleSheets.filter(
         (sheet) => sheet !== selectionStyle,
       );
-      if (enabled)
-        root.adoptedStyleSheets = [...root.adoptedStyleSheets, selectionStyle];
+      if (enabled) sheets.push(selectionStyle);
+      root.adoptedStyleSheets = sheets;
     }
     if (enabled) discoverRoots();
   }

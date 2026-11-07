@@ -121,11 +121,16 @@ if (window.parent === window.top) {
     const params = { item: captured, ...(marker ? { marker } : {}) };
     const key = fingerprint(params);
     const id = stages.get(key) ?? crypto.randomUUID();
-    stages.set(key, id);
-    const result = await request('stage', params, id);
-    send('stageReceived', { requestId: id });
-    stages.delete(key);
-    return result;
+    // Distinct calls must stage separately. Reuse an ID only after a lost reply.
+    try {
+      const result = await request('stage', params, id);
+      send('stageReceived', { requestId: id });
+      if (stages.get(key) === id) stages.delete(key);
+      return result;
+    } catch (error) {
+      stages.set(key, id);
+      throw error;
+    }
   }
   async function submit(value: Submission) {
     const captured = cloneJson(value);
