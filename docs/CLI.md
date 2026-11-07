@@ -9,7 +9,7 @@ Use `--json` for JSON results. Piped results also use JSON.
 ```sh
 humagent open ./page.html
 humagent open http://127.0.0.1:3000/path
-humagent demo [plan|calculator|existing]
+humagent demo
 humagent setup [--directory PATH] [--force]
 ```
 
@@ -17,7 +17,7 @@ humagent setup [--directory PATH] [--force]
 
 Keep the page and its assets in one directory. Humagent serves supported files from that directory. See [network restrictions](SECURITY.md#network).
 
-Demos use editable copies under `demos/VERSION` in the data directory. They preserve existing files.
+The demo opens an editable plan under `demos/VERSION/plan` in the data directory. It preserves existing files.
 
 Setup installs the skill at `.agents/skills/humagent` by default. It preserves changed instructions unless you pass `--force`.
 

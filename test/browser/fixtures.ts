@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { transpileModule, ModuleKind, ScriptTarget } from 'typescript';
 import { fileURLToPath } from 'node:url';
 import { createRuntime } from '../../dist/runtime/server.js';
 import { fixture } from '../fixtures.ts';
@@ -56,6 +57,13 @@ interface Fixtures {
   app: { origin: string; dynamicRequests: number };
   pageErrors: void;
 }
+const fixtureDirectory = new URL('../fixtures/', import.meta.url);
+const existingModule = transpileModule(
+  fs.readFileSync(new URL('existing.ts', fixtureDirectory), 'utf8'),
+  {
+    compilerOptions: { module: ModuleKind.ESNext, target: ScriptTarget.ES2022 },
+  },
+).outputText;
 
 export const test = base.extend<Fixtures>({
   workspace: async ({ request }, use) => {
@@ -68,9 +76,21 @@ export const test = base.extend<Fixtures>({
         path.join(directory, 'examples'),
         { recursive: true },
       );
+      fs.cpSync(
+        fileURLToPath(fixtureDirectory),
+        path.join(directory, 'examples'),
+        {
+          recursive: true,
+          filter: (source) => !source.endsWith('.ts'),
+        },
+      );
+      fs.writeFileSync(
+        path.join(directory, 'examples/existing.js'),
+        existingModule,
+      );
       runtime = await createRuntime({ directory: state });
       await use({
-        file: (name = 'plan.html') => path.join(directory, 'examples', name),
+        file: (name = 'review.html') => path.join(directory, 'examples', name),
         get origin() {
           return runtime.origin;
         },

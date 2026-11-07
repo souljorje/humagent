@@ -12,7 +12,7 @@ const HELP = `Humagent ${version}
 Work with your agent through a page, prototype, or local application.
 
 Start here:
-  humagent demo                         Open an interactive example
+  humagent demo                         Open the interactive plan guide
   humagent open ./page.html              Review an HTML file
   humagent open http://localhost:3000    Review a trusted local app
   humagent setup                        Install the agent skill for this project
@@ -37,7 +37,6 @@ Options:
   -v, --version                         Show the installed version
 
 Also:
-  humagent demo [plan|calculator|existing]
   humagent setup [--directory path] [--force]
   humagent server [--port number]
 
@@ -267,7 +266,7 @@ async function main() {
       ['home', 'json'].includes(key) || commandFlags[command]!.includes(key),
       `--${key} is not valid for ${command}.`,
     );
-  if (['stop', 'setup', 'doctor', 'server'].includes(command))
+  if (['stop', 'setup', 'doctor', 'server', 'demo'].includes(command))
     ensure(!argument, `${command} does not accept a positional argument.`);
   if (runtimeName === 'node')
     ensure(
@@ -369,26 +368,14 @@ async function main() {
       ensure(fs.existsSync(target), `File not found: ${target}`);
   }
   if (command === 'demo') {
-    const name = argument ?? 'plan';
-    ensure(
-      ['plan', 'calculator', 'existing'].includes(name),
-      'Choose a demo: plan, calculator, or existing.',
-    );
-    const destination = path.join(directory, 'demos', version);
+    const destination = path.join(directory, 'demos', version, 'plan');
     fs.mkdirSync(destination, { recursive: true });
-    for (const file of [
-      'plan.html',
-      'calculator.html',
-      'existing.html',
-      'calculator.js',
-      'existing.js',
-      'example.css',
-    ]) {
+    for (const file of ['plan.html', 'plan.css']) {
       const to = path.join(destination, file);
       if (!fs.existsSync(to))
         fs.copyFileSync(new URL(`../examples/${file}`, import.meta.url), to);
     }
-    target = path.join(destination, `${name}.html`);
+    target = path.join(destination, 'plan.html');
   }
   if (!target) {
     if (command !== 'status' || argument)

@@ -357,16 +357,20 @@ test('generated mini-app stays local until Send', async ({
   review,
   workspace,
 }) => {
-  const opened = await review.open(workspace.file('calculator.html'));
-  await review.frame.locator('#tasks').evaluate((el) => {
-    (el as HTMLInputElement).value = '120';
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  });
-  await expect(review.frame.locator('#hours')).toHaveText('16.0 hours');
+  const opened = await review.open(workspace.file('plan.html'));
+  await review.frame.locator('input[value="prototype"]').check();
+  await review.frame
+    .locator('input[name="outcome"]')
+    .fill('A focused prototype.');
+  expect(workspace.store.get(opened.session).events).toHaveLength(0);
   await review.frame
     .locator('form[data-humagent-intent] button[type="submit"]')
     .click();
   await expect(page.locator('.draft')).toHaveCount(1);
+  expect((await review.state()).drafts[0].item.values).toMatchObject({
+    workflow: 'prototype',
+    outcome: 'A focused prototype.',
+  });
   expect(workspace.store.get(opened.session).events).toHaveLength(0);
   await review.connect();
   await page.locator('#send').click();

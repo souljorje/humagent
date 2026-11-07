@@ -142,34 +142,11 @@ output[data-humagent-status] {
   font-size: 12px;
   color: #3d7052;
 }
-.metric {
-  font-size: 52px;
-  letter-spacing: -2px;
-  font-family: Georgia, serif;
-  margin: 18px 0;
-}
-.steps {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.steps span {
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: #f0f3eb;
-  font-size: 12px;
-}
 .row {
   display: flex;
   gap: 16px;
   align-items: center;
   flex-wrap: wrap;
-}
-#preview {
-  padding: 24px;
-  background: #f0f5eb;
-  border-radius: 12px;
-  margin: 20px 0;
 }
 @media (max-width: 650px) {
   body {

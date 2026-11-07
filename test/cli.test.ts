@@ -154,11 +154,71 @@ test('CLI provides help and version without starting a server', () => {
       ['open', '--bad'],
       ['ack', 'id', '--receipt'],
       ['wait', 'id', '--timeout', '0'],
+      ['demo', 'plan'],
+      ['demo', 'calculator'],
+      ['demo', 'existing'],
     ]) {
       assert.throws(() => run(args));
       assert.equal(fs.existsSync(path.join(home, 'server.json')), false);
     }
   } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('demo serves only the editable plan and preserves existing user copies', async () => {
+  const home = fixture('plan-demo');
+  const old = path.join(home, 'demos', pkg.version);
+  fs.mkdirSync(old, { recursive: true });
+  const previous = path.join(old, 'plan.html');
+  fs.writeFileSync(previous, '<h1>A saved user plan</h1>');
+  fs.writeFileSync(
+    path.join(old, 'existing.html'),
+    '<h1>An older demo copy</h1>',
+  );
+  const run = async (...args: string[]) =>
+    JSON.parse(
+      (
+        await execute(process.execPath, [cli, ...args, '--home', home], {
+          env: { ...process.env, HUMAGENT_PORT: '0' },
+          timeout: 10000,
+        })
+      ).stdout,
+    );
+  try {
+    const opened = await run('demo', '--no-open');
+    const snapshot = await run('status', opened.session);
+    assert.equal(snapshot.target.value, path.join(old, 'plan', 'plan.html'));
+    assert.deepEqual(
+      fs.readdirSync(path.dirname(snapshot.target.value)).sort(),
+      ['plan.css', 'plan.html'],
+    );
+    assert.match(
+      await (await fetch(snapshot.surface.frameUrl)).text(),
+      /Show your agent what you mean/,
+    );
+    assert.equal(
+      (await fetch(new URL('existing.html', snapshot.surface.frameUrl))).ok,
+      false,
+    );
+    fs.appendFileSync(snapshot.target.value, '\n<!-- Local demo edit -->');
+    assert.equal((await run('demo', '--no-open')).session, opened.session);
+    assert.match(
+      fs.readFileSync(snapshot.target.value, 'utf8'),
+      /Local demo edit/,
+    );
+    assert.equal(
+      fs.readFileSync(previous, 'utf8'),
+      '<h1>A saved user plan</h1>',
+    );
+  } finally {
+    await run('stop');
+    for (
+      let i = 0;
+      i < 100 && fs.existsSync(path.join(home, 'server.lock'));
+      i++
+    )
+      await new Promise((resolve) => setTimeout(resolve, 20));
     fs.rmSync(home, { recursive: true, force: true });
   }
 });

@@ -53,7 +53,7 @@ try {
   const packaged = JSON.parse(
     fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
   );
-  for (const file of ['node_modules', 'src', '.github', '.local'])
+  for (const file of ['node_modules', 'src', 'test', '.github', '.local'])
     assert.equal(fs.existsSync(path.join(root, file)), false, file);
   for (const hook of ['prepare', 'preinstall', 'install', 'postinstall'])
     assert.equal(packaged.scripts?.[hook], undefined, hook);
@@ -74,8 +74,7 @@ try {
     'dist/sdk/review.js',
     'dist/sdk/targets.js',
     'dist/examples/plan.html',
-    'dist/examples/calculator.js',
-    'dist/examples/existing.js',
+    'dist/examples/plan.css',
     'skills/humagent/SKILL.md',
     'docs/CLI.md',
     'docs/SDK.md',
@@ -90,6 +89,10 @@ try {
     ).flatMap(Object.values),
   ])
     assert.ok(fs.existsSync(path.join(root, file)), file);
+  assert.deepEqual(fs.readdirSync(path.join(root, 'dist/examples')).sort(), [
+    'plan.css',
+    'plan.html',
+  ]);
   const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
   assert.ok(
     readme.includes(`humagent-${pkg.version}.tgz`),
@@ -142,7 +145,7 @@ try {
     timeout: 10000,
   });
   assert.equal((await run('--version')).version, pkg.version);
-  const opened = await run('demo', 'plan', '--no-open');
+  const opened = await run('demo', '--no-open');
   const snapshot = await run('status', opened.session);
   assert.equal(fs.existsSync(snapshot.target.value), true);
   const record = JSON.parse(
@@ -208,11 +211,6 @@ try {
   );
   await run('setup');
   assert.equal((await run('setup')).unchanged, true);
-  const existingExample = await run('demo', 'existing', '--no-open');
-  assert.equal(
-    (await run('status', existingExample.session)).target.kind,
-    'file',
-  );
   const generated = path.join(temporary, 'readme-example', 'review.html');
   fs.mkdirSync(path.dirname(generated));
   const html = readme.match(/```html\n([\s\S]*?)```/)?.[1];
