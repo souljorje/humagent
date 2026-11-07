@@ -10,6 +10,12 @@ test('markers retain the confirmed popover position across editing, reload, and 
   await review.expand(false);
   await page.locator('#annotate').click();
   const target = review.frame.locator('h1');
+  const bounds = (await target.boundingBox())!;
+  const coordinates = {
+    x: Math.round(bounds.x + 30),
+    y: Math.round(bounds.y + 20),
+    space: 'document',
+  };
   await target.click({ position: { x: 30, y: 20 } });
   await review.frame
     .getByLabel('Comment', { exact: true })
@@ -52,6 +58,10 @@ test('markers retain the confirmed popover position across editing, reload, and 
   expect(
     workspace.store.get(plan.session).events[0].payload.items[0],
   ).not.toHaveProperty('marker');
+  expect(
+    workspace.store.get(plan.session).events[0].payload.items[0].target
+      ?.coordinates,
+  ).toEqual(coordinates);
 });
 
 test('markers sharing a position remain separate and stable', async ({

@@ -52,6 +52,11 @@ for (const shadow of [false, true])
     expect((await marker.boundingBox())!.x).toBeCloseTo(expected.x, 0);
     expect((await marker.boundingBox())!.y).toBeCloseTo(expected.y, 0);
     const first = (await review.state()).drafts[0];
+    expect(first.item.target?.coordinates).toEqual({
+      x: Math.round(expected.x),
+      y: Math.round(expected.y),
+      space: 'document',
+    });
     await marker.click();
     await editor.fill('A longer replacement that wraps onto another line');
     await editor.press('End');

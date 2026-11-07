@@ -447,6 +447,13 @@ export function createPageReview(bridge: ReviewBridge) {
   }
   $('cancel').onclick = cancel;
   $('note').oninput = input;
+  $('note').onkeydown = (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      void save();
+    }
+  };
   $('note').onfocus = () => {
     activeInput = $('note');
   };
@@ -480,6 +487,13 @@ export function createPageReview(bridge: ReviewBridge) {
         });
       else {
         const rect = $('panel').getBoundingClientRect();
+        const targetRect = current.el.getBoundingClientRect();
+        const feedbackPoint = textMarker || current.point;
+        const coordinates = {
+          x: Math.round(targetRect.left + feedbackPoint.x + scrollX),
+          y: Math.round(targetRect.top + feedbackPoint.y + scrollY),
+          space: 'document',
+        };
         const marker =
           textMarker ||
           anchor(
@@ -488,7 +502,7 @@ export function createPageReview(bridge: ReviewBridge) {
           );
         await stage(
           {
-            target: current.target,
+            target: { ...current.target, coordinates },
             ...($('note').value.trim() ? { comment: $('note').value } : {}),
             ...(replacement && text.value !== current.before
               ? {
@@ -792,8 +806,12 @@ export function createPageReview(bridge: ReviewBridge) {
         marker = document.createElement('button');
         marker.className = 'marker';
         marker.dataset.draftId = draft.item.id;
-        marker.onclick = (event) =>
+        marker.onclick = (event) => {
+          if (saving) return;
+          if (captured?.draft && captured.draft.item.id !== draft.item.id)
+            close();
           edit(draft.item.id, clickPoint(event) || center(marker));
+        };
         markers.set(draft.item.id, marker);
         $('markers').append(marker);
       }

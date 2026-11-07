@@ -80,6 +80,8 @@ A message-only batch is valid. An empty batch is not. An empty replacement strin
 
 Captured targets include source URL, viewed revision, selector, text, stable ID when available, and quote context for selected text.
 Open shadow-root targets also include a selector path through their hosts.
+Captured targets include `coordinates: { x, y, space: "document" }` in CSS pixels.
+Coordinates record the feedback location when created. Text edits use the final caret, and keyboard comments use the target center.
 Targets describe rendered content. They do not guarantee a unique source location.
 
 Requests must contain JSON and stay within 256 KiB. Nesting stays below 24 levels, including the envelope.
@@ -102,6 +104,7 @@ File changes also trigger revision checks.
 
 Confirm or cancel unfinished feedback before sending. The first outside click focuses the editor. The second discards unconfirmed changes.
 Typing resets this sequence. Escape cancels immediately. Cancellation preserves previously saved feedback.
+Click another saved marker to switch comments. This discards unconfirmed changes to the previous saved comment.
 
 Click plain text while commenting to edit at the caret. Drag to select a portion before typing.
 Enter confirms, Shift+Enter adds a newline, and Escape cancels.

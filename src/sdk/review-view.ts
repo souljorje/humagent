@@ -12,7 +12,7 @@ export function createReviewView() {
     button,textarea{font:inherit;color:inherit} button{border:0;cursor:pointer;background:transparent;min-height:40px;padding:8px 12px;border-radius:20px;display:inline-flex;align-items:center;justify-content:center;gap:6px;transition:background 140ms,transform 140ms}
     button:hover{background:#414141}button:active{transform:scale(.96)}button:disabled{opacity:.42;cursor:default;transform:none}
     button:focus-visible,textarea:focus-visible{outline:2px solid #f5f5f5;outline-offset:3px}
-    #panel{position:fixed;pointer-events:auto;background:#252525;box-shadow:0 8px 28px #0003;border-radius:22px;padding:8px;max-height:calc(100dvh - 24px);overflow:auto;scrollbar-color:#777 #252525;transition:opacity 160ms,transform 160ms cubic-bezier(.16,1,.3,1),display 160ms allow-discrete;width:min(360px,calc(100vw - 24px))}
+    #panel{position:fixed;z-index:2;pointer-events:auto;background:#252525;box-shadow:0 8px 28px #0003;border-radius:22px;padding:8px;max-height:calc(100dvh - 24px);overflow:auto;scrollbar-color:#777 #252525;transition:opacity 160ms,transform 160ms cubic-bezier(.16,1,.3,1),display 160ms allow-discrete;width:min(360px,calc(100vw - 24px))}
     #panel[hidden]{opacity:0;transform:translateY(5px);pointer-events:none}
     @starting-style{#panel:not([hidden]){opacity:0;transform:translateY(5px)}}
     #editor{margin:0}.compose{display:flex;align-items:center;gap:8px}
