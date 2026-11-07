@@ -79,17 +79,17 @@ Keep user guides focused on installation, common use, and troubleshooting. Put m
 
 ## Changesets and release
 
-Add a Changeset with `bun run changeset` for publishable behavior, API, or dependency changes.
+Add a Changeset with `bun run changeset` for publishable API, behavior, type, or dependency changes.
 Tests, documentation, and internal tooling usually do not need one.
 
-The Release workflow follows the same Changesets flow as [d3-maps](https://github.com/souljorje/d3-maps/blob/main/.github/workflows/release.yml).
-Changesets on `main` create a version PR. Merging that PR publishes the next version automatically.
+The [Release workflow](.github/workflows/release.yml) creates a version PR when Changesets reach `main`.
+Merging that PR publishes the version automatically if its full checks pass.
 
-Publication runs the full browser checks and verifies the packed package under Node.js and Bun.
-Changesets publishes the **same tarball** that passed installation tests.
-The workflow then creates a Git tag and GitHub release.
+The release script checks for an unpublished version before running expensive tests.
+It packs once, verifies the archive under Node.js and Bun, then publishes that **same tarball**.
+Never publish without a verified archive. Use `bun run check:release` for a local dry run.
 
-**First release:** Version `0.1.0` requires maintainer publication before trusted publishing is available:
+**First release:** Publish `0.1.0` manually after verification:
 
 ```sh
 bunx --no-install playwright install --with-deps chromium
@@ -97,8 +97,5 @@ bun run check:release
 npm publish .local/release/packages/humagent-0.1.0.tgz --access public
 ```
 
-Configure npm trusted publishing for repository `souljorje/humagent` and workflow `release.yml`.
-Do not specify a GitHub environment because this workflow combines version PRs and publication.
-The trusted publisher must not require a GitHub environment name because the workflow combines versioning and publication.
-
-See [Changesets](.changeset/README.md) for authoring release notes.
+Then configure npm trusted publishing for repository `souljorje/humagent` and workflow `release.yml`.
+Do not set a GitHub environment name. The workflow combines version PRs and publication.

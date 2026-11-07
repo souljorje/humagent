@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 if (!process.versions.bun) throw new Error('Run release checks with Bun.');
-const publish = process.argv.includes('--publish');
+const publish = process.argv[2] === '--publish';
 if (process.argv.length > (publish ? 3 : 2))
   throw new Error('Usage: bun scripts/release.ts [--publish]');
 
@@ -20,34 +20,36 @@ const archive = path.join(
 const run = (args: string[], env: NodeJS.ProcessEnv = process.env) =>
   execFileSync(process.execPath, args, { cwd: root, env, stdio: 'inherit' });
 
-if (
-  publish &&
-  pkg.version === '0.1.0' &&
-  !existsSync(path.join(root, 'CHANGELOG.md'))
-) {
-  console.log('Publish 0.1.0 manually, then configure npm trusted publishing.');
+rmSync(path.join(root, output), { recursive: true, force: true });
+run(['run', 'changeset', 'pack', '--out-dir', output]);
+
+if (!existsSync(archive)) {
+  if (publish) {
+    const response = await fetch(
+      `https://registry.npmjs.org/${encodeURIComponent(pkg.name)}/${encodeURIComponent(pkg.version)}`,
+      { signal: AbortSignal.timeout(15000) },
+    );
+    if (!response.ok || (await response.json()).version !== pkg.version)
+      throw new Error(
+        'Changesets produced no archive for an unpublished version. Refusing to publish.',
+      );
+  }
+  console.log('No unpublished package to release.');
 } else {
+  if (publish && !existsSync(path.join(root, 'CHANGELOG.md')))
+    throw new Error(
+      'Publish the initial version manually before enabling automated releases.',
+    );
+
   run(['run', 'check']);
   run(['run', 'test:browser:built']);
-  rmSync(path.join(root, output), { recursive: true, force: true });
-  run(['run', 'changeset', 'pack', '--out-dir', output]);
-  if (existsSync(archive)) {
-    const env = { ...process.env, HUMAGENT_TEST_ARCHIVE: archive };
-    execFileSync('node', ['test/install.ts'], {
-      cwd: root,
-      env,
-      stdio: 'inherit',
-    });
-    run(['run', 'test:runners'], env);
-  }
-  if (publish) {
-    run([
-      'run',
-      'changeset',
-      'publish',
-      ...(existsSync(archive) ? ['--from-pack-dir', output] : []),
-    ]);
-  } else if (!existsSync(archive)) {
-    console.log('No unpublished package to verify.');
-  }
+  const env = { ...process.env, HUMAGENT_TEST_ARCHIVE: archive };
+  execFileSync('node', ['test/install.ts'], {
+    cwd: root,
+    env,
+    stdio: 'inherit',
+  });
+  run(['run', 'test:runners'], env);
+  if (publish)
+    run(['run', 'changeset', 'publish', '--from-pack-dir', output]);
 }

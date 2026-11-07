@@ -16,16 +16,11 @@ Keep temporary output in `.local/`.
 ## Validation
 
 Run `bun run check` after each coding increment. CI runs the same command on pull requests.
+For browser or SDK changes, run `bun run test:browser:built` after the main check.
 
-For browser or SDK changes, run `bun run test:browser:built` locally after the main check.
-Before release, `bun run check:release` tests the browser and the exact Changesets archive.
-
-Use `bun run changeset` for publishable behavior, API, or dependency changes.
-The Release workflow opens a version PR or publishes after it merges.
-Do not rebuild an archive after its acceptance tests.
+Follow [release instructions](CONTRIBUTING.md#changesets-and-release) for versioning, archive verification, and publication.
 
 Report executed checks and limits. Do not claim unexecuted tests passed.
-
 
 ## Data and permissions
 
