@@ -12,13 +12,13 @@ test('compact controls, reversible expansion, content growth, and reduced motion
           (child) => child.id || child.firstElementChild?.id,
         ),
       ),
-  ).toEqual(['end', 'toggle-review', 'annotate', 'message', 'send']);
+  ).toEqual(['toggle-review', 'annotate', 'message', 'send']);
   expect((await page.locator('#review-bar').boundingBox())!.width).toBe(450);
   expect(
     await page
       .locator('.bar-controls .icon')
       .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().width)),
-  ).toEqual([42, 42, 42]);
+  ).toEqual([42, 42]);
   const bottom = (await page.locator('.bar-controls').boundingBox())!.y;
   await expect(page.locator('#toggle-review')).toHaveAttribute(
     'aria-expanded',
@@ -72,7 +72,7 @@ test('compact controls, reversible expansion, content growth, and reduced motion
         .evaluateAll((els) =>
           els.map((el) => el.getBoundingClientRect().width),
         ),
-    ).toEqual([36, 36, 36]);
+    ).toEqual([36, 36]);
     expect(
       await page
         .locator('.bar-controls')
@@ -117,6 +117,7 @@ test('agent presence follows waits and leases independently from delivery', asyn
   await expect(status).toHaveText('Connection unavailable', { timeout: 8000 });
   await page.unroute(pattern);
   await expect(status).toHaveText('No agent waiting', { timeout: 8000 });
+  await review.expand();
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'End session', exact: true }).click();
   await expect(status).toHaveText('Session ended');

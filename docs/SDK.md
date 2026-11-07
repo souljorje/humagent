@@ -91,6 +91,7 @@ The server adds event identity, timestamps, status, and delivery attempts. See [
 ## Recovery and revisions
 
 Drafts remain editable until sending. Sending persists an immutable batch locally before contacting the server.
+New submissions require an agent that is listening or working. Accepted batches remain confirmable after the agent disconnects.
 Unconfirmed batches retain their client ID and exact payload. Retry them through the pending items.
 Confirmation removes only the submitted draft IDs. New drafts and newer overall instructions remain intact.
 Only one tab edits a session at a time. Close that tab before taking ownership elsewhere.
@@ -105,7 +106,9 @@ Typing resets this sequence. Escape cancels immediately. Cancellation preserves 
 Click plain text while commenting to edit at the caret. Drag to select a portion before typing.
 Enter confirms, Shift+Enter adds a newline, and Escape cancels.
 Add an optional comment in the popover. Confirmation saves the text and comment together.
-Mixed-format selections and interactive controls remain comment targets. Repeated edits preserve the original text and item ID.
+Plain button and link labels also support text editing. Annotation mode prevents their normal activation.
+Mixed-format selections and native input fields remain comment targets. Repeated edits preserve the original text and item ID.
+Markers retain the confirmed popover position. Their placement stays in browser drafts and does not enter submitted batches.
 Confirmed previews stay visible after Send until their batch is acknowledged. Deletion or a source revision change removes previews.
 Preview cleanup does not overwrite subsequent application changes. Humagent never saves rendered page content as source.
 

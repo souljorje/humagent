@@ -252,10 +252,12 @@ function render() {
         const title = document.createElement('div');
         title.className = 'draft-title';
         title.textContent = String(
-          item.intent || item.target?.id || item.target?.tag || 'Selected text',
+          item.replacement
+            ? 'Text edit'
+            : item.intent || item.target?.id || item.target?.tag || 'Comment',
         );
         li.append(title);
-        if (item.target) {
+        if (item.target && !item.replacement) {
           const quote = document.createElement('blockquote'),
             anchor = item.target.anchor;
           quote.textContent = String(
@@ -268,11 +270,19 @@ function render() {
           li.append(quote);
         }
         if (item.replacement) {
-          const before = document.createElement('del'),
-            after = document.createElement('ins');
-          before.textContent = item.replacement.before;
-          after.textContent = item.replacement.after || '(delete)';
-          li.append(before, after);
+          const replacement = document.createElement('dl');
+          replacement.className = 'replacement';
+          for (const [label, value] of [
+            ['Before', item.replacement.before],
+            ['After', item.replacement.after || 'Delete this text'],
+          ]) {
+            const term = document.createElement('dt'),
+              content = document.createElement('dd');
+            term.textContent = label!;
+            content.textContent = value!;
+            replacement.append(term, content);
+          }
+          li.append(replacement);
         }
         if (item.comment) li.append(paragraph(item.comment));
         if (item.values) {
@@ -287,18 +297,14 @@ function render() {
           }
           li.append(values);
         }
-        li.append(
-          paragraph(
-            locked
-              ? 'Awaiting confirmation'
-              : stale
-                ? 'Stale revision. Recreate or remove this item.'
-                : available.get(item.id) === false
-                  ? 'Target unavailable. Inspect or remove this item.'
-                  : 'Draft',
-            'draft-status',
-          ),
-        );
+        const status = locked
+          ? 'Awaiting confirmation'
+          : stale
+            ? 'Stale revision. Recreate or remove this item.'
+            : available.get(item.id) === false
+              ? 'Target unavailable. Inspect or remove this item.'
+              : '';
+        if (status) li.append(paragraph(status, 'draft-status'));
         const actions = document.createElement('div');
         actions.className = 'actions';
         if (item.target)

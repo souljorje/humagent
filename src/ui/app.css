@@ -164,7 +164,6 @@ textarea::placeholder {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  flex-wrap: wrap;
 }
 .connection h2 {
   font-size: 13px;
@@ -176,30 +175,42 @@ textarea::placeholder {
   align-items: center;
   gap: 6px;
 }
-#agent-state,
 #copy-status {
   font-size: 11px;
   color: var(--muted);
 }
 .connection-command {
   display: flex;
-  gap: 8px;
-  align-items: center;
+  align-items: stretch;
   margin: 8px 0;
-  padding: 6px 8px;
+  padding: 0;
   background: var(--soft);
-  border-radius: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
 }
 #agent-command {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  padding: 10px;
+  font-size: 12px;
   user-select: text;
   overflow-wrap: anywhere;
 }
 #copy-command {
-  font-size: 11px;
-  padding: 4px 6px;
+  width: 32px;
+  min-height: 32px;
+  height: 100%;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0;
+}
+#copy-command svg {
+  width: 16px;
+  height: 16px;
+}
+#copy-command:focus-visible {
+  outline-offset: -3px;
 }
 #agent-indicator {
   width: 6px;
@@ -269,19 +280,21 @@ textarea::placeholder {
   padding: 6px 10px;
   background: #353535;
 }
-.draft del,
-.draft ins {
-  display: block;
-  white-space: pre-wrap;
+.replacement {
+  margin: 8px 0;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 6px 8px;
   font-size: 13px;
+}
+.replacement dd {
+  white-space: pre-wrap;
   max-height: 100px;
   overflow: auto;
 }
-.draft del {
+.replacement dt,
+.replacement dd:first-of-type {
   color: var(--muted);
-}
-.draft ins {
-  text-decoration: none;
 }
 dl {
   display: grid;

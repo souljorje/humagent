@@ -228,6 +228,7 @@ test('outside clicks focus, then discard, reset after typing, and never trigger 
   review,
   workspace,
 }) => {
+  await review.connect();
   await review.addComment('h1', 'Saved comment');
   await review.frame.locator('.marker').click();
   const note = review.frame.getByLabel('Comment', { exact: true });

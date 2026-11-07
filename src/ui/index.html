@@ -19,15 +19,18 @@
     <section id="review-bar" aria-label="Review controls">
       <section id="tray" aria-label="Review details" inert>
         <div id="tray-content">
-          <section class="connection" aria-label="Connect your agent">
+          <section class="connection" aria-label="Agent connection">
             <div class="connection-heading">
-              <h2>Connect your agent</h2>
-              <span class="agent-status"
-                ><span id="agent-indicator" aria-hidden="true"></span
-                ><span id="agent-state" role="status"
-                  >Checking connection</span
-                ></span
-              >
+              <h2 class="agent-status">
+                <span id="agent-indicator" aria-hidden="true"></span>
+                <span id="agent-state" role="status">Checking connection</span>
+              </h2>
+              <button
+                id="end"
+                class="icon"
+                aria-label="End session"
+                disabled
+              ></button>
             </div>
             <div class="connection-command">
               <code id="agent-command" tabindex="0"></code
@@ -63,12 +66,6 @@
         </div>
       </section>
       <div class="bar-controls">
-        <button
-          id="end"
-          class="icon"
-          aria-label="End session"
-          disabled
-        ></button>
         <button
           id="toggle-review"
           class="icon"
