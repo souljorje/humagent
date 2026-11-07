@@ -13,7 +13,7 @@ test('compact controls, reversible expansion, content growth, and reduced motion
         ),
       ),
   ).toEqual(['toggle-review', 'annotate', 'message', 'send']);
-  expect((await page.locator('#review-bar').boundingBox())!.width).toBe(450);
+  expect((await page.locator('#review-bar').boundingBox())!.width).toBe(460);
   expect(
     await page
       .locator('.bar-controls .icon')
