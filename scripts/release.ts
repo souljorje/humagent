@@ -25,11 +25,13 @@ run(['run', 'changeset', 'pack', '--out-dir', output]);
 
 if (!existsSync(archive)) {
   if (publish) {
+    const name = encodeURIComponent(pkg.name);
     const response = await fetch(
-      `https://registry.npmjs.org/${encodeURIComponent(pkg.name)}/${encodeURIComponent(pkg.version)}`,
+      `https://registry.npmjs.org/${name}/${pkg.version}`,
       { signal: AbortSignal.timeout(15000) },
     );
-    if (!response.ok || (await response.json()).version !== pkg.version)
+    const version = response.ok ? (await response.json()).version : null;
+    if (version !== pkg.version)
       throw new Error(
         'Changesets produced no archive for an unpublished version. Refusing to publish.',
       );
