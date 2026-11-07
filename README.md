@@ -50,7 +50,22 @@ humagent open http://127.0.0.1:3000
 humagent demo plan
 ```
 
-Or ask your agent:
+Or create a `review.html`:
+
+```html
+<!doctype html>
+<title>Plan</title>
+<form data-humagent-intent="revise_plan">
+  <label>Approach
+    <select name="approach">
+      <option value="pilot-first">Pilot first</option>
+    </select>
+  </label>
+  <button>Add to review</button>
+</form>
+```
+
+Open it with `humagent open ./review.html`, or ask your agent:
 
 > Read the Humagent skill. Create an interactive plan with choices, open it in Humagent, and wait for my review.
 
