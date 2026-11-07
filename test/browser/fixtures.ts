@@ -127,9 +127,7 @@ export const test = base.extend<Fixtures>({
       await expect(page.locator('#bridge-status')).toHaveText(
         'Interface connected',
       );
-      await expect
-        .poll(() => attachedFrame().evaluate(() => !!window.humagent))
-        .toBe(true);
+      await attachedFrame().waitForFunction(() => !!window.humagent);
     };
     await use({
       frame: page.frameLocator('#frame'),
