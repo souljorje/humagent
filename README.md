@@ -8,13 +8,15 @@
 Works with any harness. Runs on your computer. Needs no account or API key.
 
 ```mermaid
-flowchart TB
+flowchart LR
   I["HTML / Web App"]
   A["AI agent"]
   H["Human"]
   I <-->|"feedback"| A
   H -->|"interact, edit, annotate"| I
 ```
+
+[![humagent.png](./docs/humagent.png)](./docs/humagent.png)
 
 ## Install
 
