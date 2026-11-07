@@ -11,11 +11,20 @@ if (process.argv.length > (publish ? 3 : 2))
 const root = fileURLToPath(new URL('../', import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
 const output = '.local/release';
-const archive = path.join(root, output, 'packages', `humagent-${pkg.version}.tgz`);
+const archive = path.join(
+  root,
+  output,
+  'packages',
+  `humagent-${pkg.version}.tgz`,
+);
 const run = (args: string[], env: NodeJS.ProcessEnv = process.env) =>
   execFileSync(process.execPath, args, { cwd: root, env, stdio: 'inherit' });
 
-if (publish && pkg.version === '0.1.0' && !existsSync(path.join(root, 'CHANGELOG.md'))) {
+if (
+  publish &&
+  pkg.version === '0.1.0' &&
+  !existsSync(path.join(root, 'CHANGELOG.md'))
+) {
   console.log('Publish 0.1.0 manually, then configure npm trusted publishing.');
 } else {
   run(['run', 'check']);
@@ -24,7 +33,11 @@ if (publish && pkg.version === '0.1.0' && !existsSync(path.join(root, 'CHANGELOG
   run(['run', 'changeset', 'pack', '--out-dir', output]);
   if (existsSync(archive)) {
     const env = { ...process.env, HUMAGENT_TEST_ARCHIVE: archive };
-    execFileSync('node', ['test/install.ts'], { cwd: root, env, stdio: 'inherit' });
+    execFileSync('node', ['test/install.ts'], {
+      cwd: root,
+      env,
+      stdio: 'inherit',
+    });
     run(['run', 'test:runners'], env);
   }
   if (publish) {
