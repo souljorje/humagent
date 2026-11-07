@@ -773,7 +773,7 @@ window.addEventListener('message', async (event) => {
               throw new Error('This feedback is not a replacement.');
             item.replacement.after = msg.params.after;
           }
-          review.edit(item.id, item);
+          review.edit(item.id, item, msg.params.marker);
         }
         result = { ok: true };
         mutations.set(msg.id, { signature, result });

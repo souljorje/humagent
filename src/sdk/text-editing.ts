@@ -16,6 +16,7 @@ interface Editing {
   parent: Node;
   initial: string;
   before: string;
+  endpoint?: Range;
 }
 
 /** Own only the selected text node. Restore it only while our editor or preview still owns it. */
@@ -30,6 +31,31 @@ export function createTextEditing(hooks: {
   const nodes = new WeakMap<Text, Preview>();
   const unavailable = new Set<string>();
   let editing: Editing | undefined;
+  function rememberCaret() {
+    if (!editing) return;
+    const selection = getSelection();
+    if (!selection?.rangeCount) return;
+    let range = selection.getRangeAt(0).cloneRange();
+    const root = editing.element.getRootNode();
+    if (root instanceof ShadowRoot) {
+      const composed = selection as Selection & {
+        getComposedRanges?: (options: {
+          shadowRoots: ShadowRoot[];
+        }) => StaticRange[];
+      };
+      const current = composed.getComposedRanges?.({ shadowRoots: [root] })[0];
+      if (current) {
+        range.setStart(current.startContainer, current.startOffset);
+        range.setEnd(current.endContainer, current.endOffset);
+      }
+    }
+    if (!editing.element.contains(range.commonAncestorContainer)) return;
+    range.collapse(
+      (selection as Selection & { direction?: string }).direction ===
+        'backward',
+    );
+    editing.endpoint = range;
+  }
   function plainText(node: Node): string {
     if (node instanceof Text) return node.data;
     if (node instanceof HTMLBRElement)
@@ -165,6 +191,13 @@ export function createTextEditing(hooks: {
     get initial() {
       return editing?.initial ?? '';
     },
+    get endpoint() {
+      rememberCaret();
+      const rect = editing?.endpoint?.getBoundingClientRect();
+      if (rect?.height) return { x: rect.left, y: rect.bottom };
+      const fallback = editing?.element.getBoundingClientRect();
+      return fallback ? { x: fallback.left, y: fallback.bottom } : undefined;
+    },
     get connected() {
       if (!editing?.element.isConnected) return false;
       const preview = nodes.get(editing.node);
@@ -192,9 +225,12 @@ export function createTextEditing(hooks: {
         before,
       };
       node.replaceWith(element);
+      for (const type of ['keyup', 'pointerup', 'blur'])
+        element.addEventListener(type, rememberCaret);
       element.addEventListener('input', (event) => {
         event.stopPropagation();
         element.style.display = element.textContent ? 'inline' : 'inline-block';
+        rememberCaret();
         hooks.input();
       });
       element.addEventListener('change', (event) => event.stopPropagation());
@@ -216,6 +252,7 @@ export function createTextEditing(hooks: {
         range.collapse(true);
         selection.removeAllRanges();
         selection.addRange(range);
+        rememberCaret();
         hooks.input();
       }
       element.addEventListener('paste', (event) => {
@@ -257,6 +294,7 @@ export function createTextEditing(hooks: {
         const selection = getSelection();
         selection?.removeAllRanges();
         selection?.addRange(range);
+        rememberCaret();
       }
     },
     setReadOnly(value: boolean) {

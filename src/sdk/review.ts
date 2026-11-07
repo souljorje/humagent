@@ -464,6 +464,9 @@ export function createPageReview(bridge: ReviewBridge) {
       return;
     }
     const current = captured;
+    const endpoint =
+      replacement && text.value !== text.initial ? text.endpoint : undefined;
+    const textMarker = endpoint ? anchor(current.el, endpoint) : undefined;
     saving = true;
     updateEditor();
     try {
@@ -473,13 +476,16 @@ export function createPageReview(bridge: ReviewBridge) {
           draftId: current.draft.item.id,
           comment: $('note').value,
           ...(replacement ? { after: text.value } : {}),
+          ...(textMarker ? { marker: textMarker } : {}),
         });
       else {
         const rect = $('panel').getBoundingClientRect();
-        const marker = anchor(
-          current.el,
-          current.pointer ? { x: rect.left, y: rect.top } : undefined,
-        );
+        const marker =
+          textMarker ||
+          anchor(
+            current.el,
+            current.pointer ? { x: rect.left, y: rect.top } : undefined,
+          );
         await stage(
           {
             target: current.target,

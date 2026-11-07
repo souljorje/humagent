@@ -210,8 +210,13 @@ export function createReview(
         next.message = { text, revision, token: crypto.randomUUID() };
       });
     },
-    edit(id: string, item: ReviewItem) {
+    edit(id: string, item: ReviewItem, marker?: MarkerPosition) {
       mutable(id);
+      if (
+        marker !== undefined &&
+        (!marker || !Number.isFinite(marker.x) || !Number.isFinite(marker.y))
+      )
+        throw new Error('Invalid marker position');
       const draft = state.drafts.find((d) => d.item.id === id)!;
       const value = batch({
         protocol: 2,
@@ -220,8 +225,9 @@ export function createReview(
         payload: { items: [{ ...cloneJson(item), id }] },
       });
       commit((next) => {
-        next.drafts.find((d) => d.item.id === id)!.item =
-          value.payload.items[0]!;
+        const updated = next.drafts.find((d) => d.item.id === id)!;
+        updated.item = value.payload.items[0]!;
+        if (marker) updated.marker = { x: marker.x, y: marker.y };
       });
     },
     remove(id: string) {

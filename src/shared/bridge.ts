@@ -26,7 +26,12 @@ export interface ReviewPresentation {
 }
 export interface Requests {
   edit: {
-    params: { draftId: string; comment: string; after?: string };
+    params: {
+      draftId: string;
+      comment: string;
+      after?: string;
+      marker?: MarkerPosition;
+    };
     result: { ok: true };
   };
   remove: { params: { draftId: string }; result: { ok: true } };

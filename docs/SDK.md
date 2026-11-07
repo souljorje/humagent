@@ -108,7 +108,8 @@ Enter confirms, Shift+Enter adds a newline, and Escape cancels.
 Add an optional comment in the popover. Confirmation saves the text and comment together.
 Plain button and link labels also support text editing. Annotation mode prevents their normal activation.
 Mixed-format selections and native input fields remain comment targets. Repeated edits preserve the original text and item ID.
-Markers retain the confirmed popover position. Their placement stays in browser drafts and does not enter submitted batches.
+Text-edit markers follow the final caret. Comment markers retain the confirmed popover position.
+Marker placement stays in browser drafts and does not enter submitted batches.
 Confirmed previews stay visible after Send until their batch is acknowledged. Deletion or a source revision change removes previews.
 Preview cleanup does not overwrite subsequent application changes. Humagent never saves rendered page content as source.
 
