@@ -95,6 +95,10 @@ export function createReview(
         throw new Error('Staging request ID was reused with different content');
       return { draftId: previous.id, status: 'draft' };
     }
+    if (Object.keys(state.staged).length >= 200)
+      throw new Error(
+        'Too many unconfirmed page requests. Preserve this review and open a new session.',
+      );
     if (state.drafts.filter((d) => !locked(d.item.id)).length >= MAX_ITEMS)
       throw new Error(
         'Send or remove current feedback before adding more than 100 items.',
@@ -203,6 +207,12 @@ export function createReview(
     locked,
     messageLocked,
     stage,
+    confirmStage(requestId: string) {
+      if (Object.hasOwn(state.staged, requestId))
+        commit((next) => {
+          delete next.staged[requestId];
+        });
+    },
     begin,
     deliver,
     setMessage(text: string, revision: string | null) {

@@ -123,6 +123,7 @@ if (window.parent === window.top) {
     const id = stages.get(key) ?? crypto.randomUUID();
     stages.set(key, id);
     const result = await request('stage', params, id);
+    send('stageReceived', { requestId: id });
     stages.delete(key);
     return result;
   }

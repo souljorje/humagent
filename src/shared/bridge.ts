@@ -64,6 +64,7 @@ export type PageMessage = Channel &
     | { method: 'hello'; params: Record<string, never> }
     | { method: 'mode'; params: { enabled: boolean } }
     | { method: 'editing'; params: { dirty: boolean } }
+    | { method: 'stageReceived'; params: { requestId: string } }
     | { method: 'notice'; params: { message: string } }
     | { method: 'availability'; params: { items: Availability[] } }
     | {

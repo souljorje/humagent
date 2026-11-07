@@ -9,9 +9,11 @@ function storage() {
   const values = new Map<string, string>();
   return {
     fail: false,
+    limit: Infinity,
     getItem: (key: string) => values.get(key) ?? null,
     setItem(key: string, value: string) {
-      if (this.fail) throw new Error('Quota exceeded');
+      if (this.fail || Buffer.byteLength(value) > this.limit)
+        throw new Error('Quota exceeded');
       values.set(key, value);
     },
   };
@@ -298,4 +300,50 @@ test('storage wrappers do not reduce the supported wire nesting depth', async ()
   const resumed = createReview(saved, 's');
   await resumed.deliver(id, async (value) => accepted(value));
   assert.equal(resumed.snapshot().outbox.length, 0);
+});
+
+test('received staging results retire identities across repeated reviews and reloads', async () => {
+  const saved = storage();
+  saved.limit = 4096;
+  let review = createReview(saved, 'retention');
+  const other = createReview(saved, 'other');
+  other.stage(decision('other'), 'r', 'other-request');
+  for (let i = 0; i < 500; i++) {
+    const request = `request-${i}`;
+    review.stage(decision(i), 'r', request);
+    review.confirmStage(request);
+    await review.deliver(review.begin('r'), async (value) => accepted(value));
+    if (i % 50 === 0) review = createReview(saved, 'retention');
+  }
+  assert.deepEqual(review.snapshot().staged, {});
+  assert.equal(review.snapshot().drafts.length, 0);
+  assert.equal(Object.keys(other.snapshot().staged).length, 1);
+  assert.ok(saved.getItem('humagent:review:retention')!.length < 200);
+});
+
+test('unreceived staging results survive removal, reload, and the retention limit', () => {
+  const saved = storage();
+  let review = createReview(saved, 'retention');
+  const first = review.stage(decision(0), 'r', 'request-0');
+  review.remove(first.draftId);
+  for (let i = 1; i < 200; i++) {
+    const result = review.stage(decision(i), 'r', `request-${i}`);
+    review.remove(result.draftId);
+  }
+  review = createReview(saved, 'retention');
+  assert.throws(
+    () => review.stage(decision(200), 'r', 'new'),
+    /unconfirmed page requests/,
+  );
+  assert.deepEqual(review.stage(decision(0), 'r', 'request-0'), first);
+  saved.fail = true;
+  assert.throws(() => review.confirmStage('request-0'), /Quota/);
+  assert.deepEqual(review.stage(decision(0), 'r', 'request-0'), first);
+  saved.fail = false;
+  review.confirmStage('request-0');
+  review.stage(decision(200), 'r', 'new');
+  const drafts = review.snapshot().drafts;
+  review.confirmStage('new');
+  assert.equal(Object.keys(review.snapshot().staged).length, 199);
+  assert.deepEqual(review.snapshot().drafts, drafts);
 });

@@ -722,6 +722,16 @@ window.addEventListener('message', async (event) => {
   }
   if (msg.documentId !== latestDocument || msg.revision !== loadedRevision)
     return;
+  if (msg.method === 'stageReceived') {
+    if (writable && typeof msg.params.requestId === 'string') {
+      try {
+        review.confirmStage(msg.params.requestId);
+      } catch (e) {
+        error(errorMessage(e));
+      }
+    }
+    return;
+  }
   if (msg.method === 'flushed') {
     if (flushCall?.id === msg.id) flushCall.finish(msg.params);
     return;
