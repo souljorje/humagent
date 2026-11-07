@@ -281,6 +281,20 @@ test('new feedback requires an agent while accepted retries survive disconnect a
   await api(`/api/sessions/${id}/end`, 'POST', {});
   assert.equal((await send()).data.id, accepted.data.id);
   assert.equal(runtime.store.get(id).events.length, 2);
+  const original = fs.readFileSync(file);
+  fs.unlinkSync(file);
+  try {
+    const retry = await send();
+    assert.equal(retry.status, 200);
+    assert.equal(retry.data.id, accepted.data.id);
+    assert.equal(
+      (await send({ ...value, payload: { items: [], message: 'Changed' } }))
+        .data.error,
+      'IDEMPOTENCY_CONFLICT',
+    );
+  } finally {
+    fs.writeFileSync(file, original);
+  }
 });
 test('source change rejects stale input without saving the file', async () => {
   const s = await opened();

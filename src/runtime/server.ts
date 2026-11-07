@@ -263,12 +263,11 @@ export async function createRuntime(options: RuntimeOptions) {
   app.post(`${sessionPath}/events`, async (c) => {
     const id = c.req.param('id');
     const value = await body(c.req.raw);
-    await (await surface(id)).checkRevision();
     const session = store.get(id);
-    if (
-      !session.ended &&
-      !session.events.some((event) => event.clientId === value.clientId)
-    )
+    if (session.events.some((event) => event.clientId === value.clientId))
+      return json(200, store.send(id, value));
+    await (await surface(id)).checkRevision();
+    if (!store.get(id).ended)
       ensure(
         view(id).agent !== 'idle',
         'Connect an agent before sending feedback.',

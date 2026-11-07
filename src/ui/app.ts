@@ -43,6 +43,7 @@ let session: SessionSnapshot,
   editorDirty = false,
   sending = false,
   sent = false,
+  sentContent = '',
   manuallyToggled = false,
   flushCall: {
     id: string;
@@ -336,7 +337,11 @@ function render() {
     snapshot.message.revision === loadedRevision;
   const drafts = snapshot.drafts.filter((d) => !review.locked(d.item.id));
   const hasMessage = !review.messageLocked() && !!snapshot.message.text.trim();
-  if (sent && (drafts.length || hasMessage)) resetSent();
+  if (
+    sent &&
+    sentContent !== JSON.stringify([snapshot.drafts, snapshot.message])
+  )
+    resetSent();
   $('send').textContent = sending ? 'Sending…' : sent ? 'Sent' : 'Send';
   $('send').setAttribute('aria-busy', String(sending));
   $('send').disabled =
@@ -491,6 +496,8 @@ async function sendFeedback(operation: () => ReturnType<typeof deliver>) {
   try {
     const result = await operation();
     if (result) {
+      const snapshot = review.snapshot();
+      sentContent = JSON.stringify([snapshot.drafts, snapshot.message]);
       sent = true;
       sentTimer = setTimeout(() => {
         resetSent();

@@ -36,10 +36,12 @@ test('sending requires an agent and confirmation stays in the button briefly', a
     await expect(send).toHaveText('Sending…');
     await send.dispatchEvent('click');
     expect(requests).toBe(1);
+    await page.locator('#message').fill('Added while sending');
   } finally {
     release();
   }
   await expect(send).toHaveText('Sent');
+  await expect(page.locator('#message')).toHaveValue('Added while sending');
   await expect(send).toHaveText('Send', { timeout: 3000 });
   await page.reload();
   await review.ready();
