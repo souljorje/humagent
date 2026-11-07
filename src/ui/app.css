@@ -303,11 +303,11 @@ textarea::placeholder {
   font-size: 12px;
   color: var(--muted);
 }
-.replacement {
+.draft .replacement {
   margin: 8px 0;
   font-size: 13px;
   line-height: 1.6;
-  white-space: pre-wrap;
+  white-space: normal;
   overflow-wrap: anywhere;
   max-height: 100px;
   overflow: auto;

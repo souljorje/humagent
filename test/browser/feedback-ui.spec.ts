@@ -1,5 +1,38 @@
 import { test, expect } from './fixtures.ts';
 
+test('indented source text stays readable in the inline diff', async ({
+  page,
+  review,
+  workspace,
+}) => {
+  await review.open(workspace.file('plan.html'));
+  const before = (await review.frame.locator('.page-footer p').textContent())!;
+  expect(before).toMatch(/\n\s+/);
+  await review.replace('.page-footer p', '');
+  await review.expand();
+  const diff = page.locator('.replacement');
+  await expect(diff.locator('del')).toHaveText(before);
+  expect((await review.state()).drafts[0].item.replacement).toEqual({
+    before,
+    after: '',
+  });
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect(diff).toHaveCSS('white-space', 'normal');
+    expect(
+      await diff.evaluate(
+        (el) =>
+          el.scrollHeight <= el.clientHeight &&
+          el.scrollWidth <= el.clientWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: test.info().outputPath(`indented-diff-${width}.png`),
+      animations: 'disabled',
+    });
+  }
+});
+
 test('expanded controls use one status heading and a compact readable command', async ({
   page,
   plan,
