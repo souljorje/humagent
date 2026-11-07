@@ -193,6 +193,36 @@ test('editing preserves creation order and identities', () => {
   assert.equal(review.snapshot().drafts.length, 1);
 });
 
+test('marker presentation persists without entering the submitted payload', () => {
+  const saved = storage(),
+    review = createReview(saved, 'markers');
+  const staged = review.stage(decision(1), 'r', 'marker-request', {
+    x: 13,
+    y: -24,
+  });
+  const resumed = createReview(saved, 'markers');
+  assert.deepEqual(resumed.snapshot().drafts[0].marker, { x: 13, y: -24 });
+  assert.deepEqual(
+    resumed.stage(decision(1), 'r', 'marker-request', { x: 13, y: -24 }),
+    staged,
+  );
+  assert.throws(
+    () => resumed.stage(decision(1), 'r', 'marker-request', { x: 4, y: 5 }),
+    /reused/,
+  );
+  assert.throws(
+    () => resumed.stage(decision(1), 'r', 'invalid', { x: Infinity, y: 0 }),
+    /marker/,
+  );
+  resumed.edit(staged.draftId, { id: staged.draftId, ...decision(2) });
+  assert.deepEqual(resumed.snapshot().drafts[0].marker, { x: 13, y: -24 });
+  resumed.begin('r');
+  assert.equal(
+    'marker' in resumed.snapshot().outbox[0].batch.payload.items[0],
+    false,
+  );
+});
+
 test('reloading during a rejected-batch retry does not permit a new client ID', async () => {
   const saved = storage(),
     review = createReview(saved, 's');

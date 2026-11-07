@@ -12,7 +12,7 @@ export function createCommentCursor(
     .replace('fill="none"', 'fill="white"');
   const cursor = `url("data:image/svg+xml,${encodeURIComponent(svg)}") 3 3, crosshair`;
   sheet.replaceSync(
-    `[data-humagent-cursor=comment]{cursor:${cursor}!important}[data-humagent-cursor=text],[data-humagent-text],[data-humagent-text] *{cursor:text!important}`,
+    `[data-humagent-cursor=comment]{cursor:${cursor}!important}[data-humagent-cursor=text],[data-humagent-text],[data-humagent-text] *{cursor:text!important;user-select:text!important;-webkit-user-select:text!important}`,
   );
   const roots = new Set<Document | ShadowRoot>([document]);
   let enabled = false;

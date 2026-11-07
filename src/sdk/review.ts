@@ -18,7 +18,7 @@ import { errorMessage } from '../shared/errors.js';
 
 interface ReviewBridge {
   boot: Bootstrap;
-  stage(item: DraftItem): Promise<StageResult>;
+  stage(item: DraftItem, marker?: Point): Promise<StageResult>;
   edit(params: Requests['edit']['params']): Promise<unknown>;
   remove(draftId: string): Promise<unknown>;
   notice(message: string): void;
@@ -32,6 +32,7 @@ interface Capture {
   el: Element;
   draft?: Draft;
   point: Point;
+  pointer: boolean;
 }
 interface Point {
   x: number;
@@ -305,7 +306,13 @@ export function createPageReview(bridge: ReviewBridge) {
     }
     anchors.set(String(target.anchorId), el);
     watchRoots(el);
-    captured = { target, before, el, point: anchor(el, point) };
+    captured = {
+      target,
+      before,
+      el,
+      point: anchor(el, point),
+      pointer: !!point,
+    };
     replacement = false;
     showEditor();
   }
@@ -348,6 +355,7 @@ export function createPageReview(bridge: ReviewBridge) {
       el,
       draft: existing,
       point: anchor(el, point),
+      pointer: !!point,
     };
     replacement = true;
     text.open(node, start, end, before);
@@ -389,6 +397,7 @@ export function createPageReview(bridge: ReviewBridge) {
       el,
       draft,
       point: anchor(el, point || center(markers.get(draftId))),
+      pointer: !!point,
     };
     replacement = false;
     showEditor();
@@ -465,19 +474,28 @@ export function createPageReview(bridge: ReviewBridge) {
           comment: $('note').value,
           ...(replacement ? { after: text.value } : {}),
         });
-      else
-        await stage({
-          target: current.target,
-          ...($('note').value.trim() ? { comment: $('note').value } : {}),
-          ...(replacement && text.value !== current.before
-            ? {
-                replacement: {
-                  before: current.before,
-                  after: text.value,
-                },
-              }
-            : {}),
-        });
+      else {
+        const rect = $('panel').getBoundingClientRect();
+        const marker = anchor(
+          current.el,
+          current.pointer ? { x: rect.left, y: rect.top } : undefined,
+        );
+        await stage(
+          {
+            target: current.target,
+            ...($('note').value.trim() ? { comment: $('note').value } : {}),
+            ...(replacement && text.value !== current.before
+              ? {
+                  replacement: {
+                    before: current.before,
+                    after: text.value,
+                  },
+                }
+              : {}),
+          },
+          marker,
+        );
+      }
       saving = false;
       close();
     } catch (error) {
@@ -522,25 +540,40 @@ export function createPageReview(bridge: ReviewBridge) {
       schedule();
     }
   });
-  document.addEventListener(
-    'pointerdown',
-    (event) => {
-      if (ownEvent(event)) return;
-      if (
-        changed() ||
-        (enabled &&
-          !ignored(event.target) &&
-          isNativeInteractiveControl(eventElement(event) || null))
-      ) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-      }
-    },
-    true,
-  );
+  const insideTextEditor = (event: Event) =>
+    !!text.element && event.composedPath().includes(text.element);
+  function controlPress(event: MouseEvent) {
+    if (insideTextEditor(event)) {
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (ownEvent(event)) return;
+    if (changed()) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    } else if (
+      enabled &&
+      isNativeInteractiveControl(eventElement(event) || null)
+    ) {
+      const hit = hitTestText(
+        { x: event.clientX, y: event.clientY },
+        shadowRoots,
+        canEditText,
+      );
+      if (!hit?.text) event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }
+  document.addEventListener('pointerdown', controlPress, true);
+  document.addEventListener('mousedown', controlPress, true);
   document.addEventListener(
     'click',
     (event) => {
+      if (insideTextEditor(event)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
       if (ownEvent(event)) return;
       if (captured && outside()) {
         event.preventDefault();
@@ -564,27 +597,56 @@ export function createPageReview(bridge: ReviewBridge) {
     },
     true,
   );
-  document.addEventListener('mouseup', (event) => {
-    if (
-      enabled &&
-      !captured &&
-      !ownEvent(event) &&
-      !ignored(event.target) &&
-      !isNativeInteractiveControl(event.target)
-    )
-      setTimeout(() => selectedText(clickPoint(event)), 0);
-  });
-  document.addEventListener('keyup', (event) => {
-    if (enabled && !captured && event.shiftKey && !ownEvent(event))
-      selectedText();
-  });
+  document.addEventListener(
+    'pointerup',
+    (event) => {
+      if (
+        insideTextEditor(event) ||
+        (enabled &&
+          !ownEvent(event) &&
+          isNativeInteractiveControl(eventElement(event) || null))
+      )
+        event.stopImmediatePropagation();
+    },
+    true,
+  );
+  document.addEventListener(
+    'mouseup',
+    (event) => {
+      if (insideTextEditor(event)) {
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (enabled && !captured && !ownEvent(event) && !ignored(event.target))
+        setTimeout(() => selectedText(clickPoint(event)), 0);
+      if (
+        enabled &&
+        !ownEvent(event) &&
+        isNativeInteractiveControl(eventElement(event) || null)
+      )
+        event.stopImmediatePropagation();
+    },
+    true,
+  );
+  document.addEventListener(
+    'keyup',
+    (event) => {
+      if (insideTextEditor(event)) {
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (enabled && !captured && event.shiftKey && !ownEvent(event))
+        selectedText();
+    },
+    true,
+  );
   function cursorAt(offset: number) {
     if (!candidates.length) return;
     cursor = (cursor + offset + candidates.length) % candidates.length;
     hovered = candidates[cursor];
     hovered?.scrollIntoView({ block: 'nearest' });
     $('keyboard-hint').textContent =
-      `Element ${cursor + 1} of ${candidates.length}. Arrow keys move. Enter comments. Escape exits.`;
+      `Element ${cursor + 1} of ${candidates.length}. Arrow keys move. Enter opens feedback. Escape exits.`;
     schedule();
   }
   document.addEventListener(
@@ -691,23 +753,19 @@ export function createPageReview(bridge: ReviewBridge) {
       draft: Draft;
       index: number;
       rect: DOMRect;
-      offset: number;
     }[] = [];
-    const offsets = new Map<Element, number>();
     drafts.forEach((draft, index) => {
       if (!draft.item.target) return;
       const el = resolve(draft);
       available.push({ id: draft.item.id, available: !!el });
       if (!el) return;
-      const rect = el.getBoundingClientRect(),
-        offset = offsets.get(el) || 0;
-      offsets.set(el, offset + 1);
+      const rect = el.getBoundingClientRect();
       if (
         (rect.width || rect.height) &&
         rect.bottom >= 0 &&
         rect.top <= innerHeight
       )
-        layouts.push({ draft, index, rect, offset });
+        layouts.push({ draft, index, rect });
     });
     const target = captured
       ? matchesTarget(captured.el, captured.target)
@@ -721,7 +779,8 @@ export function createPageReview(bridge: ReviewBridge) {
     const panelRect = panel?.getBoundingClientRect();
     const visible = new Set(layouts.map((layout) => layout.draft.item.id));
     for (const [id, marker] of markers) marker.hidden = !visible.has(id);
-    for (const { draft, index, rect, offset } of layouts) {
+    const occupied: Point[] = [];
+    for (const { draft, index, rect } of layouts) {
       let marker = markers.get(draft.item.id);
       if (!marker) {
         marker = document.createElement('button');
@@ -742,11 +801,39 @@ export function createPageReview(bridge: ReviewBridge) {
         'aria-expanded',
         String(captured?.draft?.item.id === draft.item.id),
       );
-      place(
-        marker,
-        Math.max(6, Math.min(rect.right - 16 - offset * 38, innerWidth - 38)),
-        Math.max(6, Math.min(rect.top - 16, innerHeight - 38)),
-      );
+      const offset = draft.marker || { x: rect.width / 2, y: rect.height / 2 };
+      const clamp = (x: number, y: number) => ({
+        x: Math.max(12, Math.min(x, innerWidth - 44)),
+        y: Math.max(
+          12,
+          Math.min(y, (window.visualViewport?.height || innerHeight) - 44),
+        ),
+      });
+      const base = clamp(rect.left + offset.x, rect.top + offset.y);
+      let point = base;
+      const overlaps = (candidate: Point) =>
+        occupied.some(
+          (p) =>
+            Math.abs(p.x - candidate.x) < 38 &&
+            Math.abs(p.y - candidate.y) < 38,
+        );
+      for (
+        let radius = 38;
+        overlaps(point) && radius <= layouts.length * 38;
+        radius += 38
+      ) {
+        const candidate = [
+          [radius, 0],
+          [-radius, 0],
+          [0, radius],
+          [0, -radius],
+        ]
+          .map(([x, y]) => clamp(base.x + x!, base.y + y!))
+          .find((p) => !overlaps(p));
+        if (candidate) point = candidate;
+      }
+      occupied.push(point);
+      place(marker, point.x, point.y);
     }
     $('highlight').hidden = !highlight;
     if (highlight) {

@@ -227,7 +227,7 @@ test('actual text selection uses the release point and caret cursor without chan
     .toBe('help');
 });
 
-test('ARIA controls and their nested shadow roots retain their cursors', async ({
+test('ARIA controls use annotation cursors and restore their native cursors', async ({
   page,
   plan: _plan,
   review,
@@ -264,13 +264,15 @@ test('ARIA controls and their nested shadow roots retain their cursors', async (
       .evaluate((el) => getComputedStyle(el).cursor);
   await expect.poll(() => cursor('#custom-checkbox')).toBe('pointer');
   await review.frame.locator('#unstyled-switch').hover();
-  await expect.poll(() => cursor('#unstyled-switch')).toBe('auto');
+  await expect
+    .poll(() => cursor('#unstyled-switch'))
+    .toContain('data:image/svg+xml');
   await review.frame.locator('#control-text').hover();
   await expect.poll(() => cursor('#control-text')).toBe('text');
   await review.frame
     .locator('#control-host')
     .evaluate((el) => el.setAttribute('role', 'button'));
-  await expect.poll(() => cursor('#control-text')).toBe('pointer');
+  await expect.poll(() => cursor('#control-text')).toBe('text');
   await review.frame
     .locator('#control-host')
     .evaluate((el) => el.removeAttribute('role'));

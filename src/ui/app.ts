@@ -729,7 +729,12 @@ window.addEventListener('message', async (event) => {
     if (msg.method === 'stage') {
       if (msg.revision !== session.revision)
         throw new Error('Refresh the page before adding feedback.');
-      result = review.stage(msg.params.item, msg.revision, msg.id);
+      result = review.stage(
+        msg.params.item,
+        msg.revision,
+        msg.id,
+        msg.params.marker,
+      );
       if (msg.params.item.intent) openTray();
       error();
     } else if (msg.method === 'edit' || msg.method === 'remove') {

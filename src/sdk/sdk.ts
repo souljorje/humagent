@@ -112,13 +112,17 @@ if (window.parent === window.top) {
     serial = operation;
     return operation;
   }
-  async function stage(item: DraftItem) {
+  async function stage(
+    item: DraftItem,
+    marker?: Requests['stage']['params']['marker'],
+  ) {
     const captured = cloneJson(item);
     await ready;
-    const key = fingerprint(captured);
+    const params = { item: captured, ...(marker ? { marker } : {}) };
+    const key = fingerprint(params);
     const id = stages.get(key) ?? crypto.randomUUID();
     stages.set(key, id);
-    const result = await request('stage', { item: captured }, id);
+    const result = await request('stage', params, id);
     stages.delete(key);
     return result;
   }

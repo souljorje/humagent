@@ -1,5 +1,3 @@
-import { isNativeInteractiveControl } from './targets.js';
-
 /** Resolve the text actually under the pointer, rather than the nearest text in page padding. */
 export function hitTestText(
   point: { x: number; y: number },
@@ -14,12 +12,7 @@ export function hitTestText(
     if (!inner || inner === element) break;
     element = inner;
   }
-  if (
-    !element ||
-    element.closest('[data-humagent-ui]') ||
-    isNativeInteractiveControl(element)
-  )
-    return null;
+  if (!element || element.closest('[data-humagent-ui]')) return null;
   const doc = document as Document & {
     caretPositionFromPoint?: (
       x: number,

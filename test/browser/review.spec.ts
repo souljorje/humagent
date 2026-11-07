@@ -323,7 +323,7 @@ test('commenting captures controls without activating them', async ({
   await review.frame.locator('#counter').click();
   await expect(review.frame.locator('#counter')).toHaveText('Count: 0');
   await review.frame.getByLabel('Comment', { exact: true }).fill('This button');
-  await review.frame.getByRole('button', { name: 'Add comment' }).click();
+  await review.frame.getByRole('button', { name: 'Confirm text edit' }).click();
   await page.locator('#annotate').click();
   await review.frame.locator('#counter').click();
   await expect(review.frame.locator('#counter')).toHaveText('Count: 1');

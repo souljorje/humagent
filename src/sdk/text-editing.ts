@@ -1,5 +1,4 @@
 import type { Draft } from '../shared/review.js';
-import { isNativeInteractiveControl } from './targets.js';
 
 interface Preview {
   draft: Draft;
@@ -296,8 +295,9 @@ export function isEditableText(node: Node | null): node is Text {
   let el: Element = node.parentElement;
   while (true) {
     if (
-      isNativeInteractiveControl(el) ||
-      el.closest('[data-humagent-ui],script,style,head')
+      el.closest(
+        '[data-humagent-ui],script,style,head,input,textarea,select,option,optgroup,[contenteditable]:not([contenteditable="false"])',
+      )
     )
       return false;
     const root = el.getRootNode();

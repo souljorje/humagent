@@ -4,6 +4,11 @@ import type { ObjectValue } from './json.js';
 export interface Draft {
   item: ReviewItem;
   revision: string;
+  marker?: MarkerPosition;
+}
+export interface MarkerPosition {
+  x: number;
+  y: number;
 }
 export interface OverallInstruction {
   text: string;

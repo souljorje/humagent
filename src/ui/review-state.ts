@@ -5,6 +5,7 @@ import type {
   ReviewState,
   PendingBatch,
   StageResult,
+  MarkerPosition,
 } from '../shared/review.js';
 import { errorMessage } from '../shared/errors.js';
 
@@ -74,9 +75,20 @@ export function createReview(
     item: unknown,
     revision: string,
     requestId: string = crypto.randomUUID(),
+    marker?: MarkerPosition,
   ): StageResult {
     const captured = cloneJson(item);
-    const signature = fingerprint({ item: captured, revision });
+    if (
+      marker !== undefined &&
+      (!marker || !Number.isFinite(marker.x) || !Number.isFinite(marker.y))
+    )
+      throw new Error('Invalid marker position');
+    const position = marker ? { x: marker.x, y: marker.y } : undefined;
+    const signature = fingerprint({
+      item: captured,
+      revision,
+      ...(position ? { marker: position } : {}),
+    });
     const previous = state.staged[requestId];
     if (previous) {
       if (previous.signature !== signature)
@@ -95,7 +107,11 @@ export function createReview(
       payload: { items: [{ ...(captured as Record<string, unknown>), id }] },
     });
     commit((next) => {
-      next.drafts.push({ item: value.payload.items[0]!, revision });
+      next.drafts.push({
+        item: value.payload.items[0]!,
+        revision,
+        ...(position ? { marker: position } : {}),
+      });
       next.staged[requestId] = { id, signature };
     });
     return { draftId: id, status: 'draft' };

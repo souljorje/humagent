@@ -2,6 +2,7 @@ import type { DraftItem } from './batch.js';
 import type {
   Availability,
   Draft,
+  MarkerPosition,
   FormState,
   StageResult,
   StateResult,
@@ -29,7 +30,10 @@ export interface Requests {
     result: { ok: true };
   };
   remove: { params: { draftId: string }; result: { ok: true } };
-  stage: { params: { item: DraftItem }; result: StageResult };
+  stage: {
+    params: { item: DraftItem; marker?: MarkerPosition };
+    result: StageResult;
+  };
   state: {
     params: { state: FormState; expectedVersion: number };
     result: StateResult;
