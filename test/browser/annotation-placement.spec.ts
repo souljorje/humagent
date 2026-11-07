@@ -1,6 +1,6 @@
 import { test, expect } from './fixtures.ts';
 
-test('markers retain the confirmed popover position across editing, reload, and scrolling', async ({
+test('markers retain the click position across editing, reload, and scrolling', async ({
   page,
   plan,
   review,
@@ -20,13 +20,12 @@ test('markers retain the confirmed popover position across editing, reload, and 
   await review.frame
     .getByLabel('Comment', { exact: true })
     .fill('Keep the marker here');
-  const panel = (await review.frame.locator('#panel').boundingBox())!;
   await review.frame.getByRole('button', { name: 'Confirm text edit' }).click();
   const marker = review.frame.locator('.marker');
   await expect(marker).toBeVisible();
   const first = (await marker.boundingBox())!;
-  expect(first.x).toBeCloseTo(panel.x, 0);
-  expect(first.y).toBeCloseTo(panel.y, 0);
+  expect(first.x).toBeCloseTo(coordinates.x, 0);
+  expect(first.y).toBeCloseTo(coordinates.y, 0);
   const draft = (await review.state()).drafts[0];
   expect(draft.marker).toBeDefined();
   await marker.click();
@@ -64,7 +63,7 @@ test('markers retain the confirmed popover position across editing, reload, and 
   ).toEqual(coordinates);
 });
 
-test('markers sharing a position remain separate and stable', async ({
+test('markers preserve their click positions without automatic offsets', async ({
   page,
   plan: _plan,
   review,
@@ -74,8 +73,13 @@ test('markers sharing a position remain separate and stable', async ({
   await page.locator('#annotate').click();
   const target = review.frame.locator('h1');
   const size = (await target.boundingBox())!;
-  for (const comment of ['First comment', 'Second comment']) {
-    await target.click({ position: { x: size.width - 5, y: size.height / 2 } });
+  for (const [index, comment] of [
+    'First comment',
+    'Second comment',
+  ].entries()) {
+    await target.click({
+      position: { x: size.width - 45 - index * 8, y: size.height / 2 },
+    });
     await review.frame.getByLabel('Comment', { exact: true }).fill(comment);
     await review.frame
       .getByRole('button', { name: 'Add comment', exact: true })
@@ -85,9 +89,7 @@ test('markers sharing a position remain separate and stable', async ({
   await expect(markers).toHaveCount(2);
   const a = (await markers.nth(0).boundingBox())!,
     b = (await markers.nth(1).boundingBox())!;
-  expect(
-    Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)),
-  ).toBeGreaterThanOrEqual(38);
+  expect(Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y))).toBe(8);
   await markers.nth(1).click();
   await review.frame
     .getByRole('button', { name: 'Cancel', exact: true })
@@ -185,7 +187,7 @@ for (const shadow of [false, true])
     await expect
       .poll(() => button.evaluate((el) => getComputedStyle(el).cursor))
       .toBe('pointer');
-    await button.click();
+    await button.click({ position: { x: 5, y: 5 } });
     expect(await review.evaluate(() => document.body.dataset.activations)).toBe(
       '1',
     );

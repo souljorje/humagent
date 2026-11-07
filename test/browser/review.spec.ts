@@ -155,7 +155,8 @@ test('editors fit viewport edges and reduced motion disables transitions', async
   await review.addComment('h1', 'Keep the target visible');
   for (const width of [1440, 390, 320]) {
     await page.setViewportSize({ width, height: 844 });
-    await review.frame.locator('.marker').click();
+    await review.expand();
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await expect
       .poll(async () => {
         const panel = await review.frame.locator('#panel').boundingBox();
@@ -325,7 +326,11 @@ test('commenting captures controls without activating them', async ({
   await review.frame.getByLabel('Comment', { exact: true }).fill('This button');
   await review.frame.getByRole('button', { name: 'Confirm text edit' }).click();
   await page.locator('#annotate').click();
-  await review.frame.locator('#counter').click();
+  await expect(page.locator('#annotate')).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await review.frame.locator('#counter').click({ position: { x: 2, y: 2 } });
   await expect(review.frame.locator('#counter')).toHaveText('Count: 1');
 });
 

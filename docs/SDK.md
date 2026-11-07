@@ -81,7 +81,7 @@ A message-only batch is valid. An empty batch is not. An empty replacement strin
 Captured targets include source URL, viewed revision, selector, text, stable ID when available, and quote context for selected text.
 Open shadow-root targets also include a selector path through their hosts.
 Captured targets include `coordinates: { x, y, space: "document" }` in CSS pixels.
-Coordinates record the feedback location when created. Text edits use the final caret, and keyboard comments use the target center.
+Coordinates record the click location when feedback is created. Keyboard comments use the target center.
 Targets describe rendered content. They do not guarantee a unique source location.
 
 Requests must contain JSON and stay within 256 KiB. Nesting stays below 24 levels, including the envelope.
@@ -111,7 +111,7 @@ Enter confirms, Shift+Enter adds a newline, and Escape cancels.
 Add an optional comment in the popover. Confirmation saves the text and comment together.
 Plain button and link labels also support text editing. Annotation mode prevents their normal activation.
 Mixed-format selections and native input fields remain comment targets. Repeated edits preserve the original text and item ID.
-Text-edit markers align beside the edited line. Comment markers retain the confirmed popover position.
+All markers appear at the click location and keep their position during editing.
 Marker placement stays in browser drafts and does not enter submitted batches.
 Confirmed previews stay visible after Send until their batch is acknowledged. Deletion or a source revision change removes previews.
 Preview cleanup does not overwrite subsequent application changes. Humagent never saves rendered page content as source.

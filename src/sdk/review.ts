@@ -32,7 +32,6 @@ interface Capture {
   el: Element;
   draft?: Draft;
   point: Point;
-  pointer: boolean;
 }
 interface Point {
   x: number;
@@ -309,7 +308,6 @@ export function createPageReview(bridge: ReviewBridge) {
       before,
       el,
       point: anchor(el, point),
-      pointer: !!point,
     };
     replacement = false;
     showEditor();
@@ -353,7 +351,6 @@ export function createPageReview(bridge: ReviewBridge) {
       el,
       draft: existing,
       point: anchor(el, point),
-      pointer: !!point,
     };
     replacement = true;
     text.open(node, start, end, before);
@@ -395,7 +392,6 @@ export function createPageReview(bridge: ReviewBridge) {
       el,
       draft,
       point: anchor(el, point || center(markers.get(draftId))),
-      pointer: !!point,
     };
     replacement = false;
     showEditor();
@@ -469,12 +465,6 @@ export function createPageReview(bridge: ReviewBridge) {
       return;
     }
     const current = captured;
-    const endpoint =
-      replacement && text.value !== text.initial ? text.endpoint : undefined;
-    const lineEnd = endpoint ? text.lineEnd : undefined;
-    const textMarker = lineEnd
-      ? anchor(current.el, { x: lineEnd.x + 8, y: lineEnd.y - 16 })
-      : undefined;
     saving = true;
     updateEditor();
     try {
@@ -484,25 +474,14 @@ export function createPageReview(bridge: ReviewBridge) {
           draftId: current.draft.item.id,
           comment: $('note').value,
           ...(replacement ? { after: text.value } : {}),
-          ...(textMarker ? { marker: textMarker } : {}),
         });
       else {
-        const rect = $('panel').getBoundingClientRect();
         const targetRect = current.el.getBoundingClientRect();
-        const feedbackPoint = endpoint
-          ? anchor(current.el, endpoint)
-          : current.point;
         const coordinates = {
-          x: Math.round(targetRect.left + feedbackPoint.x + scrollX),
-          y: Math.round(targetRect.top + feedbackPoint.y + scrollY),
+          x: Math.round(targetRect.left + current.point.x + scrollX),
+          y: Math.round(targetRect.top + current.point.y + scrollY),
           space: 'document',
         };
-        const marker =
-          textMarker ||
-          anchor(
-            current.el,
-            current.pointer ? { x: rect.left, y: rect.top } : undefined,
-          );
         await stage(
           {
             target: { ...current.target, coordinates },
@@ -516,7 +495,7 @@ export function createPageReview(bridge: ReviewBridge) {
                 }
               : {}),
           },
-          marker,
+          current.point,
         );
       }
       saving = false;
@@ -802,7 +781,6 @@ export function createPageReview(bridge: ReviewBridge) {
     const panelRect = panel?.getBoundingClientRect();
     const visible = new Set(layouts.map((layout) => layout.draft.item.id));
     for (const [id, marker] of markers) marker.hidden = !visible.has(id);
-    const occupied: Point[] = [];
     for (const { draft, index, rect } of layouts) {
       let marker = markers.get(draft.item.id);
       if (!marker) {
@@ -828,38 +806,7 @@ export function createPageReview(bridge: ReviewBridge) {
         String(captured?.draft?.item.id === draft.item.id),
       );
       const offset = draft.marker || { x: rect.width / 2, y: rect.height / 2 };
-      const clamp = (x: number, y: number) => ({
-        x: Math.max(12, Math.min(x, innerWidth - 44)),
-        y: Math.max(
-          12,
-          Math.min(y, (window.visualViewport?.height || innerHeight) - 44),
-        ),
-      });
-      const base = clamp(rect.left + offset.x, rect.top + offset.y);
-      let point = base;
-      const overlaps = (candidate: Point) =>
-        occupied.some(
-          (p) =>
-            Math.abs(p.x - candidate.x) < 38 &&
-            Math.abs(p.y - candidate.y) < 38,
-        );
-      for (
-        let radius = 38;
-        overlaps(point) && radius <= layouts.length * 38;
-        radius += 38
-      ) {
-        const candidate = [
-          [radius, 0],
-          [-radius, 0],
-          [0, radius],
-          [0, -radius],
-        ]
-          .map(([x, y]) => clamp(base.x + x!, base.y + y!))
-          .find((p) => !overlaps(p));
-        if (candidate) point = candidate;
-      }
-      occupied.push(point);
-      place(marker, point.x, point.y);
+      place(marker, rect.left + offset.x, rect.top + offset.y);
     }
     $('highlight').hidden = !highlight;
     if (highlight) {
