@@ -1,4 +1,4 @@
-import type { Draft, MarkerPosition } from '../shared/review.js';
+import type { Draft, MarkerPosition } from '../shared/feedback.js';
 import { caretAtPoint } from './text-hit.js';
 
 interface Preview {

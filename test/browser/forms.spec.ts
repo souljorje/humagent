@@ -1,86 +1,50 @@
 import { test, expect, type Feedback } from './fixtures.ts';
 
-for (const lost of ['HTTP response', 'bridge acknowledgment'])
-  test(`form persistence recovers a lost ${lost}`, async ({
-    page,
-    plan,
-    review,
-    workspace,
-  }) => {
-    if (lost === 'HTTP response') {
-      let dropped = false;
-      await page.route(
-        `**/api/sessions/${plan.session}/state`,
-        async (route) => {
-          if (!dropped) {
-            dropped = true;
-            await route.fetch();
-            await route.abort();
-          } else await route.continue();
-        },
-      );
-    } else {
-      await page.addInitScript(() => {
-        let dropped = false;
-        window.addEventListener(
-          'message',
-          (event) => {
-            if (
-              !dropped &&
-              event.data?.method === 'result' &&
-              event.data.result?.stateVersion === 1
-            ) {
-              dropped = true;
-              window.droppedStateAcknowledgment = true;
-              event.stopImmediatePropagation();
-            }
-          },
-          true,
-        );
-      });
-      await page.reload();
-      await review.ready();
-    }
-    await review.frame
-      .locator('input[name="outcome"]')
-      .fill('Survive the lost response');
-    await expect
-      .poll(() => workspace.forms(plan.session).launch?.outcome)
-      .toBe('Survive the lost response');
-    if (lost === 'bridge acknowledgment')
-      await expect
-        .poll(() => review.evaluate(() => window.droppedStateAcknowledgment))
-        .toBe(true);
-    const documentId = await review.evaluate(
-      () => window.__HUMAGENT__!.documentId,
-    );
-    if (
-      (await page.locator('#toggle-review').getAttribute('aria-expanded')) !==
-      'true'
-    )
-      await page.locator('#toggle-review').click();
-    await Promise.all([
-      page.waitForEvent(
-        'framenavigated',
-        (frame) => frame.parentFrame() === page.mainFrame(),
-      ),
-      review.evaluate(() => location.reload()),
-    ]);
-    await review.ready();
-    await expect
-      .poll(() => review.evaluate(() => window.__HUMAGENT__!.documentId), {
-        timeout: 15000,
-      })
-      .not.toBe(documentId);
-    await review.ready();
-    await expect(review.frame.locator('input[name="outcome"]')).toHaveValue(
-      'Survive the lost response',
-    );
-    await review.frame.locator('input[name="outcome"]').fill('A later edit');
-    await expect
-      .poll(() => workspace.forms(plan.session).launch?.outcome)
-      .toBe('A later edit');
+test('form persistence survives a lost HTTP response', async ({
+  page,
+  plan,
+  review,
+  workspace,
+}) => {
+  let dropped = false;
+  await page.route(`**/api/sessions/${plan.session}/forms/*`, async (route) => {
+    if (!dropped) {
+      dropped = true;
+      await route.fetch();
+      await route.abort();
+    } else await route.continue();
   });
+  await review.frame
+    .locator('input[name="outcome"]')
+    .fill('Survive the lost response');
+  await expect
+    .poll(() => workspace.forms(plan.session).launch?.outcome)
+    .toBe('Survive the lost response');
+  const documentId = await review.evaluate(
+    () => window.__HUMAGENT__!.documentId,
+  );
+  await Promise.all([
+    page.waitForEvent(
+      'framenavigated',
+      (frame) => frame.parentFrame() === page.mainFrame(),
+    ),
+    review.evaluate(() => location.reload()),
+  ]);
+  await review.ready();
+  await expect
+    .poll(() => review.evaluate(() => window.__HUMAGENT__!.documentId), {
+      timeout: 15000,
+    })
+    .not.toBe(documentId);
+  await review.ready();
+  await expect(review.frame.locator('input[name="outcome"]')).toHaveValue(
+    'Survive the lost response',
+  );
+  await review.frame.locator('input[name="outcome"]').fill('A later edit');
+  await expect
+    .poll(() => workspace.forms(plan.session).launch?.outcome)
+    .toBe('A later edit');
+});
 
 test('form submission captures values before delayed persistence', async ({
   page,
@@ -92,7 +56,7 @@ test('form submission captures values before delayed persistence', async ({
     release = resolve;
   });
   let requests = 0;
-  await page.route(`**/api/sessions/${plan.session}/state`, async (route) => {
+  await page.route(`**/api/sessions/${plan.session}/forms/*`, async (route) => {
     if (++requests === 1) await delayed;
     await route.continue();
   });
@@ -151,7 +115,7 @@ test('form values survive reload and staged values remain a separate snapshot', 
     .poll(() => workspace.store.get(plan.session).events.length)
     .toBe(1);
   expect(
-    workspace.store.get(plan.session).events[0].payload.items[0].values,
+    workspace.store.get(plan.session).events[0].items[0].values,
   ).toMatchObject({
     approach: 'platform-first',
     notes: 'Exact note.',
@@ -198,8 +162,8 @@ test('SDK and forms stage beside annotations and one batch reaches the waiting a
   await page.locator('#send').click();
   const receipt = await waiting;
   expect(receipt.events).toHaveLength(1);
-  expect(receipt.events[0].payload.items).toHaveLength(3);
-  expect(receipt.events[0].payload.message).toBe('Review everything together.');
+  expect(receipt.events[0].items).toHaveLength(3);
+  expect(receipt.events[0].message).toBe('Review everything together.');
   await workspace.api(`/api/sessions/${plan.session}/ack`, 'POST', {
     receipt: receipt.receipt,
   });
@@ -207,58 +171,7 @@ test('SDK and forms stage beside annotations and one batch reaches the waiting a
   expect(workspace.store.get(plan.session).events[0].status).toBe('completed');
 });
 
-for (const reload of [false, true])
-  test(`a lost HTTP response retries the same batch${reload ? ' after reload' : ''}`, async ({
-    page,
-    plan,
-    review,
-    workspace,
-  }) => {
-    const requests: unknown[] = [];
-    await page.route(
-      `**/api/sessions/${plan.session}/events`,
-      async (route) => {
-        requests.push(route.request().postDataJSON());
-        if (requests.length === 1) {
-          const response = await route.fetch();
-          expect(response.status()).toBe(200);
-          await route.abort();
-        } else await route.continue();
-      },
-    );
-    await review.evaluate(() =>
-      window.humagent.submit({
-        intent: 'review',
-        values: { decision: 'first' },
-      }),
-    );
-    await review.connect();
-    await page.locator('#send').click();
-    await expect(page.locator('#outbox')).toBeVisible();
-    await expect(page.locator('#error')).toBeVisible();
-    expect(workspace.store.get(plan.session).events).toHaveLength(1);
-    if (reload) {
-      await page.reload();
-      await review.ready();
-    }
-    await review.evaluate(() =>
-      window.humagent.submit({ intent: 'review', values: { decision: 'new' } }),
-    );
-    await page.locator('#message').fill('A new instruction');
-    await page.getByRole('button', { name: 'Retry send', exact: true }).click();
-    await expect(page.locator('#outbox')).toBeHidden();
-    expect(requests[1]).toEqual(requests[0]);
-    expect(workspace.store.get(plan.session).events).toHaveLength(1);
-    expect((await review.state()).drafts[0].item.values!.decision).toBe('new');
-    await expect(page.locator('#message')).toHaveValue('A new instruction');
-    await review.connect();
-    await page.locator('#send').click();
-    await expect
-      .poll(() => workspace.store.get(plan.session).events.length)
-      .toBe(2);
-  });
-
-test('SDK rejects lossy values and failed browser persistence without staging success', async ({
+test('SDK rejects lossy values and failed server writes without staging success', async ({
   page,
   plan,
   review,
@@ -290,13 +203,13 @@ test('SDK rejects lossy values and failed browser persistence without staging su
     return rejected;
   });
   expect(count).toBe(9);
-  await page.evaluate(() => {
-    window.originalSetItem = Storage.prototype.setItem;
-    Storage.prototype.setItem = function (key, value) {
-      if (key.startsWith('humagent:review:')) throw new Error('Storage full');
-      return window.originalSetItem.call(this, key, value);
-    };
-  });
+  const drafts = `**/api/sessions/${plan.session}/drafts`;
+  await page.route(drafts, (route) =>
+    route.fulfill({
+      status: 500,
+      json: { error: 'ERROR', message: 'Storage full' },
+    }),
+  );
   const failure = await review.evaluate(async () => {
     try {
       await window.humagent.submit({
@@ -310,9 +223,7 @@ test('SDK rejects lossy values and failed browser persistence without staging su
   expect(failure).toContain('Storage full');
   expect((await review.state()).drafts).toHaveLength(0);
   expect(workspace.store.get(plan.session).events).toHaveLength(0);
-  await page.evaluate(() => {
-    Storage.prototype.setItem = window.originalSetItem;
-  });
+  await page.unroute(drafts);
   await review.evaluate(() =>
     window.humagent.submit({ intent: 'review', values: { safe: true } }),
   );
@@ -377,67 +288,6 @@ test('generated mini-app stays local until Send', async ({
   await expect
     .poll(() => workspace.store.get(opened.session).events.length)
     .toBe(1);
-});
-
-test('an accepted batch can be confirmed after the session ends', async ({
-  page,
-  plan,
-  review,
-  workspace,
-}) => {
-  const pattern = `**/api/sessions/${plan.session}/events`;
-  await page.route(pattern, async (route) => {
-    await route.fetch();
-    await route.abort();
-  });
-  await review.evaluate(() =>
-    window.humagent.submit({ intent: 'review', values: { chosen: true } }),
-  );
-  await review.connect();
-  await page.locator('#send').click();
-  await expect(page.locator('#error')).toBeVisible();
-  await page.unroute(pattern);
-  await workspace.api(`/api/sessions/${plan.session}/end`, 'POST', {});
-  await expect(page.locator('#agent-state')).toHaveText('Session ended');
-  await page.getByRole('button', { name: 'Retry send' }).click();
-  await expect(page.locator('#outbox')).toBeHidden();
-  expect(workspace.store.get(plan.session).events).toHaveLength(1);
-});
-
-test('lost staging acknowledgments retry without duplicate drafts', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await page.addInitScript(() => {
-    let dropped = false;
-    window.addEventListener(
-      'message',
-      (event) => {
-        if (
-          !dropped &&
-          event.data?.method === 'result' &&
-          event.data.result?.status === 'draft'
-        ) {
-          dropped = true;
-          window.droppedStageAcknowledgment = true;
-          event.stopImmediatePropagation();
-        }
-      },
-      true,
-    );
-  });
-  await page.reload();
-  await review.ready();
-  const staged = await review.evaluate(() =>
-    window.humagent.submit({ intent: 'review', values: { chosen: true } }),
-  );
-  expect(staged.status).toBe('draft');
-  expect(await review.evaluate(() => window.droppedStageAcknowledgment)).toBe(
-    true,
-  );
-  expect((await review.state()).drafts).toHaveLength(1);
-  await expect(page.locator('.draft')).toHaveCount(1);
 });
 
 test('separate concurrent SDK calls with equal values stage separate drafts', async ({

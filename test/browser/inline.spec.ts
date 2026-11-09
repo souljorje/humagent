@@ -73,7 +73,7 @@ test('physical clicks on disabled Send dismiss edits without sending', async ({
   expect(workspace.store.get(plan.session).events).toHaveLength(0);
 });
 
-test('acknowledgment removes an uncertain preview while retry still confirms its immutable batch', async ({
+test('a sent text preview stays after a lost response until acknowledgment', async ({
   page,
   plan,
   review,
@@ -81,24 +81,19 @@ test('acknowledgment removes an uncertain preview while retry still confirms its
 }) => {
   const original = await review.frame.locator('h1').textContent();
   await review.replace('h1', 'Uncertain preview');
-  const route = `**/api/sessions/${plan.session}/events`;
-  await page.route(route, async (request) => {
+  await page.route(`**/api/sessions/${plan.session}/send`, async (request) => {
     await request.fetch();
     await request.abort();
   });
   await review.connect();
   await page.locator('#send').click();
   await expect(page.locator('#error')).toBeVisible();
+  await expect(review.frame.locator('.marker')).toHaveCount(0);
+  await expect(review.frame.locator('h1')).toHaveText('Uncertain preview');
   const received = await review.receive();
-  if (received?.status !== 'feedback') throw new Error('Expected feedback');
   workspace.store.acknowledge(plan.session, received.receipt);
   await expect(review.frame.locator('h1')).toHaveText(original!);
-  expect((await review.state()).outbox).toHaveLength(1);
-  await page.unroute(route);
-  await page.getByRole('button', { name: 'Retry send' }).click();
-  await expect(review.frame.locator('.marker')).toHaveCount(0);
-  expect((await review.state()).outbox).toHaveLength(0);
-  await expect(review.frame.locator('h1')).toHaveText(original!);
+  expect(workspace.store.get(plan.session).events).toHaveLength(1);
 });
 
 test('selected words edit in place, repeat edits keep evidence and IDs, and cancellation restores previews', async ({

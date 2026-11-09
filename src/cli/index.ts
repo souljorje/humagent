@@ -5,7 +5,8 @@ import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRuntime } from '../runtime/server.js';
-import { ensure } from '../runtime/protocol.js';
+import { ensure } from '../runtime/validate.js';
+import { LIMITS } from '../shared/feedback.js';
 import { version, runtimeName, runtimeVersion } from '../runtime/version.js';
 
 const HELP = `Humagent ${version}
@@ -116,7 +117,6 @@ function parse() {
   machine ||= flags.has('json');
 }
 interface ServerRecord {
-  protocol: number;
   pid: number;
   origin: string;
   token: string;
@@ -132,7 +132,7 @@ function record(): ServerRecord | null {
   }
 }
 async function alive(r: ServerRecord | null) {
-  if (!r || r.protocol !== 1) return false;
+  if (!r) return false;
   try {
     const res = await fetch(`${r.origin}/health`, {
       signal: AbortSignal.timeout(1000),
@@ -179,7 +179,7 @@ async function service() {
     }
   }
   throw new Error(
-    `Could not start the server. Read ${path.join(directory, 'server.log')}. Use HUMAGENT_PORT=0 to select a free port.`,
+    `Could not start the server. Read ${path.join(directory, 'server.log')}.`,
   );
 }
 async function request(
@@ -212,15 +212,19 @@ async function output(value: unknown) {
     ),
   );
 }
-function numeric(name: string, fallback: number, maximum: number) {
-  const value = Number(flags.get(name) ?? fallback);
+/** Read a duration flag in seconds and return milliseconds. */
+function duration(name: 'timeout' | 'lease') {
+  const {
+    default: fallback,
+    min,
+    max,
+  } = name === 'lease' ? LIMITS.leaseMs : LIMITS.waitMs;
+  const value = Math.round(Number(flags.get(name) ?? fallback / 1000) * 1000);
   ensure(
-    Number.isFinite(value) &&
-      value >= (name === 'lease' ? 1 : 0.001) &&
-      value <= maximum,
-    `--${name} must be between ${name === 'lease' ? 1 : 0.001} and ${maximum} seconds.`,
+    Number.isFinite(value) && value >= min && value <= max,
+    `--${name} must be between ${min / 1000} and ${max / 1000} seconds.`,
   );
-  return Math.round(value * 1000);
+  return value;
 }
 function openBrowser(url: string) {
   const [exe, parameters] =
@@ -385,8 +389,8 @@ async function main() {
       );
     if (command === 'ack' || command === 'renew')
       ensure(flags.get('receipt'), '--receipt is required.');
-    if (command === 'wait') numeric('timeout', 50, 600);
-    if (command === 'wait' || command === 'renew') numeric('lease', 120, 3600);
+    if (command === 'wait') duration('timeout');
+    if (command === 'wait' || command === 'renew') duration('lease');
   }
   const r = await service();
   if (target) {
@@ -413,7 +417,7 @@ async function main() {
   }
   const base = `/api/sessions/${argument}`;
   if (command === 'wait') {
-    const timeoutMs = numeric('timeout', 50, 600);
+    const timeoutMs = duration('timeout');
     process.stderr.write(
       'Waiting for input. Keep this command attached to the active agent turn.\n',
     );
@@ -425,7 +429,7 @@ async function main() {
         {
           consumer: flags.get('consumer') ?? 'agent',
           timeoutMs,
-          leaseMs: numeric('lease', 120, 3600),
+          leaseMs: duration('lease'),
         },
         timeoutMs + 5000,
       ),
@@ -436,7 +440,7 @@ async function main() {
     await output(
       await request(r, `${base}/${command}`, 'POST', {
         receipt: flags.get('receipt'),
-        leaseMs: numeric('lease', 120, 3600),
+        leaseMs: duration('lease'),
       }),
     );
     return;

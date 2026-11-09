@@ -55,11 +55,10 @@ test('markers retain the click position across editing, reload, and scrolling', 
   await page.locator('#send').click();
   await expect(marker).toHaveCount(0);
   expect(
-    workspace.store.get(plan.session).events[0].payload.items[0],
+    workspace.store.get(plan.session).events[0].items[0],
   ).not.toHaveProperty('marker');
   expect(
-    workspace.store.get(plan.session).events[0].payload.items[0].target
-      ?.coordinates,
+    workspace.store.get(plan.session).events[0].items[0].target?.coordinates,
   ).toEqual(coordinates);
 });
 

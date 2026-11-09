@@ -11,7 +11,7 @@ test('sending requires an agent and confirmation stays in the button briefly', a
   await expect(send).toBeDisabled();
   await send.dispatchEvent('click');
   await expect(page.locator('#error')).toContainText('Connect an agent');
-  expect((await review.state()).outbox).toHaveLength(0);
+  expect((await review.state()).message).toBe('Review this');
   expect(workspace.store.get(plan.session).events).toHaveLength(0);
   await review.connect();
   await expect(send).toBeEnabled();
@@ -23,7 +23,7 @@ test('sending requires an agent and confirmation stays in the button briefly', a
     seen = resolve;
   });
   let requests = 0;
-  await page.route(`**/api/sessions/${plan.session}/events`, async (route) => {
+  await page.route(`**/api/sessions/${plan.session}/send`, async (route) => {
     requests++;
     seen();
     await gate;
@@ -55,7 +55,7 @@ test('sending requires an agent and confirmation stays in the button briefly', a
   await expect(send).toBeDisabled();
 });
 
-test('disconnect between the browser check and server acceptance retains feedback', async ({
+test('a send that the server refuses keeps the feedback in place', async ({
   page,
   plan,
   review,
@@ -63,7 +63,7 @@ test('disconnect between the browser check and server acceptance retains feedbac
 }) => {
   await page.locator('#message').fill('Keep this feedback');
   await review.connect(120000, 1200);
-  await page.route(`**/api/sessions/${plan.session}/events`, async (route) => {
+  await page.route(`**/api/sessions/${plan.session}/send`, async (route) => {
     await expect
       .poll(
         async () =>
@@ -77,11 +77,29 @@ test('disconnect between the browser check and server acceptance retains feedbac
   await expect(page.locator('#send')).toHaveText('Send');
   await expect(page.locator('#send')).toBeDisabled();
   expect(workspace.store.get(plan.session).events).toHaveLength(0);
-  await expect(
-    page.getByRole('button', { name: 'Return to drafts' }),
-  ).toBeEnabled();
-  await page.getByRole('button', { name: 'Return to drafts' }).click();
+  expect((await review.state()).message).toBe('Keep this feedback');
   await expect(page.locator('#message')).toHaveValue('Keep this feedback');
+});
+
+test('a lost Send response creates one event and clears the sent drafts', async ({
+  page,
+  plan,
+  review,
+  workspace,
+}) => {
+  await review.addComment('h1', 'Send this once');
+  await review.connect();
+  await page.route(`**/api/sessions/${plan.session}/send`, async (route) => {
+    await route.fetch();
+    await route.abort();
+  });
+  await page.locator('#send').click();
+  await expect(page.locator('#error')).toBeVisible();
+  await expect(page.locator('#drafts li')).toHaveCount(0);
+  expect(workspace.store.get(plan.session).events).toHaveLength(1);
+  expect(workspace.store.get(plan.session).events[0].items[0].comment).toBe(
+    'Send this once',
+  );
 });
 
 test('new feedback immediately restores Send after a confirmed submission', async ({

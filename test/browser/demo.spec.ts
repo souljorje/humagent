@@ -116,8 +116,8 @@ test('the plan demo combines text edits, comments, and choices without changing 
   await page.locator('#send').click();
   const feedback = await review.receive();
   expect(feedback.events).toHaveLength(1);
-  expect(feedback.events[0].payload.items).toHaveLength(3);
-  expect(feedback.events[0].payload.items[2]).toMatchObject({
+  expect(feedback.events[0].items).toHaveLength(3);
+  expect(feedback.events[0].items[2]).toMatchObject({
     intent: 'plan_review',
     values: {
       workflow: 'prototype',

@@ -13,8 +13,8 @@ import { fileURLToPath } from 'node:url';
 import { createRuntime } from '../../dist/runtime/server.js';
 import { fixture } from '../fixtures.ts';
 import type { AddressInfo } from 'node:net';
-import type { SessionSnapshot } from '../../dist/runtime/server.js';
-import type { ReviewState, FormState } from '../../src/shared/review.js';
+import type { Session } from '../../dist/runtime/store.js';
+import type { WorkspaceView } from '../../src/shared/feedback.js';
 import type { ObjectValue } from '../../src/shared/json.js';
 
 type Runtime = Awaited<ReturnType<typeof createRuntime>>;
@@ -32,7 +32,7 @@ interface Workspace {
   store: Runtime['store'];
   forms(sessionId: string): Record<string, ObjectValue>;
   restart(): Promise<void>;
-  api<T = SessionSnapshot>(
+  api<T = WorkspaceView>(
     route: string,
     method?: string,
     data?: unknown,
@@ -47,7 +47,8 @@ interface Review {
   receive(): Promise<Feedback>;
   addComment(selector: string, comment: string): Promise<void>;
   replace(selector: string, replacement: string): Promise<void>;
-  state(): Promise<ReviewState>;
+  /** The server's saved feedback for the open session. */
+  state(): Promise<Session>;
   open(target?: string): Promise<Opened>;
 }
 interface Fixtures {
@@ -98,13 +99,13 @@ export const test = base.extend<Fixtures>({
           return runtime.store;
         },
         forms(sessionId) {
-          return (runtime.store.get(sessionId).state as FormState).forms || {};
+          return runtime.store.get(sessionId).forms;
         },
         async restart() {
           await runtime.close();
           runtime = await createRuntime({ directory: state });
         },
-        async api<T = SessionSnapshot>(
+        async api<T = WorkspaceView>(
           route: string,
           method = 'GET',
           data?: unknown,
@@ -236,12 +237,8 @@ export const test = base.extend<Fixtures>({
         ).toBeHidden();
       },
       async state() {
-        return page.evaluate(() =>
-          JSON.parse(
-            localStorage.getItem(
-              `humagent:review:${new URL(location.href).searchParams.get('session')}`,
-            )!,
-          ),
+        return workspace.store.get(
+          new URL(page.url()).searchParams.get('session')!,
         );
       },
       async open(target = workspace.file()) {

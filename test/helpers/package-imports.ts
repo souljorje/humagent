@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createRuntime } from 'humagent';
-import { PROTOCOL } from 'humagent/protocol';
+import { LIMITS } from 'humagent/feedback';
 
 assert.equal(typeof createRuntime, 'function');
-assert.equal(PROTOCOL, 2);
+assert.equal(LIMITS.drafts, 100);

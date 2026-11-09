@@ -1,16 +1,15 @@
-import type { DraftItem } from './batch.js';
+/** postMessage contract between the page SDK and the workspace. The random channel identifies both sides. */
 import type {
   Availability,
   Draft,
+  DraftItem,
   MarkerPosition,
-  FormState,
   StageResult,
-  StateResult,
   Submission,
-} from './review.js';
+} from './feedback.js';
+import type { ObjectValue } from './json.js';
 
 export interface Bootstrap {
-  protocol: 2;
   session: string;
   channel: string;
   parentOrigin: string;
@@ -18,13 +17,19 @@ export interface Bootstrap {
   sourceUrl: string;
   documentId: string;
 }
-export interface ReviewPresentation {
-  items: Draft[];
+export interface Presentation {
+  drafts: Draft[];
+  /** Text replacements that the page shows in place of the original text. */
   previews: Draft[];
-  locked: string[];
   writable: boolean;
 }
+
+/** Page requests. The workspace answers each one with exactly one `result`. */
 export interface Requests {
+  stage: {
+    params: { item: DraftItem; marker?: MarkerPosition };
+    result: StageResult;
+  };
   edit: {
     params: {
       draftId: string;
@@ -32,64 +37,45 @@ export interface Requests {
       after?: string;
       marker?: MarkerPosition;
     };
-    result: { ok: true };
+    result: null;
   };
-  remove: { params: { draftId: string }; result: { ok: true } };
-  stage: {
-    params: { item: DraftItem; marker?: MarkerPosition };
-    result: StageResult;
-  };
-  state: {
-    params: { state: FormState; expectedVersion: number };
-    result: StateResult;
-  };
-  readState: { params: Record<string, never>; result: StateResult };
+  remove: { params: { draftId: string }; result: null };
+  saveForm: { params: { formId: string; values: ObjectValue }; result: null };
 }
-export type RequestResult = Requests[keyof Requests]['result'];
-type RequestMessage = {
-  [M in keyof Requests]: {
-    method: M;
-    params: Requests[M]['params'];
-    id: string;
-  };
-}[keyof Requests];
-interface Channel {
-  humagent: 1;
+export interface PageEvents {
+  hello: Record<string, never>;
+  mode: { enabled: boolean };
+  editing: { dirty: boolean };
+  notice: { message: string };
+  availability: { items: Availability[] };
+}
+type Messages<T, Extra = unknown> = {
+  [M in keyof T]: { method: M; params: T[M] } & Extra;
+}[keyof T];
+type RequestParams = { [M in keyof Requests]: Requests[M]['params'] };
+export type PageMessage = {
   channel: string;
+  documentId: string;
+  revision: string;
+} & (Messages<RequestParams, { id: string }> | Messages<PageEvents>);
+
+export interface WorkspaceEvents {
+  init: Presentation & {
+    forms: Record<string, ObjectValue>;
+    ended: boolean;
+    annotating: boolean;
+  };
+  update: Presentation;
+  annotate: { enabled: boolean; keyboard?: boolean };
+  open: { draftId: string };
+  highlight: { draftId?: string };
+  outside: Record<string, never>;
+  ended: Record<string, never>;
 }
-export type PageMessage = Channel &
-  Pick<Bootstrap, 'revision' | 'sourceUrl' | 'documentId'> &
-  (
-    | RequestMessage
-    | { method: 'hello'; params: Record<string, never> }
-    | { method: 'mode'; params: { enabled: boolean } }
-    | { method: 'editing'; params: { dirty: boolean } }
-    | { method: 'stageReceived'; params: { requestId: string } }
-    | { method: 'notice'; params: { message: string } }
-    | { method: 'availability'; params: { items: Availability[] } }
-    | {
-        method: 'flushed';
-        params: { ok?: boolean; error?: string };
-        id: string;
-      }
-  );
-export type WorkspaceMessage = Channel &
-  (
-    | { method: 'result'; id: string; result: RequestResult; error?: never }
-    | { method: 'result'; id: string; result?: never; error: string }
-    | {
-        method: 'init';
-        params: StateResult &
-          ReviewPresentation & { ended: boolean; annotating: boolean };
-      }
-    | { method: 'drafts'; params: ReviewPresentation }
-    | { method: 'annotate'; params: { enabled: boolean; keyboard?: boolean } }
-    | { method: 'edit'; params: { draftId: string } }
-    | { method: 'highlight'; params: { draftId?: string } }
-    | { method: 'outside' }
-    | { method: 'ended' }
-    | { method: 'flush'; id: string }
-  );
+export type WorkspaceMessage = { channel: string } & (
+  | { method: 'result'; id: string; result?: unknown; error?: string }
+  | Messages<WorkspaceEvents>
+);
 
 declare global {
   interface Window {

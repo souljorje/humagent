@@ -16,9 +16,9 @@
       "types": "./dist/runtime/server.d.ts",
       "import": "./dist/runtime/server.js"
     },
-    "./protocol": {
-      "types": "./dist/runtime/protocol.d.ts",
-      "import": "./dist/runtime/protocol.js"
+    "./feedback": {
+      "types": "./dist/shared/feedback.d.ts",
+      "import": "./dist/shared/feedback.js"
     }
   },
   "files": [

@@ -45,82 +45,6 @@ test('shadow-root targets survive refresh and invalidate when their identity cha
   );
 });
 
-test('lost edit and delete acknowledgments do not repeat mutations', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await page.addInitScript(() => {
-    let dropped = false;
-    window.addEventListener(
-      'message',
-      (event) => {
-        if (
-          !dropped &&
-          event.data?.method === 'result' &&
-          event.data.result?.ok === true
-        ) {
-          dropped = true;
-          event.stopImmediatePropagation();
-        }
-      },
-      true,
-    );
-  });
-  await page.reload();
-  await review.ready();
-  await review.addComment('h1', 'Original');
-  const id = (await review.state()).drafts[0].item.id;
-  await review.frame.locator('.marker').click();
-  await review.frame.getByLabel('Comment', { exact: true }).fill('Updated');
-  await review.frame.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(review.frame.getByRole('dialog')).toBeHidden({ timeout: 15000 });
-  expect((await review.state()).drafts).toHaveLength(1);
-  expect((await review.state()).drafts[0].item).toMatchObject({
-    id,
-    comment: 'Updated',
-  });
-  await page.reload();
-  await review.ready();
-  await review.frame.locator('.marker').click();
-  await review.frame.getByRole('button', { name: 'Delete comment' }).click();
-  await expect(page.locator('#annotate')).toBeEnabled();
-  await expect.poll(async () => (await review.state()).drafts.length).toBe(0);
-  await expect(page.locator('#error')).toBeHidden();
-});
-
-test('pending markers are read only and disappear after matching server confirmation', async ({
-  page,
-  plan,
-  review,
-}) => {
-  const pattern = `**/api/sessions/${plan.session}/events`;
-  await review.addComment('h1', 'Pending comment');
-  await page.route(pattern, async (route) => {
-    await route.fetch();
-    await route.abort();
-  });
-  await review.connect();
-  await page.locator('#send').click();
-  await expect(page.locator('#error')).toBeVisible();
-  await review.frame.locator('.marker').click();
-  await expect(
-    review.frame.getByLabel('Comment', { exact: true }),
-  ).toHaveAttribute('readonly', '');
-  await expect(
-    review.frame.getByRole('button', { name: 'Delete comment' }),
-  ).toBeDisabled();
-  await expect(
-    review.frame.getByRole('button', { name: 'Save', exact: true }),
-  ).toBeDisabled();
-  await review.frame
-    .getByRole('button', { name: 'Cancel', exact: true })
-    .click();
-  await page.unroute(pattern);
-  await page.getByRole('button', { name: 'Retry send' }).click();
-  await expect(review.frame.locator('.marker')).toHaveCount(0);
-});
-
 test('old document messages cannot edit or remove current feedback', async ({
   plan: _plan,
   review,
@@ -133,7 +57,6 @@ test('old document messages cannot edit or remove current feedback', async ({
       parent.postMessage(
         {
           ...boot,
-          humagent: 1,
           documentId: 'previous-document',
           method,
           id: crypto.randomUUID(),
@@ -404,9 +327,9 @@ for (const trigger of ['button', 'Control+Enter', 'Meta+Enter'])
     await expect
       .poll(() => workspace.store.get(plan.session).events.length)
       .toBe(1);
-    expect(
-      workspace.store.get(plan.session).events[0].payload.items[0].comment,
-    ).toBe(cancelled ? 'Original comment' : 'Updated comment');
+    expect(workspace.store.get(plan.session).events[0].items[0].comment).toBe(
+      cancelled ? 'Original comment' : 'Updated comment',
+    );
   });
 
 test('comments and exact deletion send in creation order without changing source', async ({
@@ -434,13 +357,13 @@ test('comments and exact deletion send in creation order without changing source
   await expect(page.locator('#send')).toHaveText('Sent');
   const event = workspace.store.get(plan.session).events[0];
   expect(
-    event.payload.items.map((item) => item.comment || item.replacement!.after),
+    event.items.map((item) => item.comment || item.replacement!.after),
   ).toEqual(['A shorter heading.', 'Keep these boundaries.', '']);
-  expect(event.payload.items[2].replacement!.before).toBe(original);
-  expect(event.payload.items[2].target!.anchor).toMatchObject({
+  expect(event.items[2].replacement!.before).toBe(original);
+  expect(event.items[2].target!.anchor).toMatchObject({
     quote: original,
   });
-  expect(event.payload.items[0].target).toMatchObject({
+  expect(event.items[0].target).toMatchObject({
     id: 'headline',
     revision: event.revision,
   });
@@ -469,7 +392,8 @@ test('marker nodes and keyboard focus survive polling and scrolling', async ({
     return marker === root.querySelector('.marker');
   });
   expect(same).toBe(true);
-  await page.waitForTimeout(3200);
+  // Let at least one snapshot poll redraw the workspace.
+  await page.waitForTimeout(1500);
   await expect(marker).toBeFocused();
 });
 
@@ -547,10 +471,9 @@ test('a message-only batch is valid and empty reviews cannot send', async ({
   await expect
     .poll(() => workspace.store.get(plan.session).events.length)
     .toBe(1);
-  expect(workspace.store.get(plan.session).events[0].payload).toEqual({
-    message: 'An overall instruction.',
-    items: [],
-  });
+  const [event] = workspace.store.get(plan.session).events;
+  expect(event.message).toBe('An overall instruction.');
+  expect(event.items).toEqual([]);
 });
 
 test('frame credentials stay isolated and foreign bridge messages cannot stage feedback', async ({
@@ -570,7 +493,6 @@ test('frame credentials stay isolated and foreign bridge messages cannot stage f
   await page.evaluate(() =>
     window.postMessage(
       {
-        humagent: 1,
         method: 'stage',
         id: 'foreign',
         params: { item: { intent: 'evil', values: {} } },
@@ -585,22 +507,19 @@ test('frame credentials stay isolated and foreign bridge messages cannot stage f
   ).not.toContain(new URL(plan.url).hash.slice(1));
 });
 
-test('one tab owns review editing and another can take ownership after it closes', async ({
-  page,
+test('two tabs edit one session and see each other’s feedback', async ({
   context,
   plan,
+  review,
 }) => {
   const other = await context.newPage();
   await other.goto(plan.url);
-  await expect(other.locator('#readonly')).toBeVisible();
-  await expect(other.locator('#annotate')).toBeDisabled();
-  await page.close();
-  await other.locator('#take-over').click();
   await expect(other.locator('#bridge-status')).toHaveText(
     'Interface connected',
   );
-  await expect(other.locator('#readonly')).toBeHidden();
   await expect(other.locator('#annotate')).toBeEnabled();
+  await review.addComment('h1', 'From the first tab');
+  await expect(other.locator('.draft')).toContainText('From the first tab');
   await other.close();
 });
 

@@ -1,14 +1,13 @@
 import http from 'node:http';
 import { getRequestListener } from '@hono/node-server';
 import { Hono } from 'hono';
-import { streamSSE } from 'hono/streaming';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { Store } from './store.js';
+import { Store, sessionView } from './store.js';
 import { version } from './version.js';
-import { ensure, Failure, MAX_BYTES, object } from './protocol.js';
+import { ensure, Failure, object, parseJson } from './validate.js';
 import {
   targetOf,
   sourceRevision,
@@ -17,15 +16,7 @@ import {
 } from './surfaces.js';
 import { writeJson } from './storage.js';
 import { browserAsset } from './assets.js';
-import type { Session } from './protocol.js';
-
-export interface SessionSnapshot extends Omit<
-  Session,
-  'viewKey' | 'lease' | 'acknowledged'
-> {
-  agent: 'working' | 'waiting' | 'idle';
-  surface: { origin: string; frameUrl: string; channel: string };
-}
+import { LIMITS, type WorkspaceView } from '../shared/feedback.js';
 
 const UI = fileURLToPath(new URL('../ui/', import.meta.url));
 const equal = (a: unknown, b: string) =>
@@ -52,25 +43,13 @@ async function body(req: Request) {
   let total = 0;
   const parts: Uint8Array[] = [];
   const reader = req.body?.getReader();
-  if (reader) {
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        total += value.byteLength;
-        ensure(total <= MAX_BYTES, 'Body exceeds 256 KiB', 'TOO_LARGE', 413);
-        parts.push(value);
-      }
-    } finally {
-      reader.releaseLock();
-    }
+  for (let chunk = await reader?.read(); chunk && !chunk.done;) {
+    total += chunk.value.byteLength;
+    ensure(total <= LIMITS.bodyBytes, 'Body exceeds 256 KiB', 'TOO_LARGE', 413);
+    parts.push(chunk.value);
+    chunk = await reader!.read();
   }
-  let value: unknown;
-  try {
-    value = JSON.parse(Buffer.concat(parts).toString('utf8'));
-  } catch {
-    throw new Failure(400, 'INVALID_JSON', 'Malformed JSON');
-  }
+  const value = parseJson(Buffer.concat(parts).toString('utf8'));
   object(value);
   return value;
 }
@@ -119,7 +98,6 @@ export async function createRuntime(options: RuntimeOptions) {
   const token = randomBytes(32).toString('hex');
   const surfaces = new Map<string, Promise<Surface>>();
   const waiters = new Set<string>();
-  const streams = new Set<() => void>();
   const cancels = new Set<() => void>();
   let origin = '';
   let closing: Promise<void> | undefined;
@@ -134,19 +112,8 @@ export async function createRuntime(options: RuntimeOptions) {
     }
     return surfaces.get(id)!;
   }
-  function view(id: string): Omit<SessionSnapshot, 'surface'> {
-    const { viewKey: _key, lease, acknowledged: _ack, ...s } = store.get(id);
-    return {
-      ...s,
-      agent:
-        lease && lease.expiresAt > Date.now()
-          ? 'working'
-          : waiters.has(id)
-            ? 'waiting'
-            : 'idle',
-    };
-  }
-  async function snapshot(id: string): Promise<SessionSnapshot> {
+  const view = (id: string) => sessionView(store.get(id), waiters.has(id));
+  async function snapshot(id: string): Promise<WorkspaceView> {
     const panel = await surfaces.get(id);
     ensure(
       panel,
@@ -163,6 +130,9 @@ export async function createRuntime(options: RuntimeOptions) {
       },
     };
   }
+  /** Workspace writes return the fresh session, so the browser never guesses the result. */
+  const reply = async (id: string, extra: object = {}) =>
+    json(200, { ...extra, session: await snapshot(id) });
   function checkHost(host: string | undefined) {
     ensure(host === new URL(origin).host, 'Invalid host', 'FORBIDDEN', 403);
   }
@@ -181,14 +151,15 @@ export async function createRuntime(options: RuntimeOptions) {
     if (
       pathname === '/health' ||
       pathname === '/workspace' ||
-      ['/app.js', '/app.css'].includes(pathname) ||
       /^\/(ui|shared)\/[a-z][a-z0-9-]*\.(js|css)$/.test(pathname)
     ) {
       await next();
       return;
     }
     const control = equal(c.req.header('authorization'), `Bearer ${token}`);
-    const match = /^\/api\/sessions\/([\w-]+)(?:\/(\w+))?$/.exec(pathname);
+    const match = /^\/api\/sessions\/([\w-]+)(?:\/(\w+)(?:\/[^/]+)?)?$/.exec(
+      pathname,
+    );
     if (match) {
       const session = store.get(match[1]!);
       ensure(
@@ -206,7 +177,7 @@ export async function createRuntime(options: RuntimeOptions) {
     } else {
       ensure(control, 'Unauthorized', 'UNAUTHORIZED', 401);
     }
-    // Hono dispatches HEAD through GET, but control routes did not allow it.
+    // Hono dispatches HEAD through GET, but control routes do not allow it.
     if (c.req.method === 'HEAD')
       throw new Failure(
         404,
@@ -217,7 +188,7 @@ export async function createRuntime(options: RuntimeOptions) {
   });
 
   app.all('/health', () =>
-    json(200, { app: 'humagent', protocol: 1, pid: process.pid, version }),
+    json(200, { app: 'humagent', pid: process.pid, version }),
   );
   for (const root of ['ui', 'shared']) {
     app.get(`/${root}/:file`, async (c) => {
@@ -235,67 +206,77 @@ export async function createRuntime(options: RuntimeOptions) {
       });
     });
   }
-  for (const route of ['/workspace', '/app.js', '/app.css']) {
-    app.all(route, (c) => {
-      ensure(c.req.method === 'GET', 'Method not allowed', 'METHOD', 405);
-      const name = route === '/workspace' ? 'index.html' : route.slice(1);
-      return new Response(fs.readFileSync(path.join(UI, name)), {
-        headers: {
-          'content-type': name.endsWith('.js')
-            ? 'text/javascript'
-            : name.endsWith('.css')
-              ? 'text/css'
-              : 'text/html; charset=utf-8',
-          'cache-control': 'no-store',
-          'referrer-policy': 'no-referrer',
-          'x-content-type-options': 'nosniff',
-          'content-security-policy':
-            "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src http://127.0.0.1:*; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-        },
-      });
+  app.all('/workspace', (c) => {
+    ensure(c.req.method === 'GET', 'Method not allowed', 'METHOD', 405);
+    return new Response(fs.readFileSync(path.join(UI, 'index.html')), {
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+        'referrer-policy': 'no-referrer',
+        'x-content-type-options': 'nosniff',
+        'content-security-policy':
+          "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src http://127.0.0.1:*; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      },
     });
-  }
+  });
 
   const sessionPath = '/api/sessions/:id{[\\w-]+}';
   app.get(sessionPath, async (c) =>
     json(200, await snapshot(c.req.param('id'))),
   );
-  app.post(`${sessionPath}/events`, async (c) => {
+  app.post(`${sessionPath}/drafts`, async (c) => {
+    const id = c.req.param('id');
+    const draftId = store.addDraft(id, await body(c.req.raw));
+    return reply(id, { draftId });
+  });
+  app.patch(`${sessionPath}/drafts/:draft`, async (c) => {
+    const id = c.req.param('id');
+    store.editDraft(id, c.req.param('draft'), await body(c.req.raw));
+    return reply(id);
+  });
+  app.delete(`${sessionPath}/drafts/:draft`, async (c) => {
+    const id = c.req.param('id');
+    store.removeDraft(id, c.req.param('draft'));
+    return reply(id);
+  });
+  app.put(`${sessionPath}/message`, async (c) => {
+    const id = c.req.param('id');
+    store.setMessage(id, (await body(c.req.raw)).text);
+    return reply(id);
+  });
+  app.put(`${sessionPath}/forms/:form`, async (c) => {
+    const id = c.req.param('id');
+    store.saveForm(id, c.req.param('form'), (await body(c.req.raw)).values);
+    return reply(id);
+  });
+  app.post(`${sessionPath}/send`, async (c) => {
     const id = c.req.param('id');
     const value = await body(c.req.raw);
-    const session = store.get(id);
-    if (session.events.some((event) => event.clientId === value.clientId))
-      return json(200, store.send(id, value));
     await (await surface(id)).checkRevision();
-    if (!store.get(id).ended)
-      ensure(
-        view(id).agent !== 'idle',
-        'Connect an agent before sending feedback.',
-        'AGENT_UNAVAILABLE',
-        409,
-      );
-    return json(200, store.send(id, value));
+    ensure(
+      store.get(id).ended || view(id).agent !== 'idle',
+      'Connect an agent before sending feedback.',
+      'AGENT_UNAVAILABLE',
+      409,
+    );
+    const event = store.send(id, value.revision);
+    return reply(id, { event });
   });
   app.post(`${sessionPath}/surface`, async (c) => {
     const id = c.req.param('id');
     const value = await body(c.req.raw);
     (await surface(id)).activate(value.documentId);
-    return json(200, view(id));
-  });
-  app.put(`${sessionPath}/state`, async (c) => {
-    const value = await body(c.req.raw);
-    store.saveState(c.req.param('id'), value.expectedVersion, value.state);
-    return json(200, view(c.req.param('id')));
+    return reply(id);
   });
   app.post(`${sessionPath}/end`, async (c) => {
+    const id = c.req.param('id');
     await body(c.req.raw);
-    store.end(c.req.param('id'));
-    return json(200, view(c.req.param('id')));
+    store.end(id);
+    return reply(id);
   });
   app.post(`${sessionPath}/ack`, async (c) => {
-    const value = await body(c.req.raw);
     const id = c.req.param('id');
-    store.acknowledge(id, value.receipt);
+    store.acknowledge(id, (await body(c.req.raw)).receipt);
     return json(200, view(id));
   });
   app.post(`${sessionPath}/renew`, async (c) => {
@@ -310,11 +291,12 @@ export async function createRuntime(options: RuntimeOptions) {
   app.post(`${sessionPath}/wait`, async (c) => {
     const value = await body(c.req.raw);
     const id = c.req.param('id');
-    const timeout = Number(value.timeoutMs ?? 50000),
-      leaseMs = Number(value.leaseMs ?? 120000);
+    const { min, max } = LIMITS.waitMs;
+    const timeout = Number(value.timeoutMs ?? LIMITS.waitMs.default),
+      leaseMs = Number(value.leaseMs ?? LIMITS.leaseMs.default);
     ensure(
-      Number.isInteger(timeout) && timeout >= 1 && timeout <= 600000,
-      'timeoutMs must be 1–600000',
+      Number.isInteger(timeout) && timeout >= min && timeout <= max,
+      `timeoutMs must be ${min}–${max}`,
     );
     ensure(
       !waiters.has(id),
@@ -329,95 +311,36 @@ export async function createRuntime(options: RuntimeOptions) {
     const immediate = take();
     if (immediate) return json(200, immediate);
     waiters.add(id);
-    store.emit('change', id);
     return new Promise<Response>((resolve) => {
-      let done = false,
-        processing = false;
-      const cleanup = () => {
-        if (done) return false;
+      let done = false;
+      const finish = (response: () => Response) => {
+        if (done) return;
         done = true;
         clearTimeout(timer);
-        clearInterval(tick);
         store.off('change', changed);
         signal.removeEventListener('abort', cancel);
         waiters.delete(id);
         cancels.delete(cancel);
-        store.emit('change', id);
-        return true;
+        resolve(response());
       };
-      const cancel = () => {
-        if (cleanup()) resolve(json(200, { status: 'interrupted' }));
-      };
+      const cancel = () => finish(() => json(200, { status: 'interrupted' }));
       const changed = (session: string) => {
-        if (session !== id || done || processing) return;
-        processing = true;
+        if (session !== id || done) return;
         try {
           const next = take();
-          if (next && cleanup()) resolve(json(200, next));
+          if (next) finish(() => json(200, next));
         } catch (error) {
-          if (cleanup()) resolve(fail(error));
-        } finally {
-          processing = false;
+          finish(() => fail(error));
         }
       };
-      const timer = setTimeout(() => {
-        if (cleanup()) resolve(json(200, { status: 'timeout' }));
-      }, timeout);
-      const tick = setInterval(() => changed(id), 500);
+      const timer = setTimeout(
+        () => finish(() => json(200, { status: 'timeout' })),
+        timeout,
+      );
       store.on('change', changed);
       cancels.add(cancel);
       signal.addEventListener('abort', cancel, { once: true });
-      if (signal.aborted) cancel();
     });
-  });
-  app.get(`${sessionPath}/stream`, (c) => {
-    const id = c.req.param('id');
-    const signal = c.req.raw.signal;
-    const response = streamSSE(c, async (stream) => {
-      let finish!: () => void;
-      const finished = new Promise<void>((resolve) => {
-        finish = resolve;
-      });
-      let done = false;
-      const cleanup = () => {
-        if (done) return;
-        done = true;
-        clearInterval(heartbeat);
-        store.off('change', changed);
-        signal.removeEventListener('abort', cleanup);
-        streams.delete(cleanup);
-        finish();
-      };
-      const changed = (key: string) => {
-        if (key === id && !done)
-          void stream.writeSSE({ event: 'change', data: '{}' });
-      };
-      const heartbeat = setInterval(() => {
-        void stream.write(': heartbeat\n\n');
-      }, 15000);
-      store.on('change', changed);
-      streams.add(cleanup);
-      stream.onAbort(cleanup);
-      signal.addEventListener('abort', cleanup, { once: true });
-      if (signal.aborted) cleanup();
-      try {
-        await Promise.race([
-          stream.writeSSE({ event: 'ready', data: '{}' }),
-          finished,
-        ]);
-        await finished;
-      } finally {
-        cleanup();
-      }
-    });
-    response.headers.set('cache-control', 'no-store');
-    return response;
-  });
-  app.all(sessionPath, () => {
-    throw new Failure(404, 'NOT_FOUND', 'Unknown session operation');
-  });
-  app.all(`${sessionPath}/:action{\\w+}`, () => {
-    throw new Failure(404, 'NOT_FOUND', 'Unknown session operation');
   });
 
   app.post('/api/open', async (c) => {
@@ -459,6 +382,9 @@ export async function createRuntime(options: RuntimeOptions) {
       errors: store.errors(),
     }),
   );
+  app.all('/api/sessions/*', () => {
+    throw new Failure(404, 'NOT_FOUND', 'Unknown session operation');
+  });
   app.notFound(() => fail(new Failure(404, 'NOT_FOUND', 'Not found')));
 
   const listener = getRequestListener(app.fetch, {
@@ -477,26 +403,14 @@ export async function createRuntime(options: RuntimeOptions) {
     }
     void listener(req, res);
   });
-  const workspaceFile = path.join(directory, 'workspace.json');
-  let port = options.port;
   try {
-    if (port === undefined && fs.existsSync(workspaceFile)) {
-      const saved = JSON.parse(fs.readFileSync(workspaceFile, 'utf8'));
-      ensure(
-        Number.isInteger(saved.port) && saved.port > 0 && saved.port <= 65535,
-        'Stored workspace port is invalid. Restore workspace.json.',
-      );
-      port = saved.port;
-    }
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
-      server.listen(port ?? 0, '127.0.0.1', resolve);
+      server.listen(options.port ?? 0, '127.0.0.1', resolve);
     });
     origin = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`;
-    writeJson(workspaceFile, { port: Number(new URL(origin).port) });
     await Promise.all(store.list().map((session) => surface(session.id)));
     writeJson(path.join(directory, 'server.json'), {
-      protocol: 1,
       pid: process.pid,
       origin,
       token,
@@ -516,7 +430,6 @@ export async function createRuntime(options: RuntimeOptions) {
     if (closing) return closing;
     closing = (async () => {
       for (const cancel of cancels) cancel();
-      for (const stream of streams) stream();
       await Promise.all(
         [...surfaces.values()].map(async (p) => (await p).close()),
       );

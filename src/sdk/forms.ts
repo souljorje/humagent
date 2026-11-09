@@ -1,5 +1,5 @@
 import type { ObjectValue } from '../shared/json.js';
-import type { FormState, StageResult, Submission } from '../shared/review.js';
+import type { StageResult, Submission } from '../shared/feedback.js';
 import { errorMessage } from '../shared/errors.js';
 
 type FormControl = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
@@ -29,7 +29,7 @@ function controls(form: HTMLFormElement): FormControl[] {
       ].includes(el.type),
   );
 }
-export function formValues(form: HTMLFormElement): ObjectValue {
+function formValues(form: HTMLFormElement): ObjectValue {
   const result: ObjectValue = Object.create(null);
   const groups = new Map<string, FormControl[]>();
   for (const el of controls(form)) {
@@ -72,28 +72,22 @@ export function formValues(form: HTMLFormElement): ObjectValue {
   return result;
 }
 
-/** Form values use the same ordered state queue. Staged decisions are separate snapshots. */
+/** Saved form values and staged decisions are separate snapshots. */
 interface FormBridge {
-  getState(): FormState;
-  updateState(update: (state: FormState) => FormState): Promise<void>;
+  saveForm(formId: string, values: ObjectValue): Promise<unknown>;
   submit(value: Submission): Promise<StageResult>;
   notice(message: string): void;
 }
-export function createForms({
-  getState,
-  updateState,
-  submit,
-  notice,
-}: FormBridge) {
+export function createForms({ saveForm, submit, notice }: FormBridge) {
   const timers = new Map<
     HTMLFormElement,
     { timer: ReturnType<typeof setTimeout> }
   >();
-  function restore() {
+  function restore(saved: Record<string, ObjectValue>) {
     for (const form of document.querySelectorAll<HTMLFormElement>(
       'form[data-humagent-intent][data-humagent-persist][id]',
     )) {
-      const values = getState().forms?.[form.id];
+      const values = Object.hasOwn(saved, form.id) ? saved[form.id] : undefined;
       if (!values) continue;
       const seen = new Map();
       for (const el of controls(form)) {
@@ -121,11 +115,7 @@ export function createForms({
   function persist(form: HTMLFormElement) {
     const pending = timers.get(form);
     clearTimeout(pending?.timer);
-    const values = formValues(form);
-    return updateState((current) => ({
-      ...current,
-      forms: { ...current.forms, [form.id]: values },
-    })).then(() => {
+    return saveForm(form.id, formValues(form)).then(() => {
       if (timers.get(form) === pending) timers.delete(form);
     });
   }
@@ -197,5 +187,5 @@ export function createForms({
     },
     true,
   );
-  return { restore, flush };
+  return { restore };
 }

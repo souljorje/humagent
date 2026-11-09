@@ -3,7 +3,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 import { gunzipSync, inflateSync, brotliDecompressSync } from 'node:zlib';
-import { ensure, Failure, type Target } from './protocol.js';
+import { ensure, Failure, localUrl } from './validate.js';
+import type { Target } from '../shared/feedback.js';
 import type { Store } from './store.js';
 import { browserAsset } from './assets.js';
 import type { Bootstrap } from '../shared/bridge.js';
@@ -28,7 +29,7 @@ const MIME: Record<string, string> = {
   '.wasm': 'application/wasm',
   '.txt': 'text/plain',
 };
-export const digest = (value: string | Buffer) =>
+const digest = (value: string | Buffer) =>
   createHash('sha256').update(value).digest('hex');
 export async function targetOf(
   value: string,
@@ -37,10 +38,7 @@ export async function targetOf(
   if (/^https?:/i.test(value)) {
     const url = new URL(value);
     ensure(
-      url.protocol === 'http:' &&
-        ['localhost', '127.0.0.1'].includes(url.hostname) &&
-        !url.username &&
-        !url.password,
+      localUrl(url),
       'Only explicit HTTP localhost/127.0.0.1 targets are supported',
     );
     url.hostname = '127.0.0.1';
@@ -206,7 +204,6 @@ export async function startSurface(
     documents.set(documentId, { route, revision: hash });
     if (documents.size > 256) documents.delete(documents.keys().next().value!);
     return inject(bytes.toString('utf8'), {
-      protocol: 2,
       session: id,
       channel,
       parentOrigin,

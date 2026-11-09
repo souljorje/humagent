@@ -65,11 +65,10 @@ try {
     'dist/ui/app.css',
     'dist/sdk/sdk.js',
     'dist/shared/json.js',
-    'dist/shared/batch.js',
-    'dist/shared/review.d.ts',
+    'dist/shared/feedback.js',
+    'dist/shared/feedback.d.ts',
     'dist/shared/bridge.d.ts',
     'dist/shared/errors.js',
-    'dist/ui/review-state.js',
     'dist/sdk/forms.js',
     'dist/sdk/review.js',
     'dist/sdk/targets.js',
@@ -165,38 +164,26 @@ try {
     assert.ok(attempt < 50, 'Agent must start waiting');
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  const response = await fetch(
-    `${record.origin}/api/sessions/${opened.session}/events`,
-    {
+  const browser = (action: string, data: unknown) =>
+    fetch(`${record.origin}/api/sessions/${opened.session}/${action}`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         'x-humagent-session': new URL(opened.url).hash.slice(1),
       },
-      body: JSON.stringify({
-        protocol: 2,
-        clientId: 'installed-test',
-        revision: snapshot.revision,
-        payload: {
-          items: [
-            {
-              id: 'decision',
-              intent: 'revise_plan',
-              values: { approach: 'pilot-first' },
-            },
-          ],
-        },
-      }),
-    },
-  );
+      body: JSON.stringify(data),
+    });
+  const staged = await browser('drafts', {
+    revision: snapshot.revision,
+    item: { intent: 'revise_plan', values: { approach: 'pilot-first' } },
+  });
+  assert.equal(staged.status, 200);
+  const response = await browser('send', { revision: snapshot.revision });
   assert.equal(response.status, 200);
   const batch = await waiting;
-  assert.equal(batch.events[0].payload.items[0].values.approach, 'pilot-first');
+  assert.equal(batch.events[0].items[0].values.approach, 'pilot-first');
   await run('ack', opened.session, '--receipt', batch.receipt);
-  assert.equal(
-    (await run('status', opened.session)).events[0].status,
-    'completed',
-  );
+  assert.equal((await run('status', opened.session)).agent, 'idle');
   await run('setup');
   assert.equal((await run('setup')).unchanged, true);
   app = http.createServer((req, res) => {

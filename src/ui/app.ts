@@ -1,18 +1,14 @@
-import { createReview } from './review-state.js';
 import { textDiff } from './text-diff.js';
-import type { SessionSnapshot } from '../runtime/server.js';
-import type { Event as ReviewEvent } from '../runtime/protocol.js';
-import type { StageResult, StateResult } from '../shared/review.js';
+import type { WorkspaceView } from '../shared/feedback.js';
 import type {
+  PageEvents,
   PageMessage,
-  WorkspaceMessage,
-  ReviewPresentation,
-  RequestResult,
+  Presentation,
+  Requests,
+  WorkspaceEvents,
 } from '../shared/bridge.js';
 import { icon } from '../shared/icons.js';
-import { fingerprint } from '../shared/batch.js';
 import { errorMessage } from '../shared/errors.js';
-import { createExpansion } from './expansion.js';
 import { installTooltips } from '../shared/tooltips.js';
 import { inputStyles } from '../shared/input-styles.js';
 import { materialStyles } from '../shared/material-styles.js';
@@ -33,41 +29,22 @@ if (location.hash) {
   history.replaceState(null, '', location.pathname + location.search);
 }
 const capability = sessionStorage.getItem(credentialKey) ?? '';
-let session: SessionSnapshot,
-  review!: ReturnType<typeof createReview>,
-  loadedRevision: string | undefined,
-  latestDocument: string | undefined,
-  bridgeReady = false,
-  syncing: Promise<SessionSnapshot> | null,
-  writable = false,
-  annotating = false,
+
+/** The server owns all feedback. This page renders its latest view. */
+let session: WorkspaceView | undefined,
+  /** The page document attached to the server, after its handshake. */
+  page: { documentId: string; revision: string } | undefined,
+  attaching: string | undefined,
   connected = false,
+  annotating = false,
   editorDirty = false,
   sending = false,
   sent = false,
-  sentContent = '',
   manuallyToggled = false,
-  flushCall: {
-    id: string;
-    finish(params: { error?: string; ok?: boolean }): void;
-  } | null;
+  messageTimer: ReturnType<typeof setTimeout> | undefined,
+  lastPresentation = '';
 const available = new Map<string, boolean>();
-let sentTimer: ReturnType<typeof setTimeout>;
-function agentAvailable() {
-  return (
-    connected &&
-    !session?.ended &&
-    (session?.agent === 'waiting' || session?.agent === 'working')
-  );
-}
-function resetSent() {
-  clearTimeout(sentTimer);
-  sent = false;
-}
-const mutations = new Map<
-  string,
-  { signature: string; result: RequestResult }
->();
+
 $('annotate').innerHTML = icon('comment');
 $('end').innerHTML = icon('power');
 $('expand-icon').innerHTML = icon('chevron');
@@ -77,64 +54,28 @@ installTooltips(document);
 const inputStyle = new CSSStyleSheet();
 inputStyle.replaceSync(materialStyles + inputStyles);
 document.adoptedStyleSheets = [...document.adoptedStyleSheets, inputStyle];
-const expand = createExpansion($('tray'), $('tray-content'));
-const rendered = new WeakMap<HTMLElement, string>();
-let lastPresentation = '';
-function renderChanged(element: HTMLElement, value: unknown, draw: () => void) {
-  const key = JSON.stringify(value);
-  if (rendered.get(element) === key) return;
-  const active = document.activeElement;
-  const focusedId =
-    active && element.contains(active)
-      ? active.closest<HTMLElement>('[data-draft-id],[data-batch-id]')?.dataset
-      : null;
-  const label = active?.getAttribute('aria-label') ?? active?.textContent;
-  element.replaceChildren();
-  draw();
-  rendered.set(element, key);
-  if (focusedId) {
-    const selector = focusedId.draftId
-      ? `[data-draft-id="${CSS.escape(focusedId.draftId)}"]`
-      : `[data-batch-id="${CSS.escape(focusedId.batchId!)}"]`;
-    const buttons = [
-      ...(element.querySelector(selector)?.querySelectorAll('button') || []),
-    ];
-    const next =
-      buttons.find(
-        (el) =>
-          (el.getAttribute('aria-label') ?? el.textContent) === label &&
-          !el.disabled,
-      ) || buttons.find((el) => !el.disabled);
-    next?.focus({ preventScroll: true });
-  }
+
+let expanded = false;
+function resizeTray() {
+  $('tray').style.height =
+    `${expanded ? $('tray-content').getBoundingClientRect().height : 0}px`;
 }
-let unsavedMessage = false;
+new ResizeObserver(resizeTray).observe($('tray-content'));
+function openTray(open = true) {
+  expanded = open;
+  $('tray').inert = !open;
+  $('tray').dataset.expanded = String(open);
+  resizeTray();
+  $('toggle-review').setAttribute('aria-expanded', String(open));
+  if (!open) post('highlight', {});
+}
 function error(message = '') {
   $('error').textContent = message;
   $('error').hidden = !message;
   if (message) openTray();
 }
-function openTray(open = true) {
-  expand(open);
-  $('toggle-review').setAttribute('aria-expanded', String(open));
-  if (!open) post('highlight');
-}
-function canWrite(retry = false) {
-  if (!writable)
-    throw new Error(
-      'This review is editable in another tab. Close that tab, then reload here.',
-    );
-  if (!review)
-    throw new Error(
-      'Browser storage is unavailable. Restore access before adding feedback.',
-    );
-  if (session?.ended && !retry) throw new Error('Review session has ended');
-}
-async function api<T = void>(
-  action = '',
-  method = 'GET',
-  data?: unknown,
-): Promise<T> {
+
+async function api<T>(action = '', method = 'GET', data?: unknown) {
   if (!capability)
     throw new Error('Open this session through the Humagent CLI.');
   const response = await fetch(
@@ -149,61 +90,87 @@ async function api<T = void>(
     },
   );
   const result = await response.json();
-  if (!response.ok) {
-    const failure = Object.assign(
-      new Error(`${result.error}: ${result.message}`),
-      {
-        // Only explicit event rejections prove the batch was never stored.
-        rejected:
-          action === 'events' &&
-          [
-            'STALE_REVISION',
-            'AGENT_UNAVAILABLE',
-            'ENDED',
-            'SESSION_FULL',
-            'INVALID_INPUT',
-            'PROTOCOL_MISMATCH',
-            'TOO_LARGE',
-          ].includes(result.error),
-      },
-    );
-    throw failure;
-  }
+  if (!response.ok) throw new Error(`${result.error}: ${result.message}`);
+  return result as T;
+}
+let queue: Promise<unknown> = Promise.resolve();
+/** Requests run in order, so a slow read never replaces the result of a later write. */
+function serial<T>(operation: () => Promise<T>) {
+  const result = queue.then(operation);
+  queue = result.catch(() => {});
   return result;
 }
-function post(
-  method: WorkspaceMessage['method'],
-  params:
-    | Extract<WorkspaceMessage, { params: unknown }>['params']
-    | Record<string, never> = {},
-  requestId?: string,
+async function write<T extends object = object>(
+  action: string,
+  method: string,
+  data?: unknown,
+) {
+  const result = await serial(() =>
+    api<T & { session: WorkspaceView }>(action, method, data),
+  ).catch((e) => {
+    void sync();
+    throw e;
+  });
+  update(result.session);
+  return result;
+}
+async function sync() {
+  try {
+    update(await serial(() => api<WorkspaceView>()));
+  } catch (e) {
+    if (connected || !session) error(errorMessage(e));
+    connected = false;
+    $('bridge-status').textContent = 'Disconnected';
+    render();
+  }
+}
+function update(view: WorkspaceView) {
+  const first = !session;
+  const restarted = !!session && session.surface.origin !== view.surface.origin;
+  const ended = view.ended && !session?.ended;
+  session = view;
+  connected = true;
+  if (first) {
+    document.title = `${view.title} · Humagent`;
+    $('frame').src = view.surface.frameUrl;
+    if (!manuallyToggled && !view.ended && view.agent === 'idle') openTray();
+  }
+  if (restarted) {
+    page = attaching = undefined;
+    error('The service restarted. Refresh the page to reconnect.');
+  }
+  if (ended) post('ended', {});
+  render();
+}
+
+function post<M extends keyof WorkspaceEvents>(
+  method: M,
+  params: WorkspaceEvents[M],
 ) {
   if (session)
     $('frame').contentWindow?.postMessage(
-      {
-        humagent: 1,
-        channel: session.surface.channel,
-        method,
-        params,
-        id: requestId,
-      },
+      { channel: session.surface.channel, method, params },
       session.surface.origin,
     );
 }
-function button(
-  label: string,
-  action: () => unknown,
-  disabled = false,
-  retry = false,
-) {
+function presentation(view: WorkspaceView): Presentation {
+  return {
+    drafts: view.drafts,
+    previews: [...view.drafts, ...view.sent].filter(
+      (draft) =>
+        draft.item.replacement &&
+        draft.revision === view.revision &&
+        draft.revision === page?.revision,
+    ),
+    writable: !view.ended,
+  };
+}
+function button(label: string, action: () => unknown, disabled = false) {
   const el = element('button', label);
   el.disabled = disabled;
   el.onclick = () =>
     Promise.resolve()
-      .then(() => {
-        canWrite(retry);
-        return action();
-      })
+      .then(action)
       .catch((e) => error(errorMessage(e)));
   return el;
 }
@@ -217,72 +184,91 @@ function element<K extends keyof HTMLElementTagNameMap>(
   if (className) el.className = className;
   return el;
 }
-function presentation(snapshot = review?.snapshot()): ReviewPresentation {
-  const items = snapshot?.drafts || [];
-  const previews = new Map(items.map((draft) => [draft.item.id, draft]));
-  for (const event of session?.events || []) {
-    for (const item of event.payload.items) {
-      if (event.status === 'completed') previews.delete(item.id);
-      else previews.set(item.id, { item, revision: event.revision });
-    }
+const rendered = new WeakMap<HTMLElement, string>();
+/** Redraw only on change, and keep keyboard focus on the same draft control. */
+function renderChanged(element: HTMLElement, value: unknown, draw: () => void) {
+  const key = JSON.stringify(value);
+  if (rendered.get(element) === key) return;
+  const active = document.activeElement;
+  const focusedId =
+    active && element.contains(active)
+      ? active.closest<HTMLElement>('[data-draft-id]')?.dataset.draftId
+      : undefined;
+  const label = active?.getAttribute('aria-label') ?? active?.textContent;
+  element.replaceChildren();
+  draw();
+  rendered.set(element, key);
+  if (focusedId) {
+    const buttons = [
+      ...(element
+        .querySelector(`[data-draft-id="${CSS.escape(focusedId)}"]`)
+        ?.querySelectorAll('button') || []),
+    ];
+    const next =
+      buttons.find(
+        (el) =>
+          (el.getAttribute('aria-label') ?? el.textContent) === label &&
+          !el.disabled,
+      ) || buttons.find((el) => !el.disabled);
+    next?.focus({ preventScroll: true });
   }
-  return {
-    items,
-    previews: [...previews.values()].filter(
-      (draft) =>
-        draft.item.replacement &&
-        draft.revision === session?.revision &&
-        draft.revision === loadedRevision,
-    ),
-    locked: snapshot?.outbox.flatMap((entry) => entry.draftIds) || [],
-    writable: writable && !session?.ended,
-  };
 }
 function resizeMessage() {
   $('message').style.height = 'auto';
   $('message').style.height = `${Math.min(136, $('message').scrollHeight)}px`;
 }
+function agentAvailable() {
+  return (
+    connected &&
+    !session?.ended &&
+    (session?.agent === 'waiting' || session?.agent === 'working')
+  );
+}
 function render() {
-  if (!review) return;
-  const snapshot = review.snapshot();
-  const lockedIds = new Set(snapshot.outbox.flatMap((entry) => entry.draftIds));
-  const count = snapshot.drafts.length;
+  renderConnection();
+  if (!session) return;
+  const view = session;
+  const mutable = !view.ended;
+  $('end').disabled = view.ended;
+  $('annotate').disabled = view.ended || !page;
+  $('annotate').setAttribute('aria-pressed', String(annotating));
+  $('update').hidden = !page || page.revision === view.revision;
+  const count = view.drafts.length;
   $('pending-count').hidden = !count;
   $('pending-count').textContent = count ? `Pending feedback (${count})` : '';
-  $('annotate').setAttribute('aria-pressed', String(annotating));
-  const mutable = writable && !session?.ended;
   renderChanged(
     $('drafts'),
     [
-      snapshot.drafts,
-      [...lockedIds],
+      view.drafts,
       mutable,
-      loadedRevision,
-      session?.revision,
-      snapshot.drafts.map((draft) => available.get(draft.item.id)),
+      page?.revision,
+      view.revision,
+      view.drafts.map((draft) => available.get(draft.item.id)),
     ],
     () => {
-      for (const [index, draft] of snapshot.drafts.entries()) {
-        const item = draft.item,
-          locked = lockedIds.has(item.id);
+      for (const [index, draft] of view.drafts.entries()) {
+        const item = draft.item;
         const stale =
-          draft.revision !== loadedRevision ||
-          draft.revision !== session?.revision;
+          draft.revision !== page?.revision || draft.revision !== view.revision;
         const li = element('li', '', 'draft');
         li.dataset.draftId = item.id;
         li.dataset.stale = String(stale);
         const content = element('div', '', 'draft-content');
         li.append(content);
-        const title = element(
-          'div',
-          String(
-            item.replacement
-              ? 'Text edit'
-              : item.intent || item.target?.id || item.target?.tag || 'Comment',
+        content.append(
+          element(
+            'div',
+            String(
+              item.replacement
+                ? 'Text edit'
+                : item.intent ||
+                    item.target?.id ||
+                    item.target?.tag ||
+                    'Comment',
+            ),
+            'draft-title',
           ),
-          'draft-title',
         );
-        content.append(title);
         if (item.replacement) {
           const replacement = element('p', '', 'replacement');
           replacement.setAttribute('role', 'group');
@@ -290,23 +276,23 @@ function render() {
           for (const part of textDiff(
             item.replacement.before,
             item.replacement.after,
-          )) {
-            const content = element(
-              part.kind === 'remove'
-                ? 'del'
-                : part.kind === 'add'
-                  ? 'ins'
-                  : 'span',
-              part.text,
+          ))
+            replacement.append(
+              element(
+                part.kind === 'remove'
+                  ? 'del'
+                  : part.kind === 'add'
+                    ? 'ins'
+                    : 'span',
+                part.text,
+              ),
             );
-            replacement.append(content);
-          }
           content.append(replacement);
         }
         if (item.comment) content.append(element('p', item.comment));
         if (item.values) {
           const values = element('dl');
-          for (const [key, value] of Object.entries(item.values)) {
+          for (const [key, value] of Object.entries(item.values))
             values.append(
               element('dt', key),
               element(
@@ -314,25 +300,22 @@ function render() {
                 typeof value === 'string' ? value : JSON.stringify(value),
               ),
             );
-          }
           content.append(values);
         }
-        const status = locked
-          ? 'Awaiting confirmation'
-          : stale
-            ? 'Stale revision. Recreate or remove this item.'
-            : available.get(item.id) === false
-              ? 'Target unavailable. Inspect or remove this item.'
-              : '';
+        const status = stale
+          ? 'Stale revision. Recreate or remove this item.'
+          : available.get(item.id) === false
+            ? 'Target unavailable. Inspect or remove this item.'
+            : '';
         if (status) content.append(element('p', status, 'draft-status'));
         if (item.target) {
           const open = button(
             '',
             () => {
               $('frame').focus();
-              post('edit', { draftId: item.id });
+              post('open', { draftId: item.id });
             },
-            !mutable || locked || stale || available.get(item.id) === false,
+            !mutable || stale || available.get(item.id) === false,
           );
           open.className = 'draft-open';
           open.setAttribute('aria-label', `Edit feedback ${index + 1}`);
@@ -340,7 +323,7 @@ function render() {
           open.dataset.tooltip = status || 'Edit feedback';
           li.prepend(open);
           li.onpointerenter = () => post('highlight', { draftId: item.id });
-          li.onpointerleave = () => post('highlight');
+          li.onpointerleave = () => post('highlight', {});
           li.addEventListener('focusin', () =>
             post('highlight', { draftId: item.id }),
           );
@@ -349,13 +332,13 @@ function render() {
               !li.contains(event.relatedTarget as Node | null) &&
               !li.matches(':hover')
             )
-              post('highlight');
+              post('highlight', {});
           });
         }
         const remove = button(
           '',
-          () => review.remove(item.id),
-          !mutable || locked,
+          () => write(`drafts/${encodeURIComponent(item.id)}`, 'DELETE'),
+          !mutable,
         );
         remove.className = 'draft-remove';
         remove.innerHTML = icon('trash');
@@ -365,77 +348,29 @@ function render() {
       }
     },
   );
-  if (!unsavedMessage && document.activeElement !== $('message'))
-    $('message').value = snapshot.message.text;
+  if (messageTimer === undefined && document.activeElement !== $('message'))
+    $('message').value = view.message;
   $('message').disabled = !mutable;
   resizeMessage();
-  $('message-stale').hidden =
-    !snapshot.message.text.trim() ||
-    review.messageLocked() ||
-    snapshot.message.revision === loadedRevision;
-  const drafts = snapshot.drafts.filter((d) => !lockedIds.has(d.item.id));
-  const hasMessage = !review.messageLocked() && !!snapshot.message.text.trim();
-  if (
-    sent &&
-    sentContent !== JSON.stringify([snapshot.drafts, snapshot.message])
-  )
-    resetSent();
   $('send').textContent = sending ? 'Sending…' : sent ? 'Sent' : 'Send';
   $('send').setAttribute('aria-busy', String(sending));
   $('send').disabled =
     sending ||
     !agentAvailable() ||
     editorDirty ||
-    unsavedMessage ||
     !mutable ||
-    !bridgeReady ||
-    (!drafts.length && !hasMessage) ||
-    drafts.some((d) => d.revision !== loadedRevision) ||
-    (hasMessage && snapshot.message.revision !== loadedRevision) ||
-    loadedRevision !== session?.revision;
-  $('send').dataset.tooltip = !agentAvailable()
-    ? 'Connect an agent to send feedback'
-    : 'Send feedback to your agent';
-  $('outbox').hidden = !snapshot.outbox.length;
-  renderChanged(
-    $('pending-batches'),
-    [snapshot.outbox, writable, sending],
-    () => {
-      for (const entry of snapshot.outbox) {
-        const div = element('div', '', 'pending');
-        div.dataset.batchId = entry.batch.clientId;
-        div.append(
-          element(
-            'p',
-            `${entry.batch.payload.items.length} feedback items${entry.batch.payload.message ? ' and an instruction' : ''}`,
-          ),
-        );
-        if (entry.error) div.append(element('p', entry.error));
-        div.append(
-          button(
-            'Retry send',
-            () => sendFeedback(() => deliver(entry.batch.clientId)),
-            !writable || sending,
-            true,
-          ),
-        );
-        if (entry.rejected)
-          div.append(
-            button(
-              'Return to drafts',
-              () => review.release(entry.batch.clientId),
-              !writable,
-            ),
-          );
-        $('pending-batches').append(div);
-      }
-    },
-  );
-  const params = presentation(snapshot);
+    !page ||
+    page.revision !== view.revision ||
+    (!view.drafts.length && !$('message').value.trim()) ||
+    view.drafts.some((d) => d.revision !== view.revision);
+  $('send').dataset.tooltip = agentAvailable()
+    ? 'Send feedback to your agent'
+    : 'Connect an agent to send feedback';
+  const params = presentation(view);
   const signature = JSON.stringify(params);
-  if (lastPresentation !== signature) {
+  if (page && lastPresentation !== signature) {
     lastPresentation = signature;
-    post('drafts', params);
+    post('update', params);
   }
 }
 function renderConnection() {
@@ -443,9 +378,9 @@ function renderConnection() {
     ? 'Session ended'
     : !connected
       ? 'Connection unavailable'
-      : session.agent === 'waiting'
+      : session?.agent === 'waiting'
         ? 'Agent listening'
-        : session.agent === 'working'
+        : session?.agent === 'working'
           ? 'Agent working'
           : 'No agent waiting';
   $('agent-state').textContent = state;
@@ -453,147 +388,52 @@ function renderConnection() {
     connected && !session?.ended && session?.agent !== 'idle',
   );
 }
-async function flushPage() {
-  if (!bridgeReady)
-    throw new Error('Wait for the page to connect before continuing.');
-  if (flushCall) throw new Error('Wait for the current save to finish.');
-  const requestId = crypto.randomUUID();
-  const flushed = new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      flushCall = null;
-      reject(new Error('The page did not confirm saved input. Try again.'));
-    }, 20000);
-    flushCall = {
-      id: requestId,
-      finish(params) {
-        clearTimeout(timer);
-        flushCall = null;
-        if (params.error) reject(new Error(params.error));
-        else resolve();
-      },
-    };
-  });
-  post('flush', {}, requestId);
-  await flushed;
-}
-async function sync() {
-  if (syncing) return syncing;
-  syncing = (async () => {
-    const documentId = latestDocument;
-    const updated = await api<SessionSnapshot>();
-    if (documentId && documentId !== latestDocument) return session;
-    const first = !session;
-    const reconnected =
-      !!session && session.surface.origin !== updated.surface.origin;
-    session = updated;
-    connected = true;
-    renderConnection();
-    document.title = `${session.title} · Humagent`;
-    $('end').disabled = session.ended || !writable;
-    $('annotate').disabled = session.ended || !writable || !bridgeReady;
-    if (first) {
-      $('frame').src = session.surface.frameUrl;
-      if (!manuallyToggled && !session.ended && session.agent === 'idle')
-        openTray();
-    }
-    if (reconnected) {
-      bridgeReady = false;
-      error('The service restarted. Refresh the page to reconnect.');
-    }
-    $('update').hidden =
-      !reconnected && (!loadedRevision || loadedRevision === session.revision);
-    if (session.ended) post('ended');
-    render();
-    return session;
-  })()
-    .catch((e) => {
-      connected = false;
-      renderConnection();
-      render();
-      error(errorMessage(e));
-      $('bridge-status').textContent = 'Disconnected';
+
+function saveMessage() {
+  clearTimeout(messageTimer);
+  messageTimer = undefined;
+  return write('message', 'PUT', { text: $('message').value }).then(
+    () => {
+      $('draft-status').textContent = 'Saved.';
+    },
+    (e) => {
+      $('draft-status').textContent = 'Not saved';
       throw e;
-    })
-    .finally(() => {
-      syncing = null;
-    });
-  return syncing;
+    },
+  );
 }
-async function deliver(clientId: string) {
-  canWrite(true);
-  const result = await review.deliver(clientId, async (value) => {
-    const event = await api<ReviewEvent>('events', 'POST', value);
-    if (!session.events.some((existing) => existing.id === event.id))
-      session.events.push(event);
-    return event;
-  });
-  error();
-  await sync().catch(() => {});
-  return result;
-}
-async function sendFeedback(operation: () => ReturnType<typeof deliver>) {
+$('message').oninput = () => {
+  sent = false;
+  resizeMessage();
+  clearTimeout(messageTimer);
+  messageTimer = setTimeout(() => {
+    saveMessage().catch((e) => error(errorMessage(e)));
+  }, 300);
+  render();
+};
+let sentTimer: ReturnType<typeof setTimeout>;
+$('send').onclick = async () => {
   if (sending) return;
   sending = true;
-  resetSent();
+  sent = false;
+  clearTimeout(sentTimer);
   render();
   try {
-    const result = await operation();
-    if (result) {
-      const snapshot = review.snapshot();
-      sentContent = JSON.stringify([snapshot.drafts, snapshot.message]);
-      sent = true;
-      sentTimer = setTimeout(() => {
-        resetSent();
-        render();
-      }, 1500);
-    }
+    if (messageTimer !== undefined) await saveMessage();
+    if (editorDirty)
+      throw new Error('Save or cancel your feedback before sending.');
+    await write('send', 'POST', { revision: page?.revision });
+    error();
+    sent = true;
+    sentTimer = setTimeout(() => {
+      sent = false;
+      render();
+    }, 1500);
   } catch (e) {
-    resetSent();
     error(errorMessage(e));
   } finally {
     sending = false;
     render();
-  }
-}
-$('send').onclick = () =>
-  sendFeedback(async () => {
-    canWrite();
-    if (unsavedMessage)
-      throw new Error(
-        'Save the overall instruction before sending. Edit it to retry browser storage.',
-      );
-    await sync();
-    await flushPage();
-    await sync();
-    if (!agentAvailable())
-      throw new Error('Connect an agent before sending feedback.');
-    if (editorDirty)
-      throw new Error('Save or cancel your feedback before sending.');
-    if (!bridgeReady || loadedRevision !== session.revision)
-      throw new Error('Refresh and inspect stale feedback before sending.');
-    const clientId = review.begin(loadedRevision);
-    return deliver(clientId);
-  });
-$('message').oninput = () => {
-  try {
-    canWrite();
-    unsavedMessage = false;
-    review.setMessage($('message').value, loadedRevision ?? null);
-    $('draft-status').textContent = 'Saved in this browser.';
-    resizeMessage();
-  } catch (e) {
-    unsavedMessage = true;
-    $('send').disabled = true;
-    error(`Draft could not be saved. Keep this tab open. ${errorMessage(e)}`);
-    $('draft-status').textContent = 'Not saved';
-  }
-};
-$('verify-message').onclick = () => {
-  try {
-    canWrite();
-    review.setMessage($('message').value, loadedRevision ?? null);
-  } catch (e) {
-    error(errorMessage(e));
   }
 };
 $('toggle-review').onclick = () => {
@@ -627,26 +467,19 @@ $('copy-command').onclick = async () => {
     $('copy-status').classList.remove('sr-only');
   }
 };
-$('take-over').onclick = () => location.reload();
 $('annotate').onclick = (event) => {
-  try {
-    canWrite();
-    $('frame').focus();
-    post('annotate', { enabled: !annotating, keyboard: event.detail === 0 });
-  } catch (e) {
-    error(errorMessage(e));
-  }
+  $('frame').focus();
+  post('annotate', { enabled: !annotating, keyboard: event.detail === 0 });
 };
 $('end').onclick = async () => {
-  if (!confirm('End this session? Drafts remain in this browser.')) return;
+  if (!confirm('End this session? Unsent drafts stay saved.')) return;
   try {
-    canWrite();
-    await api('end', 'POST', {});
-    await sync();
+    await write('end', 'POST', {});
   } catch (e) {
     error(errorMessage(e));
   }
 };
+// While the page has unfinished input, the first outside press refocuses it instead of acting.
 let blockedClick = false;
 document.addEventListener(
   'pointerdown',
@@ -655,7 +488,7 @@ document.addEventListener(
     if (!blockedClick) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    post('outside');
+    post('outside', {});
   },
   true,
 );
@@ -665,7 +498,7 @@ document.addEventListener(
     if (!blockedClick && !editorDirty) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (!blockedClick) post('outside');
+    if (!blockedClick) post('outside', {});
     blockedClick = false;
   },
   true,
@@ -689,266 +522,144 @@ document.addEventListener('keydown', (event) => {
     $('send').click();
   }
 });
-window.addEventListener('message', async (event) => {
-  if (
-    !session ||
-    event.source !== $('frame').contentWindow ||
-    event.origin !== session.surface.origin ||
-    event.data?.channel !== session.surface.channel ||
-    event.data?.humagent !== 1
-  )
+
+/** Attach a page document. The SDK repeats `hello` until `init` arrives, so a failed attach retries. */
+async function attach(msg: PageMessage) {
+  if (msg.documentId === attaching) return;
+  attaching = msg.documentId;
+  page = undefined;
+  editorDirty = false;
+  lastPresentation = '';
+  available.clear();
+  try {
+    await write('surface', 'POST', { documentId: msg.documentId });
+  } catch (e) {
+    if (attaching === msg.documentId) {
+      attaching = undefined;
+      error(errorMessage(e));
+    }
     return;
-  const msg = event.data as PageMessage;
-  if (msg.method === 'hello') {
-    if (latestDocument !== msg.documentId) {
-      editorDirty = false;
-      lastPresentation = '';
-      mutations.clear();
-    }
-    latestDocument = msg.documentId;
-    if (writable) {
-      let documentId = msg.documentId;
-      try {
-        for (;;) {
-          const activated = await api<Omit<SessionSnapshot, 'surface'>>(
-            'surface',
-            'POST',
-            {
-              documentId,
-            },
-          );
-          if (documentId === latestDocument) {
-            session = { ...session, ...activated };
-            break;
-          }
-          documentId = latestDocument;
-        }
-      } catch (e) {
-        if (documentId === latestDocument) error(errorMessage(e));
-        return;
-      }
-    }
-    if (msg.documentId !== latestDocument) return;
-    bridgeReady = true;
-    loadedRevision = msg.revision;
-    available.clear();
-    $('connecting').hidden = true;
-    $('bridge-status').textContent = 'Interface connected';
-    $('annotate').disabled = !writable || session.ended;
-    post('init', {
-      state: session.state,
-      stateVersion: session.stateVersion,
-      ended: session.ended,
-      ...presentation(),
-      annotating,
+  }
+  if (attaching !== msg.documentId || !session) return;
+  page = { documentId: msg.documentId, revision: msg.revision };
+  $('connecting').hidden = true;
+  $('bridge-status').textContent = 'Interface connected';
+  const params = presentation(session);
+  lastPresentation = JSON.stringify(params);
+  post('init', {
+    ...params,
+    forms: session.forms,
+    ended: session.ended,
+    annotating,
+  });
+  render();
+}
+const requests: {
+  [M in keyof Requests]: (
+    params: Requests[M]['params'],
+    revision: string,
+  ) => Promise<Requests[M]['result']>;
+} = {
+  async stage({ item, marker }, revision) {
+    const { draftId } = await write<{ draftId: string }>('drafts', 'POST', {
+      item,
+      revision,
+      ...(marker ? { marker } : {}),
     });
-    void sync().catch(() => {});
-    return;
-  }
-  if (msg.documentId !== latestDocument || msg.revision !== loadedRevision)
-    return;
-  if (msg.method === 'stageReceived') {
-    if (writable && typeof msg.params.requestId === 'string') {
-      try {
-        review.confirmStage(msg.params.requestId);
-      } catch (e) {
-        error(errorMessage(e));
-      }
-    }
-    return;
-  }
-  if (msg.method === 'flushed') {
-    if (flushCall?.id === msg.id) flushCall.finish(msg.params);
-    return;
-  }
-  if (msg.method === 'notice') {
-    error(String(msg.params?.message || ''));
-    return;
-  }
-  if (msg.method === 'mode') {
-    annotating = msg.params.enabled;
+    if (item.intent) openTray();
+    sent = false;
+    error();
+    return { draftId, status: 'draft' };
+  },
+  async edit({ draftId, ...changes }, revision) {
+    await write(`drafts/${encodeURIComponent(draftId)}`, 'PATCH', {
+      ...changes,
+      revision,
+    });
+    return null;
+  },
+  async remove({ draftId }) {
+    await write(`drafts/${encodeURIComponent(draftId)}`, 'DELETE');
+    return null;
+  },
+  async saveForm({ formId, values }) {
+    await write(`forms/${encodeURIComponent(formId)}`, 'PUT', { values });
+    return null;
+  },
+};
+const events: {
+  [M in keyof PageEvents]: (params: PageEvents[M]) => void;
+} = {
+  hello() {},
+  mode({ enabled }) {
+    annotating = enabled;
     $('annotate').setAttribute('aria-pressed', String(annotating));
     if (!annotating) $('annotate').focus();
-    return;
-  }
-  if (msg.method === 'editing') {
-    editorDirty = msg.params.dirty;
+  },
+  editing({ dirty }) {
+    editorDirty = dirty;
     render();
-    return;
-  }
-  if (msg.method === 'availability') {
-    for (const item of msg.params.items) available.set(item.id, item.available);
+  },
+  notice({ message }) {
+    error(message);
+  },
+  availability({ items }) {
+    for (const item of items) available.set(item.id, item.available);
     render();
+  },
+};
+window.addEventListener('message', (event) => {
+  const msg = event.data as PageMessage;
+  if (!session || event.source !== $('frame').contentWindow || !msg) return;
+  const surface =
+    event.origin === session.surface.origin &&
+    msg.channel === session.surface.channel;
+  if (msg.method === 'hello') {
+    if (surface) void attach(msg);
     return;
   }
-  if (
-    (msg.method !== 'edit' &&
-      msg.method !== 'remove' &&
-      msg.method !== 'stage' &&
-      msg.method !== 'state' &&
-      msg.method !== 'readState') ||
-    typeof msg.id !== 'string'
-  )
-    return;
-  try {
-    canWrite();
-    let result: StageResult | StateResult | { ok: true };
-    if (msg.method === 'stage') {
-      if (msg.revision !== session.revision)
-        throw new Error('Refresh the page before adding feedback.');
-      result = review.stage(
-        msg.params.item,
-        msg.revision,
-        msg.id,
-        msg.params.marker,
+  const attached = surface && msg.documentId === page?.documentId;
+  if ('id' in msg && typeof msg.id === 'string') {
+    // Answer every request once. After a server restart the old page still runs and gets an error.
+    // Reply to the sender, not the current surface, because the surface can change while a request runs.
+    const source = event.source as Window;
+    const reply = (body: { result: unknown } | { error: string }) =>
+      source.postMessage(
+        { channel: msg.channel, method: 'result', id: msg.id, ...body },
+        event.origin,
       );
-      if (msg.params.item.intent) openTray();
-      error();
-    } else if (msg.method === 'edit' || msg.method === 'remove') {
-      if (msg.revision !== session.revision)
-        throw new Error('Refresh the page before changing feedback.');
-      const signature = fingerprint({ method: msg.method, params: msg.params });
-      const prior = mutations.get(msg.id);
-      if (prior && prior.signature !== signature)
-        throw new Error('Request ID was reused with different content.');
-      if (prior) result = prior.result as { ok: true };
-      else {
-        const draft = review
-          .snapshot()
-          .drafts.find((d) => d.item.id === msg.params.draftId);
-        if (!draft || draft.revision !== msg.revision)
-          throw new Error('Feedback is unavailable for this page.');
-        if (msg.method === 'remove') review.remove(draft.item.id);
-        else {
-          const item = draft.item;
-          item.comment = msg.params.comment;
-          if (msg.params.after !== undefined) {
-            if (!item.replacement)
-              throw new Error('This feedback is not a replacement.');
-            item.replacement.after = msg.params.after;
-          }
-          review.edit(item.id, item, msg.params.marker);
-        }
-        result = { ok: true };
-        mutations.set(msg.id, { signature, result });
-        if (mutations.size > 200)
-          mutations.delete(mutations.keys().next().value!);
-      }
-    } else {
-      const saved =
-        msg.method === 'readState'
-          ? await api<StateResult>()
-          : await api<StateResult>('state', 'PUT', msg.params);
-      result = { state: saved.state, stateVersion: saved.stateVersion };
-      session.state = result.state;
-      session.stateVersion = result.stateVersion;
-    }
-    $('frame').contentWindow!.postMessage(
-      {
-        humagent: 1,
-        channel: session.surface.channel,
-        method: 'result',
-        id: msg.id,
-        result,
-      },
-      session.surface.origin,
-    );
-  } catch (e) {
-    error(errorMessage(e));
-    $('frame').contentWindow!.postMessage(
-      {
-        humagent: 1,
-        channel: session.surface.channel,
-        method: 'result',
-        id: msg.id,
-        error: errorMessage(e),
-      },
-      session.surface.origin,
-    );
-  }
-});
-async function listen() {
-  while (true) {
-    try {
-      const response = await fetch(`/api/sessions/${id}/stream`, {
-        headers: { 'x-humagent-session': capability },
-      });
-      if (!response.ok) throw new Error('Disconnected');
-      const reader = response.body!.getReader();
-      try {
-        while (!(await reader.read()).done) await sync();
-      } finally {
-        await reader.cancel().catch(() => {});
-        reader.releaseLock();
-      }
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-  }
-}
-await new Promise<void>((resolve) => {
-  if (!navigator.locks) {
-    error(
-      'This browser cannot safely coordinate review tabs. Use a current browser.',
-    );
-    resolve();
-    return;
-  }
-  void navigator.locks
-    .request(`humagent:review:${id}`, { ifAvailable: true }, async (lock) => {
-      writable = !!lock;
-      $('readonly').hidden = writable;
-      try {
-        review = createReview(localStorage, id, render);
-      } catch (e) {
+    const handle = requests[msg.method] as (
+      params: unknown,
+      revision: string,
+    ) => Promise<unknown>;
+    (attached && Object.hasOwn(requests, msg.method)
+      ? handle(msg.params, msg.revision)
+      : Promise.reject(new Error('Refresh the page to reconnect.'))
+    ).then(
+      (result) => reply({ result }),
+      (e) => {
         error(errorMessage(e));
-        writable = false;
-      }
-      resolve();
-      if (lock)
-        await new Promise<void>((release) =>
-          window.addEventListener('pagehide', () => release(), { once: true }),
-        );
-    })
-    .catch((e) => {
-      error(errorMessage(e));
-      resolve();
-    });
-});
-window.addEventListener('storage', (event) => {
-  if (!writable && event.key === `humagent:review:${id}`) {
-    try {
-      review?.reload();
-    } catch (e) {
-      error(errorMessage(e));
-    }
-  }
-});
-window.addEventListener('pageshow', (event) => {
-  if (event.persisted) location.reload();
-});
-window.addEventListener('pagehide', () => {
-  writable = false;
+        reply({ error: errorMessage(e) });
+      },
+    );
+  } else if (attached && Object.hasOwn(events, msg.method))
+    (events[msg.method as keyof PageEvents] as (params: unknown) => void)(
+      msg.params,
+    );
 });
 window.addEventListener('beforeunload', (event) => {
-  if (!unsavedMessage && !editorDirty) return;
+  if (messageTimer === undefined && !editorDirty) return;
   event.preventDefault();
   event.returnValue = '';
 });
-try {
-  await sync();
-  if (review?.snapshot().outbox.length || !writable) openTray();
-  void listen();
-  setInterval(() => {
-    void sync().catch(() => {});
-  }, 3000);
-  setTimeout(() => {
-    if (!bridgeReady) {
-      $('connecting').hidden = true;
-      error(
-        'The page did not connect. Check its security policy or local server.',
-      );
-    }
-  }, 8000);
-} catch {
-  $('connecting').hidden = true;
-}
+
+await sync();
+setInterval(() => void sync(), 1000);
+setTimeout(() => {
+  if (!page) {
+    $('connecting').hidden = true;
+    error(
+      'The page did not connect. Check its security policy or local server.',
+    );
+  }
+}, 8000);

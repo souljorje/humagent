@@ -338,9 +338,7 @@ dd {
   overflow-wrap: anywhere;
 }
 #error,
-#readonly,
-#update,
-#message-stale {
+#update {
   margin: 8px 0;
   padding: 10px 12px;
   border-radius: 12px;
@@ -349,16 +347,6 @@ dd {
 }
 #error {
   border: 1px solid #888;
-}
-#outbox h2 {
-  font-size: 13px;
-}
-.pending {
-  padding: 8px 0;
-}
-.pending p {
-  margin: 4px 0;
-  font-size: 13px;
 }
 .sr-only {
   position: absolute;

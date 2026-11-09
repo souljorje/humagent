@@ -13,7 +13,7 @@ const pkg = JSON.parse(
   fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 );
 
-test('Bun CLI preserves runtime and origin through an agent loop and restart', async () => {
+test('Bun CLI preserves runtime and sessions through an agent loop and restart', async () => {
   assert.ok(process.versions.bun, 'Run this suite with Bun');
   const root = fixture('cli');
   const home = path.join(root, 'state');
@@ -79,26 +79,23 @@ test('Bun CLI preserves runtime and origin through an agent loop and restart', a
       assert.ok(attempt < 50, 'Agent must start waiting');
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
-    const response = await fetch(
-      `${record.origin}/api/sessions/${opened.session}/events`,
-      {
-        method: 'POST',
+    const browser = (action: string, method: string, data: unknown) =>
+      fetch(`${record.origin}/api/sessions/${opened.session}/${action}`, {
+        method,
         headers: {
           'content-type': 'application/json',
           'x-humagent-session': new URL(opened.url).hash.slice(1),
         },
-        body: JSON.stringify({
-          protocol: 2,
-          clientId: 'bun-cli-test',
-          revision: snapshot.revision,
-          payload: { message: 'Check this interface.', items: [] },
-        }),
-      },
-    );
+        body: JSON.stringify(data),
+      });
+    await browser('message', 'PUT', { text: 'Check this interface.' });
+    const response = await browser('send', 'POST', {
+      revision: snapshot.revision,
+    });
     assert.equal(response.status, 200);
     const batch = await pending;
     assert.equal(batch.status, 'feedback');
-    assert.equal(batch.events[0].payload.message, 'Check this interface.');
+    assert.equal(batch.events[0].message, 'Check this interface.');
     await run(
       'renew',
       opened.session,
@@ -108,15 +105,13 @@ test('Bun CLI preserves runtime and origin through an agent loop and restart', a
       '600',
     );
     await run('ack', opened.session, '--receipt', batch.receipt);
-    const result = await run('status', opened.session);
-    assert.equal(result.events[0].status, 'completed');
+    assert.equal((await run('status', opened.session)).agent, 'idle');
     await stop();
     const resumed = await run('open', source, '--no-open');
     assert.equal(resumed.session, opened.session);
-    assert.equal(new URL(resumed.url).origin, new URL(opened.url).origin);
     assert.equal(
-      (await run('status', opened.session)).events[0].status,
-      'completed',
+      (await run('wait', opened.session, '--timeout', '0.05')).status,
+      'timeout',
     );
     const skills = path.join(root, 'skills', 'humagent');
     await run('setup', '--directory', skills);

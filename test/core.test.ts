@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { fixture } from './fixtures.ts';
 import path from 'node:path';
 import { Store } from '../dist/runtime/store.js';
-import { input, jsonValue } from '../dist/runtime/protocol.js';
+import { parseJson } from '../dist/runtime/validate.js';
 import { cloneJson } from '../dist/shared/json.js';
 const directories: string[] = [];
 afterAll(() =>
@@ -22,95 +22,127 @@ function setup() {
   );
   return { dir, store, id: session.id };
 }
-const message = (clientId = 'one', revision = 'v1') => ({
-  protocol: 2,
-  clientId,
-  revision,
-  payload: { message: 'Review this', items: [] },
+const comment = (text = 'Review this') => ({
+  revision: 'v1',
+  item: { target: { selector: 'h1' }, comment: text },
 });
-test('validates structured submissions without turning intent into code', () => {
-  const e = input({
-    protocol: 2,
-    clientId: 'x',
-    revision: 'v',
-    payload: {
-      items: [
-        {
-          id: 'decision',
-          intent: 'entirely_new_workflow',
-          values: { priority: 2, choices: ['a'] },
-        },
-      ],
-    },
-  });
-  assert.deepEqual(e.payload.items[0].values, { priority: 2, choices: ['a'] });
-});
-test('rejects malformed payloads and reserved keys', () => {
-  assert.throws(() => input({ ...message(), protocol: 1 }));
-  assert.throws(() => input({ ...message(), kind: 'execute' }));
-  assert.throws(() =>
-    input({ ...message(), payload: { message: '', items: [] } }),
-  );
-  assert.throws(() => jsonValue(JSON.parse('{"__proto__":{"x":1}}')));
-  assert.throws(() => jsonValue({ x: Infinity }));
-  assert.throws(() =>
-    input({
-      ...message(),
-      payload: { message: 'a'.repeat(300000), items: [] },
-    }),
-  );
-});
-test('review targets preserve arbitrary JSON metadata', () => {
+function queue(store: Store, id: string, message = 'Review this') {
+  store.setMessage(id, message);
+  return store.send(id, store.get(id).revision);
+}
+
+test('decisions stay data and targets keep arbitrary JSON metadata', () => {
+  const { store, id } = setup();
   const target = {
     id: 7,
     tag: ['section'],
     anchor: { quote: 3 },
     revision: 'v1',
   };
-  const event = input({
-    ...message(),
-    payload: { items: [{ id: 'note', target, comment: 'Review this target' }] },
+  store.addDraft(id, {
+    revision: 'v1',
+    item: { intent: 'entirely_new_workflow', values: { priority: 2 } },
   });
-  assert.deepEqual(event.payload.items[0].target, target);
+  store.addDraft(id, { revision: 'v1', item: { target, comment: 'Here' } });
+  const [decision, note] = store.get(id).drafts;
+  assert.deepEqual(decision.item.values, { priority: 2 });
+  assert.deepEqual(note.item.target, target);
 });
-test('persists before receipt; same client ID is idempotent', () => {
-  const { store, id, dir } = setup();
-  const one = store.send(id, message());
-  assert.equal(store.send(id, message()).id, one.id);
-  assert.equal(new Store(dir).get(id).events.length, 1);
+test('rejects malformed items, unknown fields, and unsafe JSON', () => {
+  const { store, id } = setup();
+  for (const item of [
+    { target: { selector: 'h1' }, comment: 'x', kind: 'execute' },
+    { target: { selector: 'h1' }, comment: ' ' },
+    { replacement: { before: 'a', after: 'b' } },
+    { target: { selector: 'h1' }, comment: 'a'.repeat(4001) },
+    { intent: 'review' },
+  ])
+    assert.throws(() => store.addDraft(id, { revision: 'v1', item }));
   assert.throws(
     () =>
-      store.send(id, {
-        ...message(),
-        payload: { message: 'different', items: [] },
+      store.addDraft(id, {
+        ...comment(),
+        item: { ...comment().item, target: { selector: 'h1', revision: 'v0' } },
       }),
-    /reused/,
+    /Target revision/,
   );
+  assert.throws(() => parseJson('{"__proto__":{"x":1}}'));
+  assert.throws(() => parseJson('['.repeat(30) + ']'.repeat(30)));
+  assert.equal(store.get(id).drafts.length, 0);
 });
-test('stale revision refuses new input but an accepted retry still succeeds', () => {
+test('drafts persist, and send turns them into one event', () => {
+  const { store, id, dir } = setup();
+  store.addDraft(id, comment());
+  store.setMessage(id, 'Keep changes small.');
+  assert.equal(new Store(dir).get(id).drafts.length, 1);
+  const event = store.send(id, 'v1');
+  assert.equal(event.message, 'Keep changes small.');
+  assert.equal(event.items[0].comment, 'Review this');
+  assert.equal(event.revision, 'v1');
+  const restarted = new Store(dir).get(id);
+  assert.deepEqual(
+    [restarted.drafts, restarted.message, restarted.events.length],
+    [[], '', 1],
+  );
+  assert.throws(() => store.send(id, 'v1'), /Add feedback/);
+});
+test('a revision change refuses new input and blocks stale drafts', () => {
   const { store, id } = setup();
-  const old = store.send(id, message());
+  store.addDraft(id, comment());
   store.setRevision(id, 'v2');
-  assert.equal(store.send(id, message()).id, old.id);
-  assert.throws(() => store.send(id, message('two')), /interface changed/);
+  assert.throws(() => store.addDraft(id, comment()), /page changed/);
+  assert.throws(() => store.send(id, 'v1'), /page changed/);
+  assert.throws(() => store.send(id, 'v2'), /another revision/);
+  store.removeDraft(id, store.get(id).drafts[0].item.id);
+  assert.equal(queue(store, id).revision, 'v2');
 });
-test('working state uses separate optimistic version', () => {
+test('edits keep the item ID, target, and original text', () => {
   const { store, id } = setup();
-  store.saveState(id, 0, { selection: 'a' });
-  assert.equal(store.saveState(id, 0, { selection: 'a' }).stateVersion, 1);
-  assert.equal(store.get(id).revision, 'v1');
+  const draftId = store.addDraft(id, {
+    revision: 'v1',
+    item: {
+      target: { selector: 'p' },
+      replacement: { before: 'Old', after: 'New' },
+    },
+    marker: { x: 1, y: 2 },
+  });
+  store.editDraft(id, draftId, {
+    revision: 'v1',
+    comment: 'Why',
+    after: 'Newer',
+  });
+  const [draft] = store.get(id).drafts;
+  assert.equal(draft.item.id, draftId);
+  assert.deepEqual(draft.item.replacement, { before: 'Old', after: 'Newer' });
+  assert.equal(draft.item.comment, 'Why');
+  assert.deepEqual(draft.marker, { x: 1, y: 2 });
+  const note = store.addDraft(id, comment());
   assert.throws(
-    () => store.saveState(id, 0, { selection: 'b' }),
-    /another view/,
+    () =>
+      store.editDraft(id, note, { revision: 'v1', comment: 'x', after: 'y' }),
+    /not a replacement/,
   );
-  assert.equal(store.get(id).state.selection, 'a');
+  assert.throws(
+    () => store.editDraft(id, note, { revision: 'v1', comment: '' }),
+    /needs a comment/,
+  );
+});
+test('form values persist per form', () => {
+  const { store, id, dir } = setup();
+  store.saveForm(id, 'plan', { approach: 'pilot' });
+  store.saveForm(id, 'other', { x: true });
+  assert.deepEqual(new Store(dir).get(id).forms, {
+    plan: { approach: 'pilot' },
+    other: { x: true },
+  });
+  assert.throws(() => store.saveForm(id, '__proto__', {}), /Reserved/);
 });
 test('receipt completes only leased events, not newer input', () => {
   const { store, id } = setup();
-  store.send(id, message());
+  queue(store, id);
   const batch = store.take(id, 'agent');
   assert.ok(batch?.status === 'feedback');
-  store.send(id, message('two'));
+  queue(store, id, 'two');
   store.acknowledge(id, batch.receipt);
   assert.deepEqual(
     store.get(id).events.map((e) => e.status),
@@ -121,7 +153,7 @@ test('receipt completes only leased events, not newer input', () => {
 });
 test('lease excludes competing consumers and expires into redelivery', () => {
   const { store, id } = setup();
-  store.send(id, message());
+  queue(store, id);
   const first = store.take(id, 'a', 1000, Date.now() - 2000);
   assert.ok(first?.status === 'feedback');
   const second = store.take(id, 'b');
@@ -136,7 +168,7 @@ test('lease excludes competing consumers and expires into redelivery', () => {
 });
 test('restart retains an outstanding lease and pending event', () => {
   const { store, id, dir } = setup();
-  store.send(id, message());
+  queue(store, id);
   const batch = store.take(id, 'agent');
   assert.ok(batch?.status === 'feedback');
   const resumed = new Store(dir);
@@ -146,7 +178,7 @@ test('restart retains an outstanding lease and pending event', () => {
 });
 test('renewal validates receipt and extends its lease', () => {
   const { store, id } = setup();
-  store.send(id, message());
+  queue(store, id);
   const batch = store.take(id, 'agent', 1000);
   assert.ok(batch?.status === 'feedback');
   assert.throws(() => store.renew(id, undefined));
@@ -155,10 +187,11 @@ test('renewal validates receipt and extends its lease', () => {
 });
 test('ending a session rejects writes but delivers previously queued work', () => {
   const { store, id } = setup();
-  store.send(id, message());
+  queue(store, id);
   store.end(id);
-  assert.throws(() => store.send(id, message('new')), /ended/);
-  assert.throws(() => store.saveState(id, 0, {}), /ended/);
+  assert.throws(() => store.addDraft(id, comment()), /ended/);
+  assert.throws(() => store.setMessage(id, 'new'), /ended/);
+  assert.throws(() => store.saveForm(id, 'plan', {}), /ended/);
   const batch = store.take(id, 'agent');
   assert.ok(batch?.status === 'feedback');
   store.acknowledge(id, batch.receipt);
@@ -172,13 +205,13 @@ test('session writes leave other session files untouched', () => {
   );
   const file = path.join(dir, 'sessions', `${other.id}.json`);
   const before = fs.statSync(file, { bigint: true });
-  store.send(id, message());
+  queue(store, id);
   assert.equal(fs.statSync(file, { bigint: true }).mtimeNs, before.mtimeNs);
   const restarted = new Store(dir);
   assert.equal(restarted.get(id).events.length, 1);
   assert.equal(restarted.get(other.id).events.length, 0);
 });
-test('corruption in one session does not hide other sessions', () => {
+test('a corrupt or unsupported session does not hide other sessions', () => {
   const { dir, store, id } = setup();
   const other = store.open(
     { kind: 'file', value: '/tmp/b.html', root: '/tmp', network: false },
@@ -187,14 +220,15 @@ test('corruption in one session does not hide other sessions', () => {
   const corrupt = path.join(dir, 'sessions', `${id}.json`);
   for (const content of [
     'invalid',
+    JSON.stringify({ format: 1, session: store.get(id) }),
     JSON.stringify({
-      protocol: 1,
+      format: 2,
       session: {
         ...store.get(id),
         target: { kind: 'url', value: 'invalid', network: true },
       },
     }),
-    JSON.stringify({ protocol: 1, session: { ...store.get(id), state: [] } }),
+    JSON.stringify({ format: 2, session: { ...store.get(id), drafts: {} } }),
   ]) {
     fs.writeFileSync(corrupt, content);
     const recovered = new Store(dir);
@@ -203,47 +237,6 @@ test('corruption in one session does not hide other sessions', () => {
     assert.equal(recovered.errors()[0].id, id);
     assert.equal(fs.readFileSync(corrupt, 'utf8'), content);
   }
-});
-
-test('storage format 1 loads empty sessions and rejects v1 events without changing stored feedback', () => {
-  const { dir, store, id } = setup();
-  const file = path.join(dir, 'sessions', `${id}.json`);
-  const empty = fs.readFileSync(file, 'utf8');
-  assert.equal(new Store(dir).get(id).events.length, 0);
-  assert.equal(fs.readFileSync(file, 'utf8'), empty);
-  const events = ['message', 'annotation', 'edit', 'submission'].map(
-    (kind) => ({
-      protocol: 1,
-      clientId: `v1-${kind}`,
-      kind,
-      revision: 'v1',
-      id: `event-${kind}`,
-      createdAt: '2026-01-01T00:00:00.000Z',
-      status: 'queued',
-      deliveries: 0,
-      payload:
-        kind === 'message'
-          ? { text: 'Keep this feedback' }
-          : kind === 'annotation'
-            ? { text: 'Keep this annotation', target: { selector: 'h1' } }
-            : kind === 'edit'
-              ? {
-                  target: { selector: 'h1' },
-                  before: 'Original',
-                  after: 'Proposed',
-                }
-              : { intent: 'review', values: { choice: 'keep' } },
-    }),
-  );
-  const saved = JSON.stringify({
-    protocol: 1,
-    session: { ...store.get(id), events },
-  });
-  fs.writeFileSync(file, saved);
-  const recovered = new Store(dir);
-  assert.throws(() => recovered.get(id), /unreadable or unsupported/);
-  assert.equal(recovered.errors()[0]?.id, id);
-  assert.equal(fs.readFileSync(file, 'utf8'), saved);
 });
 test('SDK JSON validation rejects lossy values before copying', () => {
   const cyclic: { self?: unknown } = {};

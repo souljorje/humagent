@@ -177,6 +177,13 @@ test('file resolution denies hidden files, traversal and escaped symlinks', asyn
   await assert.rejects(() => safeFile(root, '/%2e%2e/outside.txt'));
   await assert.rejects(() => safeFile(root, '/escape.txt'));
 });
+/** Stage an overall instruction and send it as one event. */
+async function queue(id: string, message = 'Review this', revision?: string) {
+  await api(`/api/sessions/${id}/message`, 'PUT', { text: message });
+  return api(`/api/sessions/${id}/send`, 'POST', {
+    revision: revision ?? runtime.store.get(id).revision,
+  });
+}
 test('wait receives an event once, acknowledgment completes only that receipt', async () => {
   const s = await opened();
   const before = (await api(`/api/sessions/${s.session}`)).data;
@@ -184,22 +191,31 @@ test('wait receives an event once, acknowledgment completes only that receipt', 
     consumer: 'test',
     timeoutMs: 2000,
   });
-  await new Promise((r) => setTimeout(r, 30));
-  const e = await api(`/api/sessions/${s.session}/events`, 'POST', {
-    protocol: 2,
-    clientId: crypto.randomUUID(),
+  await until(
+    async () =>
+      (await api(`/api/sessions/${s.session}`)).data.agent === 'waiting',
+    'agent listening',
+  );
+  const draft = await api(`/api/sessions/${s.session}/drafts`, 'POST', {
     revision: before.revision,
-    payload: {
-      items: [
-        { id: 'decision', intent: 'new_unregistered_intent', values: { x: 1 } },
-      ],
-    },
+    item: { intent: 'new_unregistered_intent', values: { x: 1 } },
+  });
+  assert.equal(draft.status, 200);
+  assert.ok(
+    draft.data.session.drafts.some(
+      (d: { item: { id: string } }) => d.item.id === draft.data.draftId,
+    ),
+  );
+  const e = await api(`/api/sessions/${s.session}/send`, 'POST', {
+    revision: before.revision,
   });
   assert.equal(e.status, 200);
+  assert.deepEqual(e.data.session.drafts, []);
   const batch = await wait;
   assert.equal(batch.status, 200);
   assert.equal(batch.data.status, 'feedback');
-  assert.equal(batch.data.events[0].payload.items[0].values.x, 1);
+  assert.equal(batch.data.events[0].id, e.data.event.id);
+  assert.equal(batch.data.events[0].items[0].values.x, 1);
   assert.equal(
     (
       await api(`/api/sessions/${s.session}/ack`, 'POST', {
@@ -208,8 +224,11 @@ test('wait receives an event once, acknowledgment completes only that receipt', 
     ).status,
     200,
   );
-  const after = (await api(`/api/sessions/${s.session}`)).data;
-  assert.equal(after.events[0].status, 'completed');
+  assert.equal(
+    (await api(`/api/sessions/${s.session}/wait`, 'POST', { timeoutMs: 10 }))
+      .data.status,
+    'timeout',
+  );
 });
 test('wait ownership, timeout and end are typed', async () => {
   const s = await opened();
@@ -217,7 +236,11 @@ test('wait ownership, timeout and end are typed', async () => {
     consumer: 'a',
     timeoutMs: 2000,
   });
-  await new Promise((r) => setTimeout(r, 20));
+  await until(
+    async () =>
+      (await api(`/api/sessions/${s.session}`)).data.agent === 'waiting',
+    'agent listening',
+  );
   assert.equal(
     (
       await api(`/api/sessions/${s.session}/wait`, 'POST', {
@@ -239,83 +262,60 @@ test('wait ownership, timeout and end are typed', async () => {
     'timeout',
   );
 });
-test('new feedback requires an agent while accepted retries survive disconnect and end', async () => {
-  const openedSession = await opened();
-  const id = openedSession.session;
-  const revision = runtime.store.get(id).revision;
-  const value = {
-    protocol: 2,
-    clientId: 'presence-first',
-    revision,
-    payload: { items: [], message: 'First feedback' },
-  };
-  const send = (body = value) =>
-    api(`/api/sessions/${id}/events`, 'POST', body);
-  const unavailable = await send();
+test('sending requires a listening or working agent; drafts do not', async () => {
+  const id = (await opened()).session;
+  const unavailable = await queue(id, 'First feedback');
   assert.equal(unavailable.status, 409);
   assert.equal(unavailable.data.error, 'AGENT_UNAVAILABLE');
+  assert.equal(runtime.store.get(id).message, 'First feedback');
   assert.equal(runtime.store.get(id).events.length, 0);
   const waiting = api(`/api/sessions/${id}/wait`, 'POST', { timeoutMs: 5000 });
   await until(
     async () => (await api(`/api/sessions/${id}`)).data.agent === 'waiting',
     'agent listening',
   );
-  const accepted = await send();
-  assert.equal(accepted.status, 200);
+  assert.equal((await queue(id, 'First feedback')).status, 200);
   const received = (await waiting).data;
-  const second = { ...value, clientId: 'presence-second' };
-  assert.equal((await send(second)).status, 200);
+  assert.equal((await api(`/api/sessions/${id}`)).data.agent, 'working');
+  assert.equal((await queue(id, 'While working')).status, 200);
   await api(`/api/sessions/${id}/ack`, 'POST', { receipt: received.receipt });
   assert.equal((await api(`/api/sessions/${id}`)).data.agent, 'idle');
-  assert.equal(
-    (await send({ ...value, clientId: 'presence-third' })).status,
-    409,
-  );
-  assert.equal((await send()).data.id, accepted.data.id);
-  assert.equal((await send(second)).status, 200);
-  assert.equal(
-    (await send({ ...value, payload: { items: [], message: 'Changed' } })).data
-      .error,
-    'IDEMPOTENCY_CONFLICT',
-  );
+  assert.equal((await queue(id, 'After the agent left')).status, 409);
   await api(`/api/sessions/${id}/end`, 'POST', {});
-  assert.equal((await send()).data.id, accepted.data.id);
+  assert.equal((await queue(id)).data.error, 'ENDED');
   assert.equal(runtime.store.get(id).events.length, 2);
-  const original = fs.readFileSync(file);
-  fs.unlinkSync(file);
-  try {
-    const retry = await send();
-    assert.equal(retry.status, 200);
-    assert.equal(retry.data.id, accepted.data.id);
-    assert.equal(
-      (await send({ ...value, payload: { items: [], message: 'Changed' } }))
-        .data.error,
-      'IDEMPOTENCY_CONFLICT',
-    );
-  } finally {
-    fs.writeFileSync(file, original);
-  }
 });
 test('source change rejects stale input without saving the file', async () => {
   const s = await opened();
   const prior = (await api(`/api/sessions/${s.session}`)).data;
-  fs.writeFileSync(file, '<!doctype html><h1>New version</h1>');
-  const res = await api(`/api/sessions/${s.session}/events`, 'POST', {
-    protocol: 2,
-    clientId: crypto.randomUUID(),
+  const draft = await api(`/api/sessions/${s.session}/drafts`, 'POST', {
     revision: prior.revision,
-    payload: {
-      items: [
-        {
-          id: 'replacement',
-          target: { selector: 'h1' },
-          replacement: { before: 'Hello', after: 'Replace' },
-        },
-      ],
+    item: {
+      target: { selector: 'h1' },
+      replacement: { before: 'Hello', after: 'Replace' },
     },
   });
+  assert.equal(draft.status, 200);
+  const waiting = api(`/api/sessions/${s.session}/wait`, 'POST', {
+    timeoutMs: 300,
+  });
+  await until(
+    async () =>
+      (await api(`/api/sessions/${s.session}`)).data.agent === 'waiting',
+    'agent listening',
+  );
+  fs.writeFileSync(file, '<!doctype html><h1>New version</h1>');
+  const res = await api(`/api/sessions/${s.session}/send`, 'POST', {
+    revision: prior.revision,
+  });
   assert.equal(res.status, 409);
+  assert.equal(res.data.error, 'STALE_REVISION');
+  assert.equal((await waiting).data.status, 'timeout');
   assert.match(fs.readFileSync(file, 'utf8'), /New version/);
+  await api(
+    `/api/sessions/${s.session}/drafts/${draft.data.draftId}`,
+    'DELETE',
+  );
 });
 test('proxy preserves paths, JSON API and WebSocket upgrade; rejects external redirect', async () => {
   const app = http.createServer((req, res) => {
@@ -426,12 +426,7 @@ test('dynamic app snapshots and submissions do not refetch or change revisions',
         'agent listening',
       );
       offline = true;
-      const sent = await api(`/api/sessions/${id}/events`, 'POST', {
-        protocol: 2,
-        clientId: 'dynamic',
-        revision,
-        payload: { message: 'Review the page I saw.', items: [] },
-      });
+      const sent = await queue(id, 'Review the page I saw.', revision);
       assert.equal(sent.status, 200);
       await waiting;
       assert.equal(requests, count);
@@ -443,36 +438,6 @@ test('dynamic app snapshots and submissions do not refetch or change revisions',
     await new Promise((resolve) => app.close(resolve));
   }
 });
-test('the default workspace keeps its origin across restarts and occupied ports', async () => {
-  const directory = fixture('workspace-port');
-  let first: Runtime | null = null,
-    second: Runtime | null = null,
-    blocker: http.Server | null = null;
-  try {
-    first = await createRuntime({ directory });
-    const origin = first.origin;
-    await first.close();
-    first = null;
-    blocker = http.createServer();
-    await new Promise<void>((resolve) =>
-      blocker!.listen(Number(new URL(origin).port), '127.0.0.1', resolve),
-    );
-    await assert.rejects(() => createRuntime({ directory }), {
-      code: 'EADDRINUSE',
-    });
-    await new Promise<void>((resolve) => blocker!.close(() => resolve()));
-    blocker = null;
-    second = await createRuntime({ directory });
-    assert.equal(second.origin, origin);
-  } finally {
-    if (first) await first.close();
-    if (second) await second.close();
-    if (blocker)
-      await new Promise<void>((resolve) => blocker!.close(() => resolve()));
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
-});
-
 async function until(
   condition: () => boolean | Promise<boolean>,
   label: string,
@@ -603,41 +568,6 @@ function pendingWait(server: ServerAddress, id: string) {
   return { request, response };
 }
 
-function pendingStream(
-  server: ServerAddress,
-  id: string,
-  headers: Record<string, string> = {},
-) {
-  let request!: http.ClientRequest;
-  const ready = new Promise<{
-    response: http.IncomingMessage;
-    ended: Promise<string>;
-    contents(): string;
-  }>((resolve, reject) => {
-    request = http.get(
-      `${server.origin}/api/sessions/${id}/stream`,
-      { headers: { authorization: `Bearer ${server.token}`, ...headers } },
-      (response) => {
-        let contents = '';
-        let finish!: (result: string) => void;
-        const ended = new Promise<string>((done) => (finish = done));
-        response.setEncoding('utf8');
-        response.on('data', (chunk) => {
-          contents += chunk;
-          if (contents.includes('event: ready\n'))
-            resolve({ response, ended, contents: () => contents });
-        });
-        response.on('end', () => finish('end'));
-        response.on('close', () => finish('close'));
-        response.on('error', reject);
-      },
-    );
-    request.on('error', reject);
-  });
-  ready.catch(() => {});
-  return { request, ready };
-}
-
 async function openDistinct(server: ServerAddress, name: string) {
   const target = path.join(root, `${name}.html`);
   fs.writeFileSync(target, '<!doctype html><h1>Disconnect test</h1>');
@@ -743,18 +673,13 @@ test('disconnecting a pending wait releases its listener and preserves the next 
       'replacement waiter',
     );
     const revision = runtime.store.get(id).revision;
-    const sent = await api(`/api/sessions/${id}/events`, 'POST', {
-      protocol: 2,
-      clientId: 'after-disconnect',
-      revision,
-      payload: { message: 'Keep this event', items: [] },
-    });
+    const sent = await queue(id, 'Keep this event');
     assert.equal(sent.status, 200);
     const received = await within(next.response, 'replacement wait response');
     assert.equal(received.status, 200);
     assert.equal(received.data.status, 'feedback');
     assert.equal(received.data.target.value, session.targetPath);
-    assert.equal(received.data.events[0].id, sent.data.id);
+    assert.equal(received.data.events[0].id, sent.data.event.id);
     assert.equal(received.data.events[0].revision, revision);
     assert.equal(
       (
@@ -774,76 +699,9 @@ test('disconnecting a pending wait releases its listener and preserves the next 
   }
 });
 
-test('disconnecting an SSE client removes its listener and a replacement receives changes', async () => {
-  const session = await openDistinct(runtime, 'stream-disconnect');
-  const id = session.session;
-  const baseline = runtime.store.listenerCount('change');
-  const first = pendingStream(runtime, id, {
-    authorization: '',
-    'x-humagent-session': new URL(session.url).hash.slice(1),
-  });
-  let next;
-  try {
-    const stream = await within(first.ready, 'first SSE connection');
-    assert.equal(stream.response.statusCode, 200);
-    assert.match(
-      stream.response.headers['content-type']!,
-      /^text\/event-stream/,
-    );
-    await until(
-      () => runtime.store.listenerCount('change') === baseline + 1,
-      'first SSE listener',
-    );
-    stream.response.destroy();
-    first.request.destroy();
-    await until(
-      () => runtime.store.listenerCount('change') === baseline,
-      'disconnected SSE cleanup',
-    );
-    next = pendingStream(runtime, id);
-    const replacement = await within(next.ready, 'replacement SSE connection');
-    await until(
-      () => runtime.store.listenerCount('change') === baseline + 1,
-      'replacement SSE listener',
-    );
-    const revision = runtime.store.get(id).revision;
-    const waiting = api(`/api/sessions/${id}/wait`, 'POST', {
-      timeoutMs: 5000,
-    });
-    await until(
-      async () => (await api(`/api/sessions/${id}`)).data.agent === 'waiting',
-      'agent listening',
-    );
-    const sent = await api(`/api/sessions/${id}/events`, 'POST', {
-      protocol: 2,
-      clientId: 'stream-change',
-      revision,
-      payload: { message: 'Notify the new stream', items: [] },
-    });
-    assert.equal(sent.status, 200);
-    await until(
-      () => replacement.contents().includes('event: change\n'),
-      'SSE change event',
-    );
-    const batch = await waiting;
-    assert.equal(batch.data.events[0].id, sent.data.id);
-    replacement.response.destroy();
-    next.request.destroy();
-    await until(
-      () => runtime.store.listenerCount('change') === baseline,
-      'replacement SSE cleanup',
-    );
-  } finally {
-    first.request.destroy();
-    next?.request.destroy();
-  }
-});
-
-test('shutdown completes pending waits and SSE clients and releases the state directory', async () => {
+test('shutdown completes pending waits and releases the state directory', async () => {
   const directory = fixture('shutdown');
-  let server!: Runtime,
-    waiter: ReturnType<typeof pendingWait> | undefined,
-    stream: ReturnType<typeof pendingStream> | undefined;
+  let server!: Runtime, waiter: ReturnType<typeof pendingWait> | undefined;
   try {
     server = await createRuntime({ directory });
     const session = await openDistinct(server, 'shutdown-clients');
@@ -853,17 +711,10 @@ test('shutdown completes pending waits and SSE clients and releases the state di
       () => server.store.listenerCount('change') === baseline + 1,
       'shutdown waiter',
     );
-    stream = pendingStream(server, session.session);
-    const connected = await within(stream.ready, 'shutdown SSE connection');
-    await until(
-      () => server.store.listenerCount('change') === baseline + 2,
-      'shutdown clients',
-    );
     await within(server.close(), 'server shutdown');
     const result = await within(waiter.response, 'interrupted waiter');
     assert.equal(result.status, 200);
     assert.equal(result.data.status, 'interrupted');
-    assert.equal(await within(connected.ended, 'SSE completion'), 'end');
     await until(
       () => server.store.listenerCount('change') === baseline,
       'shutdown listener cleanup',
@@ -872,16 +723,15 @@ test('shutdown completes pending waits and SSE clients and releases the state di
     await restarted.close();
   } finally {
     waiter?.request.destroy();
-    stream?.request.destroy();
     if (server) await server.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
 
-test('Node transport cleans up disconnected waits and streams and shuts down pending clients', async () => {
+test('Node transport cleans up disconnected waits and shuts down pending clients', async () => {
   const directory = fixture('node-disconnect');
   const node = nodeRuntime(directory);
-  let firstWait, firstStream, nextWait, nextStream, shutdownWait;
+  let firstWait, nextWait, shutdownWait;
   try {
     const server = await within(node.ready, 'Node server startup');
     assert.ok(Number(server.version.split('.')[0]) >= 24);
@@ -900,53 +750,32 @@ test('Node transport cleans up disconnected waits and streams and shuts down pen
     firstWait.request.destroy();
     await until(countIs(baseline), 'Node disconnected waiter cleanup');
 
-    firstStream = pendingStream(server, id, {
-      authorization: '',
-      'x-humagent-session': new URL(session.url).hash.slice(1),
-    });
-    const initialStream = await within(
-      firstStream.ready,
-      'Node SSE connection',
-    );
-    await until(countIs(baseline + 1), 'Node SSE listener');
-    initialStream.response.destroy();
-    firstStream.request.destroy();
-    await until(countIs(baseline), 'Node disconnected SSE cleanup');
-
     nextWait = pendingWait(server, id);
-    nextStream = pendingStream(server, id);
-    const replacement = await within(nextStream.ready, 'Node replacement SSE');
-    await until(countIs(baseline + 2), 'Node replacement clients');
+    await until(countIs(baseline + 1), 'Node replacement waiter');
     const snapshot = await fetch(`${server.origin}/api/sessions/${id}`, {
       headers: { authorization: `Bearer ${server.token}` },
     });
     assert.equal(snapshot.status, 200);
     const revision = (await snapshot.json()).revision;
-    const response = await fetch(`${server.origin}/api/sessions/${id}/events`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${server.token}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        protocol: 2,
-        clientId: 'node-after-disconnect',
-        revision,
-        payload: { message: 'Keep the Node event', items: [] },
-      }),
-    });
+    const write = (action: string, method: string, data: unknown) =>
+      fetch(`${server.origin}/api/sessions/${id}/${action}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${server.token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+    await write('message', 'PUT', { text: 'Keep the Node event' });
+    const response = await write('send', 'POST', { revision });
     assert.equal(response.status, 200);
-    const event = await response.json();
+    const { event } = await response.json();
     const delivered = await within(nextWait.response, 'Node replacement wait');
     assert.equal(delivered.status, 200);
     assert.equal(delivered.data.status, 'feedback');
     assert.equal(delivered.data.target.value, session.targetPath);
     assert.equal(delivered.data.events[0].id, event.id);
     assert.equal(delivered.data.events[0].revision, revision);
-    await until(
-      () => replacement.contents().includes('event: change\n'),
-      'Node SSE change event',
-    );
     const ack = await fetch(`${server.origin}/api/sessions/${id}/ack`, {
       method: 'POST',
       headers: {
@@ -957,7 +786,7 @@ test('Node transport cleans up disconnected waits and streams and shuts down pen
     });
     assert.equal(ack.status, 200);
     shutdownWait = pendingWait(server, id);
-    await until(countIs(baseline + 2), 'Node shutdown clients');
+    await until(countIs(baseline + 1), 'Node shutdown waiter');
     await within(node.call('close'), 'Node server shutdown');
     const interrupted = await within(
       shutdownWait.response,
@@ -965,14 +794,11 @@ test('Node transport cleans up disconnected waits and streams and shuts down pen
     );
     assert.equal(interrupted.status, 200);
     assert.equal(interrupted.data.status, 'interrupted');
-    assert.equal(await within(replacement.ended, 'Node SSE completion'), 'end');
     const exit = await within(node.exited, 'Node child exit');
     assert.equal(exit.code, 0);
   } finally {
     firstWait?.request.destroy();
-    firstStream?.request.destroy();
     nextWait?.request.destroy();
-    nextStream?.request.destroy();
     shutdownWait?.request.destroy();
     if (node.child.exitCode === null && node.child.signalCode === null) {
       if (node.child.connected) {

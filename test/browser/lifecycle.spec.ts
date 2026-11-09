@@ -220,7 +220,7 @@ test('nested app frames preserve the attached document and keep their native for
   );
 });
 
-test('default restarts retain drafts, form values, and pending input', async ({
+test('a server restart keeps drafts, the instruction, and form values', async ({
   page,
   plan,
   review,
@@ -232,60 +232,21 @@ test('default restarts retain drafts, form values, and pending input', async ({
   await expect
     .poll(() => workspace.forms(plan.session).launch?.outcome)
     .toBe('A preserved outcome.');
-  const blockedEvents = `**/api/sessions/${plan.session}/events`;
-  await page.route(blockedEvents, (route) => route.abort());
-  await review.expand();
+  await review.addComment('h1', 'Keep this draft.');
   await page.locator('#message').fill('Keep this unsent message.');
-  await review.connect();
-  await page.locator('#send').click();
-  await expect(page.locator('#error')).toBeVisible();
-  await expect(page.locator('#outbox')).toBeVisible();
-  const pendingId = await page.evaluate(
-    (id) =>
-      JSON.parse(localStorage.getItem(`humagent:review:${id}`)!).outbox[0].batch
-        .clientId,
-    plan.session,
-  );
-  await page.unroute(blockedEvents);
-
-  const origin = workspace.origin;
-  await workspace.restart();
-  expect(workspace.origin).toBe(origin);
-  await expect(page.locator('#error')).toContainText('service restarted');
-  const reconnected = await workspace.api(`/api/sessions/${plan.session}`);
-  await page.reload();
-  await review.ready();
   await expect
-    .poll(() => review.evaluate(() => location.origin))
-    .toBe(reconnected.surface.origin);
-  await expect(review.frame.locator('input[name="outcome"]')).toHaveValue(
-    'A preserved outcome.',
-  );
-
+    .poll(() => workspace.store.get(plan.session).message)
+    .toBe('Keep this unsent message.');
+  await workspace.restart();
   const resumed = await review.open();
   expect(resumed.session).toBe(plan.session);
   await expect(page.locator('#message')).toHaveValue(
     'Keep this unsent message.',
   );
-  await expect(page.locator('#outbox')).toBeVisible();
-  const restoredId = await page.evaluate(
-    (id) =>
-      JSON.parse(localStorage.getItem(`humagent:review:${id}`)!).outbox[0].batch
-        .clientId,
-    plan.session,
+  await expect(page.locator('.draft')).toContainText('Keep this draft.');
+  await expect(review.frame.locator('input[name="outcome"]')).toHaveValue(
+    'A preserved outcome.',
   );
-  expect(restoredId).toBe(pendingId);
-  await review.connect();
-  await page.getByRole('button', { name: 'Retry send', exact: true }).click();
-  await expect
-    .poll(
-      () =>
-        workspace.store
-          .get(plan.session)
-          .events.filter((event) => event.clientId === pendingId).length,
-    )
-    .toBe(1);
-  await expect(page.locator('#outbox')).toBeHidden();
 });
 
 test('existing apps retain native clicks, API requests, and annotations', async ({
@@ -305,9 +266,7 @@ test('existing apps retain native clicks, API requests, and annotations', async 
   await page.locator('#send').click();
   await expect
     .poll(
-      () =>
-        workspace.store.get(session.session).events[0]?.payload.items[0].target!
-          .id,
+      () => workspace.store.get(session.session).events[0]?.items[0].target!.id,
     )
     .toBe('headline');
 });

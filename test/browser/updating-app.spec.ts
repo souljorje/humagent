@@ -62,9 +62,7 @@ for (const existing of [false, true])
       document.body.append(section);
     });
     await review.addComment('h1', 'Keep this attached');
-    await expect
-      .poll(async () => Object.keys((await review.state()).staged).length)
-      .toBe(0);
+    expect((await review.state()).drafts).toHaveLength(1);
     const markers = review.frame.locator('.marker');
     const result = await review.evaluate(async () => {
       const query = document.querySelectorAll;
@@ -127,7 +125,7 @@ for (const existing of [false, true])
     await review.evaluate(() => {
       document.body.dataset.presentations = '0';
       addEventListener('message', (event) => {
-        if (event.source === parent && event.data?.method === 'drafts')
+        if (event.source === parent && event.data?.method === 'update')
           document.body.dataset.presentations = String(
             Number(document.body.dataset.presentations) + 1,
           );
