@@ -35,7 +35,7 @@ Marked forms stage decisions and show **Added to review**. They do not send feed
 
 The SDK excludes disabled controls and file, password, hidden, submit, reset, and button inputs. It rejects unsafe field names.
 
-Opted-in values persist independently of staged decisions. Restoration emits an input event. Later form changes never alter staged decisions. A pending save can block browser reload.
+The server stores opted-in values separately from staged decisions. Restoration emits an input event. Later form changes never alter staged decisions. A pending save can block browser reload.
 
 ## JavaScript
 
@@ -52,50 +52,54 @@ const result = await window.humagent.submit({
 
 `intent` is a nonempty request name, not a handler or permission. `values` must be a JSON object. `message` is an optional item comment.
 
-`submit()` waits for the bridge and persists a draft. It does **not** confirm delivery. The human chooses **Send**. Show submission errors so the human can retry.
+`submit()` waits for the bridge and saves a draft on the server. It does **not** confirm delivery. The human chooses **Send**. Show submission errors so the human can retry.
 
-## Advanced: batch contract
+## Event format
 
-Each **Send** produces one protocol-v2 event, with an optional overall instruction and ordered items:
+Each **Send** creates one event. `humagent wait` returns events in `events[]`:
 
 ```json
 {
-  "protocol": 2,
-  "clientId": "stable-batch-id",
+  "id": "event-id",
+  "createdAt": "2026-01-01T00:00:00.000Z",
   "revision": "source-revision",
-  "payload": {
-    "message": "Keep changes small.",
-    "items": [
-      { "id": "comment-1", "target": { "selector": "h1" }, "comment": "Shorten this." },
-      { "id": "edit-1", "target": { "selector": "#intro" }, "replacement": { "before": "Old", "after": "New" } },
-      { "id": "choice-1", "intent": "revise_plan", "values": { "strategy": "pilot-first" } }
-    ]
-  }
+  "message": "Keep changes small.",
+  "items": [
+    { "id": "comment-1", "target": { "selector": "h1" }, "comment": "Shorten this." },
+    { "id": "edit-1", "target": { "selector": "#intro" }, "replacement": { "before": "Old", "after": "New" } },
+    { "id": "choice-1", "intent": "revise_plan", "values": { "strategy": "pilot-first" } }
+  ],
+  "status": "delivered",
+  "deliveries": 1
 }
 ```
 
-Each item needs a unique ID and an actionable comment, replacement, or decision. A replacement needs a target and nonempty original text. Empty `after` means deletion.
+`message` is the optional overall instruction. `status` is `queued`, `delivered`, or `completed`. `deliveries` counts reservations.
 
-A message-only batch is valid. An empty review is invalid. Event and item `kind` fields and item `type` are unsupported.
+Each item has a targeted comment, a targeted replacement, or an `intent` with `values`. A replacement needs nonempty `before` text. Empty `after` means deletion.
+
+An event can contain only a message. An empty review is invalid. The server rejects unknown item fields. A target `revision` must match the current page.
 
 ### Validation limits
 
 | Field | Limit |
 | --- | --- |
-| Request including envelope | 256 KiB |
+| Request body | 256 KiB |
 | JSON nesting | Fewer than 24 levels |
-| Items per batch | 100 |
-| Client ID / revision / item ID | 100 / 128 / 150 characters |
+| Drafts per session | 100 |
+| Events per session | 2,000 |
 | Intent / comment / overall instruction | 200 / 4,000 / 4,000 characters |
 | Each replacement string | 50,000 characters |
+| Form ID | 200 characters |
+| Saved form values per session | 256 KiB |
 
-Use finite JSON values and reject `__proto__`, `constructor`, and `prototype` keys at every depth. Explicit target revisions must match the batch.
+JSON values must be finite. The server rejects `__proto__`, `constructor`, and `prototype` keys at every depth.
 
 ### Targets
 
 Targets include source URL, viewed revision, selector, tag, and up to 4,000 characters of normalized text. They include stable IDs and quote context when available. Open shadow-root targets include selector paths.
 
-`coordinates: { x, y, space: "document" }` records the click in CSS pixels. Keyboard annotations use the target center. Marker offsets remain in browser drafts.
+`coordinates: { x, y, space: "document" }` records the click in CSS pixels. Keyboard annotations use the target center. Marker positions stay in the draft, not in the event.
 
 Targets describe rendered content, not guaranteed source lines. Missing or ambiguous targets remain unavailable.
 
@@ -105,14 +109,26 @@ Source revisions hash served HTML with SHA-256, excluding other assets. An HTTP 
 
 Stale feedback cannot be silently rebound. See [refresh and recovery](USAGE.md#refresh-and-recovery).
 
-### Delivery and recovery
+### Delivery
 
-The workspace owns drafts and delivery. The SDK owns targeting and temporary editors.
+The server owns drafts and delivery. The SDK owns targeting and temporary editors. It sends each request once.
 
-Before sending, the browser persists an immutable batch. Retries reuse its ID and payload. Only matching confirmation removes captured drafts and unchanged instructions. New batches require a listening or working agent. Accepted batches remain confirmable after disconnection or session ending.
+New events require a listening or working agent. Stored events remain available after disconnection or session ending.
 
-The SDK retains staging request identities until confirmation, including across reload. At most 200 unresolved requests are retained per session. Page confirmation clears identities without removing drafts.
+Sent local previews remain until receipt acknowledgment. Cleanup cannot overwrite application changes or save rendered DOM into source.
 
-Confirmed local previews remain until matching receipt acknowledgment. Cleanup cannot overwrite application changes or save rendered DOM into source.
+The workspace uses these routes with the session credential. Each write returns the current session.
+
+| Route | Body |
+| --- | --- |
+| `GET /api/sessions/:id` | None |
+| `POST /api/sessions/:id/drafts` | `{ item, revision, marker? }` |
+| `PATCH /api/sessions/:id/drafts/:draftId` | `{ revision, comment, after?, marker? }` |
+| `DELETE /api/sessions/:id/drafts/:draftId` | None |
+| `PUT /api/sessions/:id/message` | `{ text }` |
+| `PUT /api/sessions/:id/forms/:formId` | `{ values }` |
+| `POST /api/sessions/:id/send` | `{ revision }` |
+| `POST /api/sessions/:id/surface` | `{ documentId }` |
+| `POST /api/sessions/:id/end` | `{}` |
 
 See [CLI receipts](CLI.md#receive-input) and [security constraints](SECURITY.md).

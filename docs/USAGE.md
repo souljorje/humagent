@@ -28,34 +28,37 @@ Disable commenting to use the application normally. Saved markers remain availab
 
 ## Send a review
 
-Collect comments, edits, or form decisions. Include an overall instruction when useful. Choose **Send** to deliver them as one batch.
+Collect comments, edits, or form decisions. Include an overall instruction when useful. Choose **Send** to deliver them as one event.
 
 Expand the bar to inspect drafts, connection status, and errors. Hover a draft to highlight its target. Text changes appear as an inline diff. Decisions display their values.
 
 | Status | Meaning |
 | --- | --- |
-| Draft | Saved in this browser, not sent |
-| Sending | Submitting an immutable batch |
-| Awaiting confirmation | Delivery is uncertain; retry the same batch |
-| Queued | Server stored the batch |
-| Working | Agent reserved the batch |
-| Completed | Agent acknowledged the receipt |
+| Draft | Saved on the server, not sent |
+| Sending | The server turns all drafts and the overall instruction into one event |
+| Queued | The server stored the event |
+| Working | The agent holds the event's receipt |
+| Completed | The agent acknowledged the receipt |
 
-Submitted drafts and markers leave the queue after confirmation. Local text previews remain until acknowledgment, deletion, or a source revision change. Cleanup must not overwrite application changes.
+A failed send keeps the drafts. The workspace then reads the current server state again.
+
+Sent drafts and markers leave the list. Local text previews remain until acknowledgment or a source revision change. Cleanup must not overwrite application changes.
 
 The agent reports results in its own chat. Acknowledgment does not grant permission for additional actions.
 
 ## Refresh and recovery
 
-Browser reload keeps confirmed drafts and opted-in form values while the browser origin remains the same. Other application state can reset.
+The server stores drafts, the overall instruction, and opted-in form values in the session file. Other application state can reset.
+This input survives browser reloads, other browsers, and server restarts while the data directory stays the same.
+Several tabs can edit one session. The workspace reads the server state about once per second.
 
-- **Failed send:** Select **Retry send** in the expanded bar. The batch keeps its ID and payload. A definite rejection may offer **Return to drafts**.
-- **Changed source:** Inspect the page, then recreate or remove stale items. Humagent never changes their revision silently.
+- **Changed source:** Inspect the page, then recreate or remove stale drafts. Stale drafts block Send. Humagent never changes their revision silently. The overall instruction has no revision and stays.
+- **Outdated page:** Send requires the page that you see to match the current source revision. Refresh the page.
 - **Missing target:** Feedback follows a unique stable ID or selector. An ambiguous target remains unavailable.
-- **Unfinished input:** Confirm or cancel it before reloading.
-- **Another editing tab:** Close that tab before reloading this one. One tab owns the review.
-- **Storage error:** Keep the tab open if input is not saved.
+- **Unfinished input:** Confirm or cancel it before reloading. The server does not store open editors.
+- **Save error:** Keep the tab open until the server saves your input.
+- **Server restart:** Run `humagent open` with the same target again. It reuses the saved session. Use the new URL.
 
-Use the same data directory and saved workspace port across server restarts. The expanded bar can also end the session.
+The expanded bar can also end the session. Unsent drafts stay saved, but the ended session rejects new sends.
 
-See [CLI troubleshooting](CLI.md#troubleshooting), [legacy sessions](CLI.md#stored-session-compatibility), and [security limits](SECURITY.md).
+See [CLI troubleshooting](CLI.md#troubleshooting) and [security limits](SECURITY.md).

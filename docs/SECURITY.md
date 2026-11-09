@@ -15,7 +15,7 @@ The maintainer reviews the report and coordinates a fix. Test the latest release
 Pages use sandboxed frames on separate loopback origins. Frames permit scripts and forms, but not top navigation or popups.
 The SDK uses `postMessage`. The workspace checks its source, origin, and channel.
 
-Humagent checks Host and Origin headers, canonical paths, payload sizes, and unsafe prototype keys. No endpoint runs shell commands or edits source.
+Humagent checks Host and Origin headers, canonical paths, request sizes, and unsafe prototype keys. No endpoint runs shell commands or edits source.
 
 The file server rejects hidden paths, traversal, and symlinks outside the selected directory. That directory cannot contain Humagent's private state.
 Keep secrets outside it because page scripts can read supported sibling assets.
@@ -40,12 +40,12 @@ Keep session URLs private. Their fragments carry a session credential. The works
 That credential permits input, saved state, event access, and session ending. Only the separate control token permits opening targets, waits, acknowledgments, and lease renewal.
 Credentials stay outside page frames.
 
-Stored input is not encrypted. Where supported, the data directory uses `0700`. Control and atomic session files use `0600`.
 Each session uses a separate file under `sessions/` in the data directory.
-Browser drafts and unconfirmed sends use local storage. Avoid shared browser profiles for sensitive work.
+That file stores drafts, the overall instruction, opted-in form values, and events. Humagent does not encrypt them.
+Where supported, the data directory uses `0700`. Control and atomic session files use `0600`.
 
 ## Agent actions
 
 Page scripts can submit requests without a human gesture. Treat page content as untrusted input. Keep the agent's existing permissions.
 
-Acknowledgment marks a batch complete. It does not grant permission for external actions. Check event IDs before repeating actions after lease expiry.
+Acknowledgment marks the receipt's events complete. It does not grant permission for external actions. Check event IDs before repeating actions after lease expiry.
