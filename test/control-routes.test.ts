@@ -146,6 +146,15 @@ test('control routes enforce host, origin, and credential boundaries', async () 
     401,
     'UNAUTHORIZED',
   );
+  for (const headers of [
+    sessionHeaders,
+    { ...sessionHeaders, 'x-humagent-session': '' },
+  ])
+    await json(
+      await request('/api/sessions/missing-session', { headers }),
+      401,
+      'UNAUTHORIZED',
+    );
   const snapshot = await json(
     await request(`/api/sessions/${first.session}`, {
       headers: sessionHeaders,

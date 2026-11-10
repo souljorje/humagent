@@ -115,6 +115,7 @@ export async function createRuntime(options: RuntimeOptions) {
   const view = (id: string) =>
     sessionView(store.get(id), waiters.isWaiting(id));
   async function snapshot(id: string): Promise<WorkspaceView> {
+    store.get(id);
     const panel = await surfaces.get(id);
     ensure(
       panel,
@@ -162,9 +163,18 @@ export async function createRuntime(options: RuntimeOptions) {
       pathname,
     );
     if (match) {
-      const session = store.get(match[1]!);
+      let viewKey: string | undefined;
+      try {
+        viewKey = store.get(match[1]!).viewKey;
+      } catch (error) {
+        // Without the control token, an unknown session looks like a wrong key.
+        const unknown = error instanceof Failure && error.code === 'NOT_FOUND';
+        if (control || !unknown) throw error;
+      }
       ensure(
-        control || equal(c.req.header('x-humagent-session'), session.viewKey),
+        control ||
+          (viewKey !== undefined &&
+            equal(c.req.header('x-humagent-session'), viewKey)),
         'Unauthorized',
         'UNAUTHORIZED',
         401,
