@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { Store, sessionView } from './store.js';
+import { createWaiters } from './waiters.js';
 import { version } from './version.js';
 import { ensure, Failure, object, parseJson } from './validate.js';
 import {
@@ -97,8 +98,7 @@ export async function createRuntime(options: RuntimeOptions) {
   }
   const token = randomBytes(32).toString('hex');
   const surfaces = new Map<string, Promise<Surface>>();
-  const waiters = new Set<string>();
-  const cancels = new Set<() => void>();
+  const waiters = createWaiters(store);
   let origin = '';
   let closing: Promise<void> | undefined;
   function surface(id: string) {
@@ -112,7 +112,8 @@ export async function createRuntime(options: RuntimeOptions) {
     }
     return surfaces.get(id)!;
   }
-  const view = (id: string) => sessionView(store.get(id), waiters.has(id));
+  const view = (id: string) =>
+    sessionView(store.get(id), waiters.isWaiting(id));
   async function snapshot(id: string): Promise<WorkspaceView> {
     const panel = await surfaces.get(id);
     ensure(
@@ -293,49 +294,16 @@ export async function createRuntime(options: RuntimeOptions) {
       Number.isInteger(timeout) && timeout >= min && timeout <= max,
       `timeoutMs must be ${min}–${max}`,
     );
-    ensure(
-      !waiters.has(id),
-      'Another agent is already waiting',
-      'LISTENER_ACTIVE',
-      409,
-    );
-    const signal = c.req.raw.signal;
-    if (signal.aborted) return json(200, { status: 'interrupted' });
-    const take = () =>
-      store.take(id, String(value.consumer ?? 'agent'), leaseMs);
-    const immediate = take();
-    if (immediate) return json(200, immediate);
-    waiters.add(id);
-    return new Promise<Response>((resolve) => {
-      let done = false;
-      const finish = (response: () => Response) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        store.off('change', changed);
-        signal.removeEventListener('abort', cancel);
-        waiters.delete(id);
-        cancels.delete(cancel);
-        resolve(response());
-      };
-      const cancel = () => finish(() => json(200, { status: 'interrupted' }));
-      const changed = (session: string) => {
-        if (session !== id || done) return;
-        try {
-          const next = take();
-          if (next) finish(() => json(200, next));
-        } catch (error) {
-          finish(() => fail(error));
-        }
-      };
-      const timer = setTimeout(
-        () => finish(() => json(200, { status: 'timeout' })),
+    const consumer = String(value.consumer ?? 'agent');
+    return json(
+      200,
+      await waiters.wait(
+        id,
+        () => store.take(id, consumer, leaseMs),
         timeout,
-      );
-      store.on('change', changed);
-      cancels.add(cancel);
-      signal.addEventListener('abort', cancel, { once: true });
-    });
+        c.req.raw.signal,
+      ),
+    );
   });
 
   app.post('/api/open', async (c) => {
@@ -424,7 +392,7 @@ export async function createRuntime(options: RuntimeOptions) {
   const close = () => {
     if (closing) return closing;
     closing = (async () => {
-      for (const cancel of cancels) cancel();
+      waiters.cancelAll();
       await Promise.all(
         [...surfaces.values()].map(async (p) => (await p).close()),
       );

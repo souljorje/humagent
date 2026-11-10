@@ -53,20 +53,6 @@ const booleanFlags = new Set([
   'json',
   'force',
 ]);
-const commandFlags: Record<string, string[]> = {
-  open: ['no-open', 'network'],
-  demo: ['no-open', 'network'],
-  wait: ['consumer', 'timeout', 'lease'],
-  ack: ['receipt'],
-  renew: ['receipt', 'lease'],
-  server: ['port'],
-  setup: ['directory', 'force'],
-  status: [],
-  end: [],
-  stop: [],
-  doctor: [],
-  help: [],
-};
 const flags = new Map<string, string>();
 const positional: string[] = [];
 let directory = '';
@@ -98,7 +84,9 @@ function parse() {
     } else {
       ensure(
         key === 'home' ||
-          Object.values(commandFlags).some((names) => names.includes(key)),
+          Object.values(commands).some((command) =>
+            command.flags.includes(key),
+          ),
         `Unknown option: --${key}.`,
       );
       const value = inline.length ? inline.join('=') : args[++i];
@@ -245,6 +233,226 @@ function openBrowser(url: string) {
   );
   child.unref();
 }
+function sessionRoute(argument: string | undefined) {
+  ensure(
+    argument && /^[\w-]+$/.test(argument),
+    'Specify a session ID from the open command.',
+  );
+  return `/api/sessions/${argument}`;
+}
+async function openTarget(target: string) {
+  const result = (await request(await service(), '/api/open', 'POST', {
+    target,
+    network: flags.has('network'),
+  })) as { url: string; session: string; note: string };
+  if (!flags.has('no-open')) openBrowser(result.url);
+  if (machine) await output(result);
+  else
+    console.log(
+      `Open this private URL in your browser:\n${result.url}\n\nSession: ${result.session}\nSource: ${target}\n\nAsk your agent to run:\n  humagent wait ${result.session}\n\n${result.note}\nNo agent is connected until it starts waiting.`,
+    );
+}
+interface Command {
+  flags: string[];
+  /** Whether the command accepts one positional argument. */
+  argument: boolean;
+  run(argument: string | undefined): Promise<void>;
+}
+/** Every command validates its input before it starts the server. */
+const commands: Record<string, Command> = {
+  open: {
+    flags: ['no-open', 'network'],
+    argument: true,
+    async run(argument) {
+      ensure(
+        argument,
+        'Specify an HTML file or localhost URL. Example: humagent open ./page.html',
+      );
+      const target = /^https?:/i.test(argument)
+        ? argument
+        : path.resolve(argument);
+      if (!/^https?:/i.test(target))
+        ensure(fs.existsSync(target), `File not found: ${target}`);
+      await openTarget(target);
+    },
+  },
+  demo: {
+    flags: ['no-open', 'network'],
+    argument: false,
+    async run() {
+      const destination = path.join(directory, 'demos', version, 'plan');
+      fs.mkdirSync(destination, { recursive: true });
+      for (const file of ['plan.html', 'plan.css']) {
+        const to = path.join(destination, file);
+        if (!fs.existsSync(to))
+          fs.copyFileSync(new URL(`../examples/${file}`, import.meta.url), to);
+      }
+      await openTarget(path.join(destination, 'plan.html'));
+    },
+  },
+  wait: {
+    flags: ['consumer', 'timeout', 'lease'],
+    argument: true,
+    async run(argument) {
+      const route = sessionRoute(argument);
+      const timeoutMs = duration('timeout'),
+        leaseMs = duration('lease');
+      const r = await service();
+      process.stderr.write(
+        'Waiting for input. Keep this command attached to the active agent turn.\n',
+      );
+      await output(
+        await request(
+          r,
+          `${route}/wait`,
+          'POST',
+          { consumer: flags.get('consumer') ?? 'agent', timeoutMs, leaseMs },
+          timeoutMs + 5000,
+        ),
+      );
+    },
+  },
+  ack: {
+    flags: ['receipt'],
+    argument: true,
+    async run(argument) {
+      const route = sessionRoute(argument);
+      ensure(flags.get('receipt'), '--receipt is required.');
+      await output(
+        await request(await service(), `${route}/ack`, 'POST', {
+          receipt: flags.get('receipt'),
+        }),
+      );
+    },
+  },
+  renew: {
+    flags: ['receipt', 'lease'],
+    argument: true,
+    async run(argument) {
+      const route = sessionRoute(argument);
+      ensure(flags.get('receipt'), '--receipt is required.');
+      const leaseMs = duration('lease');
+      await output(
+        await request(await service(), `${route}/renew`, 'POST', {
+          receipt: flags.get('receipt'),
+          leaseMs,
+        }),
+      );
+    },
+  },
+  status: {
+    flags: [],
+    argument: true,
+    async run(argument) {
+      if (!(await alive(record()))) {
+        await output({
+          serverRunning: false,
+          note: 'The server is stopped. Use open to resume a saved target.',
+        });
+        return;
+      }
+      const route = argument ? sessionRoute(argument) : '/api/sessions';
+      await output(await request(await service(), route));
+    },
+  },
+  end: {
+    flags: [],
+    argument: true,
+    async run(argument) {
+      const route = sessionRoute(argument);
+      await output(await request(await service(), `${route}/end`, 'POST', {}));
+    },
+  },
+  stop: {
+    flags: [],
+    argument: false,
+    async run() {
+      const r = record();
+      if (!(await alive(r))) {
+        await output({ stopped: true, alreadyStopped: true });
+        return;
+      }
+      await output(await request(r!, '/api/stop', 'POST', {}));
+    },
+  },
+  doctor: {
+    flags: [],
+    argument: false,
+    async run() {
+      const r = record();
+      await output({
+        version,
+        runtime: runtimeName,
+        runtimeVersion,
+        dataDirectory: directory,
+        serverRunning: await alive(r),
+        serverVersion: r?.version ?? null,
+        filesPresent: [
+          '../ui/index.html',
+          '../sdk/sdk.js',
+          '../../skills/humagent/SKILL.md',
+        ].every((p) => fs.existsSync(new URL(p, import.meta.url))),
+      });
+    },
+  },
+  setup: {
+    flags: ['directory', 'force'],
+    argument: false,
+    async run() {
+      const destination = path.resolve(
+        flags.get('directory') ?? '.agents/skills/humagent',
+      );
+      const file = path.join(destination, 'SKILL.md');
+      const skill = fs.readFileSync(
+        new URL('../../skills/humagent/SKILL.md', import.meta.url),
+        'utf8',
+      );
+      if (fs.existsSync(file)) {
+        if (fs.readFileSync(file, 'utf8') === skill) {
+          await output({ installed: file, unchanged: true });
+          return;
+        }
+        ensure(
+          flags.has('force'),
+          'The skill contains different text. Preserve your changes or use --force to replace it.',
+        );
+      }
+      fs.mkdirSync(destination, { recursive: true });
+      fs.writeFileSync(file, skill);
+      if (machine) await output({ installed: file });
+      else
+        console.log(
+          `Installed the agent skill:\n${file}\n\nAsk your agent to read it before starting a session.`,
+        );
+    },
+  },
+  server: {
+    flags: ['port'],
+    argument: false,
+    async run() {
+      const configuredPort = flags.get('port') ?? process.env.HUMAGENT_PORT;
+      const port =
+        configuredPort === undefined ? undefined : Number(configuredPort);
+      ensure(
+        port === undefined ||
+          (Number.isInteger(port) && port >= 0 && port <= 65535),
+        'The server port must be an integer from 0 to 65535.',
+      );
+      const runtime = await createRuntime({ directory, port });
+      await output({
+        status: 'listening',
+        origin: runtime.origin,
+        runtime: runtimeName,
+        runtimeVersion,
+        version,
+      });
+      for (const signal of ['SIGTERM', 'SIGINT'] as const)
+        process.on(signal, () => {
+          void runtime.close().then(() => process.exit(0));
+        });
+    },
+  },
+};
 async function main() {
   parse();
   if (flags.has('version')) {
@@ -252,203 +460,33 @@ async function main() {
     else console.log(version);
     return;
   }
-  const [command, argument] = positional;
-  if (!command || command === 'help' || flags.has('help')) {
+  const [name, argument] = positional;
+  if (!name || name === 'help' || flags.has('help')) {
     console.log(HELP);
     return;
   }
   ensure(
-    Object.hasOwn(commandFlags, command),
-    `Unknown command: ${command}. Run humagent --help.`,
+    Object.hasOwn(commands, name),
+    `Unknown command: ${name}. Run humagent --help.`,
   );
+  const command = commands[name]!;
   ensure(
     positional.length <= 2,
     'Too many arguments. Quote file paths that contain spaces.',
   );
   for (const key of flags.keys())
     ensure(
-      ['home', 'json'].includes(key) || commandFlags[command]!.includes(key),
-      `--${key} is not valid for ${command}.`,
+      ['home', 'json'].includes(key) || command.flags.includes(key),
+      `--${key} is not valid for ${name}.`,
     );
-  if (['stop', 'setup', 'doctor', 'server', 'demo'].includes(command))
-    ensure(!argument, `${command} does not accept a positional argument.`);
+  if (!command.argument)
+    ensure(!argument, `${name} does not accept a positional argument.`);
   if (runtimeName === 'node')
     ensure(
       Number(process.versions.node.split('.')[0]) >= 24,
       'Use Node.js 24 or later, or run this command with Bun 1.4.4 or later.',
     );
-  if (command === 'server') {
-    const configuredPort = flags.get('port') ?? process.env.HUMAGENT_PORT;
-    const port =
-      configuredPort === undefined ? undefined : Number(configuredPort);
-    ensure(
-      port === undefined ||
-        (Number.isInteger(port) && port >= 0 && port <= 65535),
-      'The server port must be an integer from 0 to 65535.',
-    );
-    const runtime = await createRuntime({ directory, port });
-    await output({
-      status: 'listening',
-      origin: runtime.origin,
-      runtime: runtimeName,
-      runtimeVersion,
-      version,
-    });
-    for (const signal of ['SIGTERM', 'SIGINT'] as const)
-      process.on(signal, () => {
-        void runtime.close().then(() => process.exit(0));
-      });
-    return;
-  }
-  if (command === 'setup') {
-    const destination = path.resolve(
-      flags.get('directory') ?? '.agents/skills/humagent',
-    );
-    const file = path.join(destination, 'SKILL.md');
-    const skill = fs.readFileSync(
-      new URL('../../skills/humagent/SKILL.md', import.meta.url),
-      'utf8',
-    );
-    if (fs.existsSync(file)) {
-      if (fs.readFileSync(file, 'utf8') === skill) {
-        await output({ installed: file, unchanged: true });
-        return;
-      }
-      ensure(
-        flags.has('force'),
-        'The skill contains different text. Preserve your changes or use --force to replace it.',
-      );
-    }
-    fs.mkdirSync(destination, { recursive: true });
-    fs.writeFileSync(file, skill);
-    if (machine) await output({ installed: file });
-    else
-      console.log(
-        `Installed the agent skill:\n${file}\n\nAsk your agent to read it before starting a session.`,
-      );
-    return;
-  }
-  if (command === 'doctor') {
-    const r = record();
-    await output({
-      version,
-      runtime: runtimeName,
-      runtimeVersion,
-      dataDirectory: directory,
-      serverRunning: await alive(r),
-      serverVersion: r?.version ?? null,
-      filesPresent: [
-        '../ui/index.html',
-        '../sdk/sdk.js',
-        '../../skills/humagent/SKILL.md',
-      ].every((p) => fs.existsSync(new URL(p, import.meta.url))),
-    });
-    return;
-  }
-  if (command === 'stop') {
-    const r = record();
-    if (!(await alive(r))) {
-      await output({ stopped: true, alreadyStopped: true });
-      return;
-    }
-    await output(await request(r!, '/api/stop', 'POST', {}));
-    return;
-  }
-  if (command === 'status' && !(await alive(record()))) {
-    await output({
-      serverRunning: false,
-      note: 'The server is stopped. Use open to resume a saved target.',
-    });
-    return;
-  }
-  let target: string | undefined;
-  if (command === 'open') {
-    ensure(
-      argument,
-      'Specify an HTML file or localhost URL. Example: humagent open ./page.html',
-    );
-    target = /^https?:/i.test(argument) ? argument : path.resolve(argument);
-    if (!/^https?:/i.test(target))
-      ensure(fs.existsSync(target), `File not found: ${target}`);
-  }
-  if (command === 'demo') {
-    const destination = path.join(directory, 'demos', version, 'plan');
-    fs.mkdirSync(destination, { recursive: true });
-    for (const file of ['plan.html', 'plan.css']) {
-      const to = path.join(destination, file);
-      if (!fs.existsSync(to))
-        fs.copyFileSync(new URL(`../examples/${file}`, import.meta.url), to);
-    }
-    target = path.join(destination, 'plan.html');
-  }
-  if (!target) {
-    if (command !== 'status' || argument)
-      ensure(
-        argument && /^[\w-]+$/.test(argument),
-        'Specify a session ID from the open command.',
-      );
-    if (command === 'ack' || command === 'renew')
-      ensure(flags.get('receipt'), '--receipt is required.');
-    if (command === 'wait') duration('timeout');
-    if (command === 'wait' || command === 'renew') duration('lease');
-  }
-  const r = await service();
-  if (target) {
-    const result = (await request(r, '/api/open', 'POST', {
-      target,
-      network: flags.has('network'),
-    })) as { url: string; session: string; note: string };
-    if (!flags.has('no-open')) openBrowser(result.url);
-    if (machine) await output(result);
-    else
-      console.log(
-        `Open this private URL in your browser:\n${result.url}\n\nSession: ${result.session}\nSource: ${target}\n\nAsk your agent to run:\n  humagent wait ${result.session}\n\n${result.note}\nNo agent is connected until it starts waiting.`,
-      );
-    return;
-  }
-  if (command === 'status') {
-    await output(
-      await request(
-        r,
-        argument ? `/api/sessions/${argument}` : '/api/sessions',
-      ),
-    );
-    return;
-  }
-  const base = `/api/sessions/${argument}`;
-  if (command === 'wait') {
-    const timeoutMs = duration('timeout');
-    process.stderr.write(
-      'Waiting for input. Keep this command attached to the active agent turn.\n',
-    );
-    await output(
-      await request(
-        r,
-        `${base}/wait`,
-        'POST',
-        {
-          consumer: flags.get('consumer') ?? 'agent',
-          timeoutMs,
-          leaseMs: duration('lease'),
-        },
-        timeoutMs + 5000,
-      ),
-    );
-    return;
-  }
-  if (command === 'ack' || command === 'renew') {
-    await output(
-      await request(r, `${base}/${command}`, 'POST', {
-        receipt: flags.get('receipt'),
-        leaseMs: duration('lease'),
-      }),
-    );
-    return;
-  }
-  if (command === 'end') {
-    await output(await request(r, `${base}/end`, 'POST', {}));
-    return;
-  }
+  await command.run(argument);
 }
 main().catch(async (error) => {
   const message = error instanceof Error ? error.message : String(error);

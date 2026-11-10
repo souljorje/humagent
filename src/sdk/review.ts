@@ -7,6 +7,7 @@ import {
   selectionRange,
 } from './text-editing.js';
 import { hitTestText } from './text-hit.js';
+import { inView, markerPoint, panelPoint } from './layout.js';
 import type { Bootstrap, Presentation, Requests } from '../shared/bridge.js';
 import type {
   Availability,
@@ -691,12 +692,7 @@ export function createPageReview(bridge: ReviewBridge) {
       available.push({ id: draft.item.id, available: !!el });
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      if (
-        (rect.width || rect.height) &&
-        rect.bottom >= 0 &&
-        rect.top <= innerHeight
-      )
-        layouts.push({ draft, index, rect });
+      if (inView(rect, innerHeight)) layouts.push({ draft, index, rect });
     });
     const target = captured ? findTarget(captured.target) : hovered;
     if (captured && target) captured.el = target;
@@ -759,18 +755,11 @@ export function createPageReview(bridge: ReviewBridge) {
       ])
         if (marker.getAttribute(name!) !== value)
           marker.setAttribute(name!, value!);
-      const offset = draft.marker || { x: rect.width / 2, y: rect.height / 2 };
-      const point = text.markerPoint(draft) || {
-        x: rect.left + offset.x,
-        y: rect.top + offset.y,
-      };
-      if (draft.marker?.textOffset !== undefined)
-        place(
-          marker,
-          Math.max(12, Math.min(point.x, innerWidth - 44)),
-          Math.max(12, Math.min(point.y, innerHeight - 44)),
-        );
-      else place(marker, point.x, point.y);
+      const point = markerPoint(rect, draft.marker, text.markerPoint(draft), {
+        width: innerWidth,
+        height: innerHeight,
+      });
+      place(marker, point.x, point.y);
     }
     $('highlight').hidden = !highlight;
     if (highlight) {
@@ -779,26 +768,16 @@ export function createPageReview(bridge: ReviewBridge) {
       $('highlight').style.height = `${highlight.height}px`;
     }
     if (panel && panelRect && editorAnchor && captured) {
-      const viewportHeight = window.visualViewport?.height || innerHeight;
-      const point = {
-        x: editorAnchor.left + captured.point.x,
-        y: editorAnchor.top + captured.point.y,
-      };
-      const preferredX =
-        point.x + 10 + panelRect.width <= innerWidth - 12
-          ? point.x + 10
-          : point.x - panelRect.width - 10;
-      const x = Math.max(
-        12,
-        Math.min(preferredX, innerWidth - panelRect.width - 12),
-      );
-      const preferredY =
-        point.y + 10 + panelRect.height <= viewportHeight - 12
-          ? point.y + 10
-          : point.y - panelRect.height - 10;
-      const y = Math.max(
-        12,
-        Math.min(preferredY, viewportHeight - panelRect.height - 12),
+      const { x, y } = panelPoint(
+        {
+          x: editorAnchor.left + captured.point.x,
+          y: editorAnchor.top + captured.point.y,
+        },
+        panelRect,
+        {
+          width: innerWidth,
+          height: window.visualViewport?.height || innerHeight,
+        },
       );
       panel.style.left = `${Math.round(x)}px`;
       panel.style.top = `${Math.round(y)}px`;

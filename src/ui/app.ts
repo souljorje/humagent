@@ -1,12 +1,8 @@
 import { textDiff } from './text-diff.js';
 import type { WorkspaceView } from '../shared/feedback.js';
-import type {
-  PageEvents,
-  PageMessage,
-  Presentation,
-  Requests,
-  WorkspaceEvents,
-} from '../shared/bridge.js';
+import type { PageMessage, Presentation } from '../shared/bridge.js';
+import { createSession } from './session.js';
+import { connectPage } from './page-bridge.js';
 import { icon } from '../shared/icons.js';
 import { errorMessage } from '../shared/errors.js';
 import { installTooltips } from '../shared/tooltips.js';
@@ -23,12 +19,7 @@ type Controls = Record<string, HTMLElement> & {
 const $ = <K extends keyof Controls>(id: K): Controls[K] =>
   document.getElementById(id) as Controls[K];
 const id = new URL(location.href).searchParams.get('session') ?? '';
-const credentialKey = `humagent:key:${id}`;
-if (location.hash) {
-  sessionStorage.setItem(credentialKey, location.hash.slice(1));
-  history.replaceState(null, '', location.pathname + location.search);
-}
-const capability = sessionStorage.getItem(credentialKey) ?? '';
+const server = createSession(id);
 
 /** The server owns all feedback. This page renders its latest view. */
 let session: WorkspaceView | undefined,
@@ -67,7 +58,7 @@ function openTray(open = true) {
   $('tray').dataset.expanded = String(open);
   resizeTray();
   $('toggle-review').setAttribute('aria-expanded', String(open));
-  if (!open) post('highlight', {});
+  if (!open) bridge.post('highlight', {});
 }
 function error(message = '') {
   $('error').textContent = message;
@@ -75,39 +66,12 @@ function error(message = '') {
   if (message) openTray();
 }
 
-async function api<T>(action = '', method = 'GET', data?: unknown) {
-  if (!capability)
-    throw new Error('Open this session through the Humagent CLI.');
-  const response = await fetch(
-    `/api/sessions/${id}${action ? '/' + action : ''}`,
-    {
-      method,
-      headers: {
-        'x-humagent-session': capability,
-        'content-type': 'application/json',
-      },
-      ...(data === undefined ? {} : { body: JSON.stringify(data) }),
-    },
-  );
-  const result = await response.json();
-  if (!response.ok) throw new Error(`${result.error}: ${result.message}`);
-  return result as T;
-}
-let queue: Promise<unknown> = Promise.resolve();
-/** Requests run in order, so a slow read never replaces the result of a later write. */
-function serial<T>(operation: () => Promise<T>) {
-  const result = queue.then(operation);
-  queue = result.catch(() => {});
-  return result;
-}
 async function write<T extends object = object>(
   action: string,
   method: string,
   data?: unknown,
 ) {
-  const result = await serial(() =>
-    api<T & { session: WorkspaceView }>(action, method, data),
-  ).catch((e) => {
+  const result = await server.write<T>(action, method, data).catch((e) => {
     void sync();
     throw e;
   });
@@ -116,7 +80,7 @@ async function write<T extends object = object>(
 }
 async function sync() {
   try {
-    update(await serial(() => api<WorkspaceView>()));
+    update(await server.read());
   } catch (e) {
     if (connected || !session) error(errorMessage(e));
     connected = false;
@@ -139,20 +103,10 @@ function update(view: WorkspaceView) {
     page = attaching = undefined;
     error('The service restarted. Refresh the page to reconnect.');
   }
-  if (ended) post('ended', {});
+  if (ended) bridge.post('ended', {});
   render();
 }
 
-function post<M extends keyof WorkspaceEvents>(
-  method: M,
-  params: WorkspaceEvents[M],
-) {
-  if (session)
-    $('frame').contentWindow?.postMessage(
-      { channel: session.surface.channel, method, params },
-      session.surface.origin,
-    );
-}
 function presentation(view: WorkspaceView): Presentation {
   return {
     drafts: view.drafts,
@@ -315,7 +269,7 @@ function render() {
             '',
             () => {
               $('frame').focus();
-              post('open', { draftId: item.id });
+              bridge.post('open', { draftId: item.id });
             },
             !mutable || stale || available.get(item.id) === false,
           );
@@ -324,24 +278,25 @@ function render() {
           open.setAttribute('aria-haspopup', 'dialog');
           open.dataset.tooltip = status || 'Edit feedback';
           li.prepend(open);
-          li.onpointerenter = () => post('highlight', { draftId: item.id });
-          li.onpointerleave = () => post('highlight', {});
+          li.onpointerenter = () =>
+            bridge.post('highlight', { draftId: item.id });
+          li.onpointerleave = () => bridge.post('highlight', {});
           li.addEventListener('focusin', () =>
-            post('highlight', { draftId: item.id }),
+            bridge.post('highlight', { draftId: item.id }),
           );
           li.addEventListener('focusout', (event) => {
             if (
               !li.contains(event.relatedTarget as Node | null) &&
               !li.matches(':hover')
             )
-              post('highlight', {});
+              bridge.post('highlight', {});
           });
         }
         const remove = button(
           '',
           () =>
             draft.key !== undefined && page
-              ? post('reset', { key: draft.key, draftId: item.id })
+              ? bridge.post('reset', { key: draft.key, draftId: item.id })
               : write(`drafts/${encodeURIComponent(item.id)}`, 'DELETE'),
           !mutable,
         );
@@ -375,7 +330,7 @@ function render() {
   const signature = JSON.stringify(params);
   if (page && lastPresentation !== signature) {
     lastPresentation = signature;
-    post('update', params);
+    bridge.post('update', params);
   }
 }
 function renderConnection() {
@@ -474,7 +429,10 @@ $('copy-command').onclick = async () => {
 };
 $('annotate').onclick = (event) => {
   $('frame').focus();
-  post('annotate', { enabled: !annotating, keyboard: event.detail === 0 });
+  bridge.post('annotate', {
+    enabled: !annotating,
+    keyboard: event.detail === 0,
+  });
 };
 $('end').onclick = async () => {
   if (!confirm('End this session? Unsent drafts stay saved.')) return;
@@ -493,7 +451,7 @@ document.addEventListener(
     if (!blockedClick) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    post('outside', {});
+    bridge.post('outside', {});
   },
   true,
 );
@@ -503,7 +461,7 @@ document.addEventListener(
     if (!blockedClick && !editorDirty) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (!blockedClick) post('outside', {});
+    if (!blockedClick) bridge.post('outside', {});
     blockedClick = false;
   },
   true,
@@ -551,100 +509,60 @@ async function attach(msg: PageMessage) {
   $('bridge-status').textContent = 'Interface connected';
   const params = presentation(session);
   lastPresentation = JSON.stringify(params);
-  post('init', { ...params, ended: session.ended, annotating });
+  bridge.post('init', { ...params, ended: session.ended, annotating });
   render();
 }
-const requests: {
-  [M in keyof Requests]: (
-    params: Requests[M]['params'],
-    revision: string,
-  ) => Promise<Requests[M]['result']>;
-} = {
-  async stage({ item, marker, key, labels }, revision) {
-    const known = session?.drafts.some((d) => d.key === key);
-    const { draftId } = await write<{ draftId: string }>('drafts', 'POST', {
-      item,
-      revision,
-      ...(marker ? { marker } : {}),
-      ...(key !== undefined ? { key, labels } : {}),
-    });
-    // A form updates its draft while the human types. Only a new decision opens the bar.
-    if (item.intent && (key === undefined || !known)) openTray();
-    sent = false;
-    error();
-    return { draftId, status: 'draft' };
+const bridge = connectPage({
+  frame: $('frame'),
+  surface: () => session?.surface,
+  attached: (msg) => msg.documentId === page?.documentId,
+  hello: (msg) => void attach(msg),
+  failed: error,
+  requests: {
+    async stage({ item, marker, key, labels }, revision) {
+      const known = session?.drafts.some((d) => d.key === key);
+      const { draftId } = await write<{ draftId: string }>('drafts', 'POST', {
+        item,
+        revision,
+        ...(marker ? { marker } : {}),
+        ...(key !== undefined ? { key, labels } : {}),
+      });
+      // A form updates its draft while the human types. Only a new decision opens the bar.
+      if (item.intent && (key === undefined || !known)) openTray();
+      sent = false;
+      error();
+      return { draftId, status: 'draft' };
+    },
+    async edit({ draftId, ...changes }, revision) {
+      await write(`drafts/${encodeURIComponent(draftId)}`, 'PATCH', {
+        ...changes,
+        revision,
+      });
+      return null;
+    },
+    async remove({ draftId }) {
+      await write(`drafts/${encodeURIComponent(draftId)}`, 'DELETE');
+      return null;
+    },
   },
-  async edit({ draftId, ...changes }, revision) {
-    await write(`drafts/${encodeURIComponent(draftId)}`, 'PATCH', {
-      ...changes,
-      revision,
-    });
-    return null;
+  events: {
+    mode({ enabled }) {
+      annotating = enabled;
+      $('annotate').setAttribute('aria-pressed', String(annotating));
+      if (!annotating) $('annotate').focus();
+    },
+    editing({ dirty }) {
+      editorDirty = dirty;
+      render();
+    },
+    notice({ message }) {
+      error(message);
+    },
+    availability({ items }) {
+      for (const item of items) available.set(item.id, item.available);
+      render();
+    },
   },
-  async remove({ draftId }) {
-    await write(`drafts/${encodeURIComponent(draftId)}`, 'DELETE');
-    return null;
-  },
-};
-const events: {
-  [M in keyof PageEvents]: (params: PageEvents[M]) => void;
-} = {
-  hello() {},
-  mode({ enabled }) {
-    annotating = enabled;
-    $('annotate').setAttribute('aria-pressed', String(annotating));
-    if (!annotating) $('annotate').focus();
-  },
-  editing({ dirty }) {
-    editorDirty = dirty;
-    render();
-  },
-  notice({ message }) {
-    error(message);
-  },
-  availability({ items }) {
-    for (const item of items) available.set(item.id, item.available);
-    render();
-  },
-};
-window.addEventListener('message', (event) => {
-  const msg = event.data as PageMessage;
-  if (!session || event.source !== $('frame').contentWindow || !msg) return;
-  const surface =
-    event.origin === session.surface.origin &&
-    msg.channel === session.surface.channel;
-  if (msg.method === 'hello') {
-    if (surface) void attach(msg);
-    return;
-  }
-  const attached = surface && msg.documentId === page?.documentId;
-  if ('id' in msg && typeof msg.id === 'string') {
-    // Answer every request once. After a server restart the old page still runs and gets an error.
-    // Reply to the sender, not the current surface, because the surface can change while a request runs.
-    const source = event.source as Window;
-    const reply = (body: { result: unknown } | { error: string }) =>
-      source.postMessage(
-        { channel: msg.channel, method: 'result', id: msg.id, ...body },
-        event.origin,
-      );
-    const handle = requests[msg.method] as (
-      params: unknown,
-      revision: string,
-    ) => Promise<unknown>;
-    (attached && Object.hasOwn(requests, msg.method)
-      ? handle(msg.params, msg.revision)
-      : Promise.reject(new Error('Refresh the page to reconnect.'))
-    ).then(
-      (result) => reply({ result }),
-      (e) => {
-        error(errorMessage(e));
-        reply({ error: errorMessage(e) });
-      },
-    );
-  } else if (attached && Object.hasOwn(events, msg.method))
-    (events[msg.method as keyof PageEvents] as (params: unknown) => void)(
-      msg.params,
-    );
 });
 window.addEventListener('beforeunload', (event) => {
   if (messageTimer === undefined && !editorDirty) return;
