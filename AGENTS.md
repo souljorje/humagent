@@ -15,8 +15,8 @@ Keep temporary output in `.local/`.
 
 ## Validation
 
-Run `bun run check` after each coding increment. CI runs the same command on pull requests.
-For browser or SDK changes, run `bun run test:browser:built` after the main check.
+Run `bun run check` after each coding increment.
+For browser or SDK changes, run `bun run test:browser:built` after the main check. CI runs both on pull requests.
 
 Follow [release instructions](CONTRIBUTING.md#changesets-and-release) for versioning, archive verification, and publication.
 

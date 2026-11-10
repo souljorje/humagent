@@ -50,7 +50,7 @@ Check `npm view humagent version` before you change installation instructions.
 bun run check
 ```
 
-This is the agent and PR check: build, formatting, lint, types, and unit tests.
+This is the fast check: build, formatting, lint, types, and unit tests. Pull requests also run the browser suite.
 
 For browser work, install Chromium once and run Playwright locally:
 
@@ -59,7 +59,7 @@ bunx --no-install playwright install chromium
 bun run test:browser:built
 ```
 
-Release verification adds all browser tests, packaging, installation with Node.js, and Bun runner checks. Run `bun run check:release` locally before a release.
+Release verification adds packaging, installation with Node.js, and Bun runner checks. Run `bun run check:release` locally before a release.
 
 
 ## Pull requests
