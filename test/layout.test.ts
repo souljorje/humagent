@@ -23,6 +23,8 @@ test('markers sit at the saved click offset, or at the target center', () => {
   const target = box(100, 200);
   assert.deepEqual(markerPoint(target, undefined), { x: 150, y: 220 });
   assert.deepEqual(markerPoint(target, { x: 5, y: 6 }), { x: 105, y: 206 });
+  // A target that shrank after the click keeps its marker on its edge.
+  assert.deepEqual(markerPoint(target, { x: 500, y: 90 }), { x: 200, y: 240 });
 });
 
 test('the editor opens after its anchor and flips when it does not fit', () => {

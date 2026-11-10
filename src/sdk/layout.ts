@@ -25,13 +25,16 @@ export function inView(box: Box, viewportHeight: number) {
     !!(box.width || box.height) && box.bottom >= 0 && box.top <= viewportHeight
   );
 }
-/** A marker sits where the human clicked inside its target, or at the target center. */
+/** A marker sits where the human clicked, or at the center. It stays inside a target that shrank. */
 export function markerPoint(
   target: Box,
   marker: MarkerPosition | undefined,
 ): Point {
   const offset = marker || { x: target.width / 2, y: target.height / 2 };
-  return { x: target.left + offset.x, y: target.top + offset.y };
+  return {
+    x: target.left + clamp(offset.x, 0, target.width),
+    y: target.top + clamp(offset.y, 0, target.height),
+  };
 }
 /** The editor opens after its anchor point, flips when it does not fit, and stays inside the viewport. */
 export function panelPoint(point: Point, panel: Size, viewport: Size): Point {

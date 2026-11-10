@@ -52,6 +52,8 @@ export function createPageReview(bridge: ReviewBridge) {
   let captured: Capture | null = null,
     hovered: Element | undefined;
   let highlightedDraft: string | undefined;
+  // A marker press opens its editor, which can move the marker before the click.
+  let markerPress = false;
   let annotating = false,
     saving = false,
     scheduled = false;
@@ -477,6 +479,7 @@ export function createPageReview(bridge: ReviewBridge) {
   }
   /** While commenting is on, presses target elements before the page can act on them. */
   function intercept(event: MouseEvent) {
+    if (event.type === 'pointerdown') markerPress = false;
     const from = source(event);
     if (from === 'editor') return stop(event, event.type === 'click');
     if (from === 'own') return;
@@ -493,7 +496,7 @@ export function createPageReview(bridge: ReviewBridge) {
           );
         return;
       case 'click': {
-        if (captured && outside()) return stop(event, true);
+        if (markerPress || (captured && outside())) return stop(event, true);
         if (ignored(event.target) || !enabled()) return;
         stop(event, true);
         if (document.getSelection()?.toString().trim()) return;
@@ -651,6 +654,7 @@ export function createPageReview(bridge: ReviewBridge) {
           if (event.button !== 0 || !event.isPrimary) return;
           event.preventDefault();
           event.stopPropagation();
+          markerPress = true;
           activate(event);
         };
         marker.onclick = (event) => {
