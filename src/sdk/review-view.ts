@@ -22,7 +22,7 @@ export function createReviewView() {
     ::selection{background:#666;color:#fff}.primary{background:#ffffffeb;box-shadow:inset 0 1px 0 #ffffff80;color:#222;flex-shrink:0}.primary:hover{background:#fff}.icon{width:40px;padding:0}
     #actions{display:flex;align-items:center;gap:6px;margin-top:8px}#actions>.tooltip-anchor:has(#remove){margin-right:auto}#actions>.tooltip-anchor:has(#cancel){margin-left:auto}#save{min-width:64px}
     #local-error,#editor-status{font-size:12px;margin:6px 10px;color:#ddd}
-    .marker{position:fixed;pointer-events:auto;width:32px;min-height:32px;padding:0;border-radius:16px 16px 16px 5px;background:#292929;color:#fff;box-shadow:0 2px 8px #0003;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;z-index:1;opacity:.72;transition:background 140ms,opacity 140ms,transform 140ms}
+    .marker{position:fixed;pointer-events:auto;width:32px;min-height:32px;padding:0;border-radius:16px 16px 16px 5px;background:#292929;color:#fff;box-shadow:0 2px 8px #0003;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;z-index:1;opacity:.72;transition:background 140ms,opacity 140ms}
     .marker::before{content:'';position:absolute;inset:-6px}.marker:hover,.marker[aria-expanded=true]{background:#555;opacity:1}.marker:focus-visible{outline-color:#222;background:#555;opacity:1}
     .marker.highlighted{opacity:1}
     #highlight{position:fixed;outline:2px solid #1685ff;outline-offset:-1px;background:#1685ff0a;pointer-events:none}
