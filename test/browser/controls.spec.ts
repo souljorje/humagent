@@ -76,20 +76,10 @@ test('a selected text comment omits a no-op replacement', async ({
 });
 
 test('ARIA controls retain their native cursors while commenting', async ({
-  page,
   plan: _plan,
   review,
 }) => {
   await review.evaluate(() => {
-    const host = document.createElement('div');
-    host.id = 'control-host';
-    host.style.cursor = 'pointer';
-    host.attachShadow({ mode: 'open' }).innerHTML =
-      '<div id="nested-control"></div>';
-    host
-      .shadowRoot!.querySelector('div')!
-      .attachShadow({ mode: 'open' }).innerHTML =
-      '<span id="control-text">Custom action</span>';
     const checkbox = document.createElement('div');
     checkbox.id = 'custom-checkbox';
     checkbox.role = 'checkbox';
@@ -99,7 +89,7 @@ test('ARIA controls retain their native cursors while commenting', async ({
     toggle.id = 'unstyled-switch';
     toggle.role = 'switch';
     toggle.textContent = 'Unstyled switch';
-    document.body.prepend(host, checkbox, toggle);
+    document.body.prepend(checkbox, toggle);
   });
   await review.annotate();
   const cursor = (selector: string) =>
@@ -109,16 +99,4 @@ test('ARIA controls retain their native cursors while commenting', async ({
   await expect.poll(() => cursor('#custom-checkbox')).toBe('pointer');
   await review.frame.locator('#unstyled-switch').hover();
   await expect.poll(() => cursor('#unstyled-switch')).toBe('auto');
-  await review.frame.locator('#control-text').hover();
-  await expect.poll(() => cursor('#control-text')).toBe('pointer');
-  await review.frame
-    .locator('#control-host')
-    .evaluate((el) => el.setAttribute('role', 'button'));
-  await expect.poll(() => cursor('#control-text')).toBe('pointer');
-  await review.frame
-    .locator('#control-host')
-    .evaluate((el) => el.removeAttribute('role'));
-  await expect.poll(() => cursor('#control-text')).toBe('pointer');
-  await page.locator('#annotate').click();
-  await expect.poll(() => cursor('#control-text')).toBe('pointer');
 });

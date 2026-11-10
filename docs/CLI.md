@@ -58,7 +58,7 @@ humagent stop
 humagent server --port N
 ```
 
-`status` reports the runtime, package files, server, and sessions. `status SESSION` reports one session. It never starts a stopped server.
+`status` reports the runtime, package files, server, and sessions. `status SESSION` reports one session. With a stopped server it reports the runtime instead. It never starts a stopped server.
 
 `end` rejects new input but keeps queued events available. `stop` retains saved sessions.
 

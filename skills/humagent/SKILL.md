@@ -45,6 +45,7 @@ Claude Code wakes you when `wait` exits.
 In other agents, run `wait` in the foreground. Do not detach it with `&`, `nohup`, or similar tools.
 If your agent stops `wait` before a result, run it again at once. Unacknowledged feedback stays queued.
 Without a running `wait`, you receive nothing. Do not claim to monitor input then.
+If `wait` returns `interrupted`, the server stopped. Run `humagent status` before you run `wait` again.
 Stop when the session ends. Reopen only on the user's request.
 
 ## Apply input

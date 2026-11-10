@@ -45,8 +45,11 @@ test('markers retain the click position across editing, reload, and scrolling', 
     .toBeCloseTo(beforeScroll.y - 20, 0);
   await page.setViewportSize({ width: 320, height: 600 });
   await expect
-    .poll(async () => (await marker.boundingBox())!.x + 32)
-    .toBeLessThanOrEqual(308);
+    .poll(async () => {
+      const box = (await marker.boundingBox())!;
+      return box.x + box.width;
+    })
+    .toBeLessThanOrEqual(320);
   await review.connect();
   await page.locator('#send').click();
   await expect(marker).toHaveCount(0);
