@@ -34,7 +34,7 @@ fs.writeFileSync(
   '<!doctype html><html><body><h1>Hello</h1><script>const literal="</body>";</script></body></html>',
 );
 fs.writeFileSync(path.join(root, 'app.js'), 'window.works=true;');
-let runtime: Awaited<ReturnType<typeof createRuntime>>;
+let runtime: Runtime;
 beforeAll(async () => {
   runtime = await createRuntime({ directory: path.join(dir, 'state') });
 });
@@ -46,26 +46,48 @@ async function api(
   route: string,
   method = 'GET',
   data?: unknown,
-  headers: Record<string, string> = {},
+  server: ServerAddress = runtime,
 ) {
-  const res = await fetch(runtime.origin + route, {
+  const res = await fetch(server.origin + route, {
     method,
     headers: {
-      authorization: `Bearer ${runtime.token}`,
+      authorization: `Bearer ${server.token}`,
       'content-type': 'application/json',
-      ...headers,
     },
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   });
   return { status: res.status, data: await res.json() };
 }
-async function opened() {
-  const res = await api('/api/open', 'POST', { target: file });
-  assert.equal(res.status, 200);
-  return res.data;
+async function until(
+  condition: () => boolean | Promise<boolean>,
+  label: string,
+) {
+  const deadline = Date.now() + 3000;
+  while (!(await condition())) {
+    if (Date.now() >= deadline)
+      throw new Error(`Timed out waiting for ${label}`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
-test('opens isolated local surface and injects before literal body text', async () => {
-  const s = await opened();
+async function within<T>(promise: Promise<T>, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`Timed out waiting for ${label}`)),
+          3000,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+test('opening targets isolates surfaces and refuses unsafe targets and paths', async () => {
+  const s = (await api('/api/open', 'POST', { target: file })).data;
   const snapshot = (await api(`/api/sessions/${s.session}`)).data;
   const page = await fetch(snapshot.surface.frameUrl, {
     headers: { 'sec-fetch-dest': 'iframe' },
@@ -84,14 +106,6 @@ test('opens isolated local surface and injects before literal body text', async 
     await (await fetch(snapshot.surface.origin + '/app.js')).text(),
     /works=true/,
   );
-});
-test('cannot run two writers against the same state directory', async () => {
-  await assert.rejects(
-    () => createRuntime({ directory: path.join(dir, 'state') }),
-    /Another server/,
-  );
-});
-test('remote, credential-bearing, HTTPS and unsupported file targets are refused', async () => {
   for (const target of [
     'https://localhost:3000',
     'http://example.com',
@@ -99,8 +113,6 @@ test('remote, credential-bearing, HTTPS and unsupported file targets are refused
   ])
     assert.equal((await api('/api/open', 'POST', { target })).status, 400);
   await assert.rejects(() => targetOf(path.join(root, 'app.js')), /HTML/);
-});
-test('file resolution denies hidden files, traversal and escaped symlinks', async () => {
   fs.writeFileSync(path.join(root, '.secret'), 'no');
   fs.writeFileSync(path.join(dir, 'outside.txt'), 'no');
   fs.symlinkSync(path.join(dir, 'outside.txt'), path.join(root, 'escape.txt'));
@@ -108,28 +120,160 @@ test('file resolution denies hidden files, traversal and escaped symlinks', asyn
   await assert.rejects(() => safeFile(root, '/%2e%2e/outside.txt'));
   await assert.rejects(() => safeFile(root, '/escape.txt'));
 });
-/** Stage an overall instruction and send it as one event. */
-async function queue(id: string, message = 'Review this', revision?: string) {
-  await api(`/api/sessions/${id}/message`, 'PUT', { text: message });
-  return api(`/api/sessions/${id}/send`, 'POST', {
-    revision: revision ?? runtime.store.get(id).revision,
-  });
-}
-test('wait ownership and end are typed', async () => {
-  const s = await opened();
-  const first = api(`/api/sessions/${s.session}/wait`, 'POST', {});
-  await until(
-    async () =>
-      (await api(`/api/sessions/${s.session}`)).data.agent === 'waiting',
-    'agent listening',
+test('cannot run two writers against the same state directory', async () => {
+  await assert.rejects(
+    () => createRuntime({ directory: path.join(dir, 'state') }),
+    /Another server/,
   );
-  assert.equal(
-    (await api(`/api/sessions/${s.session}/wait`, 'POST', {})).status,
-    409,
-  );
-  await api(`/api/sessions/${s.session}/end`, 'POST', {});
-  assert.equal((await first).data.status, 'ended');
 });
+
+function pendingWait(server: ServerAddress, id: string) {
+  let request!: http.ClientRequest;
+  const response = new Promise<{
+    status: number | undefined;
+    data: WaitResult;
+  }>((resolve, reject) => {
+    request = http.request(
+      `${server.origin}/api/sessions/${id}/wait`,
+      {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${server.token}`,
+          'content-type': 'application/json',
+        },
+      },
+      (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => (body += chunk));
+        res.on('error', reject);
+        res.on('aborted', () => reject(new Error('Wait response aborted')));
+        res.on('end', () => {
+          try {
+            resolve({ status: res.statusCode, data: JSON.parse(body) });
+          } catch (error) {
+            reject(error);
+          }
+        });
+      },
+    );
+    request.on('error', reject);
+    request.end('{}');
+  });
+  response.catch(() => {});
+  return { request, response };
+}
+
+async function openDistinct(server: ServerAddress, name: string) {
+  const target = path.join(root, `${name}.html`);
+  fs.writeFileSync(target, '<!doctype html><h1>Disconnect test</h1>');
+  const response = await api('/api/open', 'POST', { target }, server);
+  assert.equal(response.status, 200);
+  return { ...response.data, targetPath: target };
+}
+
+/** Drop one wait, deliver the next event, then interrupt a wait on close. */
+async function checkWaits(
+  server: ServerAddress,
+  listeners: () => Promise<number>,
+  close: () => Promise<unknown>,
+) {
+  const session = await openDistinct(
+    server,
+    `waits-${new URL(server.origin).port}`,
+  );
+  const id = session.session;
+  const baseline = await listeners();
+  const countIs = (count: number) => async () => (await listeners()) === count;
+  const waits: ReturnType<typeof pendingWait>[] = [];
+  async function wait(label: string) {
+    const waiter = pendingWait(server, id);
+    waits.push(waiter);
+    await until(countIs(baseline + 1), label);
+    return waiter;
+  }
+  try {
+    (await wait('first waiter')).request.destroy();
+    await until(countIs(baseline), 'disconnected waiter cleanup');
+    const next = await wait('replacement waiter');
+    const snapshot = await api(`/api/sessions/${id}`, 'GET', undefined, server);
+    assert.equal(snapshot.status, 200);
+    const { revision } = snapshot.data;
+    await api(
+      `/api/sessions/${id}/message`,
+      'PUT',
+      { text: 'Keep this event' },
+      server,
+    );
+    const sent = await api(
+      `/api/sessions/${id}/send`,
+      'POST',
+      { revision },
+      server,
+    );
+    assert.equal(sent.status, 200);
+    const received = await within(next.response, 'replacement wait response');
+    assert.equal(received.status, 200);
+    assert.equal(received.data.status, 'feedback');
+    assert.equal(received.data.target.value, session.targetPath);
+    assert.equal(received.data.events[0].id, sent.data.event.id);
+    assert.equal(received.data.events[0].revision, revision);
+    const ack = await api(
+      `/api/sessions/${id}/ack`,
+      'POST',
+      { receipt: received.data.receipt },
+      server,
+    );
+    assert.equal(ack.status, 200);
+    await until(countIs(baseline), 'completed waiter cleanup');
+    const last = await wait('shutdown waiter');
+    await within(close(), 'server shutdown');
+    const interrupted = await within(last.response, 'interrupted waiter');
+    assert.equal(interrupted.status, 200);
+    assert.equal(interrupted.data.status, 'interrupted');
+  } finally {
+    for (const waiter of waits) waiter.request.destroy();
+  }
+}
+
+test('waits are typed, disconnect-safe, and interrupted on shutdown', async () => {
+  const directory = fixture('shutdown');
+  let server: Runtime | undefined;
+  try {
+    server = await createRuntime({ directory });
+    const owned = server;
+    const s = await openDistinct(owned, 'typed-wait');
+    const first = api(`/api/sessions/${s.session}/wait`, 'POST', {}, owned);
+    await until(
+      async () =>
+        (await api(`/api/sessions/${s.session}`, 'GET', undefined, owned)).data
+          .agent === 'waiting',
+      'agent listening',
+    );
+    const second = await api(
+      `/api/sessions/${s.session}/wait`,
+      'POST',
+      {},
+      owned,
+    );
+    assert.equal(second.status, 409);
+    assert.equal(second.data.error, 'LISTENER_ACTIVE');
+    await api(`/api/sessions/${s.session}/end`, 'POST', {}, owned);
+    assert.equal((await first).data.status, 'ended');
+    const listeners = async () => owned.store.listenerCount('change');
+    const baseline = await listeners();
+    await checkWaits(owned, listeners, () => owned.close());
+    await until(
+      async () => (await listeners()) === baseline,
+      'shutdown listener cleanup',
+    );
+    await (await createRuntime({ directory })).close();
+  } finally {
+    await server?.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('proxy preserves paths, JSON API and WebSocket upgrade; rejects external redirect', async () => {
   const app = http.createServer((req, res) => {
     if (req.url === '/api/value') {
@@ -198,17 +342,6 @@ test('proxy preserves paths, JSON API and WebSocket upgrade; rejects external re
     await new Promise((r) => app.close(r));
   }
 });
-async function until(
-  condition: () => boolean | Promise<boolean>,
-  label: string,
-) {
-  const deadline = Date.now() + 3000;
-  while (!(await condition())) {
-    if (Date.now() >= deadline)
-      throw new Error(`Timed out waiting for ${label}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
 
 function nodeRuntime(directory: string) {
   const script = fileURLToPath(
@@ -220,350 +353,100 @@ function nodeRuntime(directory: string) {
   let stderr = '';
   child.stderr!.setEncoding('utf8');
   child.stderr!.on('data', (chunk) => (stderr += chunk));
-  type Exit = { code: number | null; signal: NodeJS.Signals | null };
   let resolveReady!: (ready: NodeReady) => void,
     rejectReady!: (error: Error) => void,
-    resolveExit!: (exit: Exit) => void;
+    resolveExit!: (code: number | null) => void;
   const ready = new Promise<NodeReady>((resolve, reject) => {
     resolveReady = resolve;
     rejectReady = reject;
   });
-  const exited = new Promise<Exit>((resolve) => (resolveExit = resolve));
-  const pending = new Map<
-    number,
-    { resolve(value: number | boolean): void; reject(error: Error): void }
-  >();
+  ready.catch(() => {});
+  const exited = new Promise<number | null>((r) => (resolveExit = r));
+  type Reply = {
+    resolve(value: number | boolean): void;
+    reject(e: Error): void;
+  };
+  const pending = new Map<number, Reply>();
   let nextId = 0;
   child.on('message', (raw) => {
     const message = raw as ChildMessage;
     if ('type' in message) resolveReady(message);
-    else {
-      const reply = pending.get(message.id);
-      if (reply) {
-        pending.delete(message.id);
-        reply.resolve(message.value);
-      }
-    }
+    else pending.get(message.id)?.resolve(message.value);
   });
   child.on('error', rejectReady);
   child.on('close', (code, signal) => {
     const error = new Error(`Node child exited (${code ?? signal}): ${stderr}`);
     rejectReady(error);
     for (const reply of pending.values()) reply.reject(error);
-    pending.clear();
-    resolveExit({ code, signal });
+    resolveExit(code);
   });
-  ready.catch(() => {});
-  function call<M extends 'listeners' | 'close'>(
-    action: M,
-  ): Promise<M extends 'listeners' ? number : boolean> {
-    return new Promise((resolve, reject) => {
+  const call = (action: 'listeners' | 'close') =>
+    new Promise<number | boolean>((resolve, reject) => {
       const id = ++nextId;
-      pending.set(id, {
-        resolve: (value) =>
-          resolve(value as M extends 'listeners' ? number : boolean),
-        reject,
-      });
-      child.send({ id, action }, (error) => {
-        if (error && pending.delete(id)) reject(error);
-      });
+      pending.set(id, { resolve, reject });
+      child.send({ id, action }, (error) => error && reject(error));
     });
-  }
   return { child, ready, exited, call };
 }
 
-async function within<T>(promise: Promise<T>, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`Timed out waiting for ${label}`)),
-          3000,
-        );
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function pendingWait(server: ServerAddress, id: string) {
-  let request!: http.ClientRequest;
-  const response = new Promise<{
-    status: number | undefined;
-    data: WaitResult;
-  }>((resolve, reject) => {
-    request = http.request(
-      `${server.origin}/api/sessions/${id}/wait`,
-      {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${server.token}`,
-          'content-type': 'application/json',
-        },
-      },
-      (res) => {
-        let body = '';
-        res.setEncoding('utf8');
-        res.on('data', (chunk) => (body += chunk));
-        res.on('error', reject);
-        res.on('aborted', () => reject(new Error('Wait response aborted')));
-        res.on('end', () => {
-          try {
-            resolve({ status: res.statusCode, data: JSON.parse(body) });
-          } catch (error) {
-            reject(error);
-          }
-        });
-      },
-    );
-    request.on('error', reject);
-    request.end('{}');
-  });
-  response.catch(() => {});
-  return { request, response };
-}
-
-async function openDistinct(server: ServerAddress, name: string) {
-  const target = path.join(root, `${name}.html`);
-  fs.writeFileSync(target, '<!doctype html><h1>Disconnect test</h1>');
-  const response = await fetch(`${server.origin}/api/open`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${server.token}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({ target }),
-  });
-  assert.equal(response.status, 200);
-  return { ...(await response.json()), targetPath: target };
-}
-
-async function checkHostResponses(server: ServerAddress) {
+/** Send /health over a raw socket so the Host header can be absent or malformed. */
+function rawHealth(server: ServerAddress, host?: string) {
   const address = new URL(server.origin);
-  const missing = await within(
+  const header = host === undefined ? '' : `Host: ${host}\r\n`;
+  return within(
     new Promise<string>((resolve, reject) => {
       let data = '';
       const socket = net.createConnection(
         { host: address.hostname, port: Number(address.port) },
-        () => socket.write('GET /health HTTP/1.0\r\nConnection: close\r\n\r\n'),
+        () =>
+          socket.write(
+            `GET /health HTTP/1.0\r\n${header}Connection: close\r\n\r\n`,
+          ),
       );
       socket.setEncoding('utf8');
-      socket.setTimeout(3000, () =>
-        socket.destroy(new Error('Host request timed out')),
-      );
       socket.on('data', (chunk) => (data += chunk));
       socket.on('error', reject);
       socket.on('end', () => resolve(data));
     }),
-    'missing Host response',
+    `host response for ${JSON.stringify(host)}`,
   );
-  const separator = missing.indexOf('\r\n\r\n');
-  assert.notEqual(separator, -1);
-  const head = missing.slice(0, separator);
-  assert.match(head, /^HTTP\/1\.[01] 403\b/);
-  assert.match(head, /\r\ncontent-type: application\/json\b/i);
-  assert.equal(JSON.parse(missing.slice(separator + 4)).error, 'FORBIDDEN');
+}
 
+async function checkHostResponses(server: ServerAddress) {
   for (const host of [
+    undefined,
     '',
     '[::1',
     'bad host',
     'evil.example',
     'localhost:1234',
   ]) {
-    const result = await within(
-      new Promise<{
-        status: number | undefined;
-        type: string | undefined;
-        body: string;
-      }>((resolve, reject) => {
-        const request = http.request(
-          `${server.origin}/health`,
-          {
-            setHost: false,
-            headers: { host },
-          },
-          (response) => {
-            let body = '';
-            response.setEncoding('utf8');
-            response.on('data', (chunk) => (body += chunk));
-            response.on('error', reject);
-            response.on('end', () => {
-              resolve({
-                status: response.statusCode,
-                type: response.headers['content-type'],
-                body,
-              });
-            });
-          },
-        );
-        request.on('error', reject);
-        request.end();
-      }),
-      `host response for ${JSON.stringify(host)}`,
-    );
-    assert.equal(result.status, 403, `host ${JSON.stringify(host)}`);
-    assert.match(result.type!, /^application\/json\b/);
-    assert.equal(JSON.parse(result.body).error, 'FORBIDDEN');
+    const response = await rawHealth(server, host);
+    const separator = response.indexOf('\r\n\r\n');
+    assert.notEqual(separator, -1);
+    const head = response.slice(0, separator);
+    assert.match(head, /^HTTP\/1\.[01] 403\b/, `host ${JSON.stringify(host)}`);
+    assert.match(head, /\r\ncontent-type: application\/json\b/i);
+    assert.equal(JSON.parse(response.slice(separator + 4)).error, 'FORBIDDEN');
   }
 }
 
-test('real server rejects missing, malformed, and foreign Host headers with JSON', async () => {
+test('real server and Node transport enforce Host and lifecycle', async () => {
   await checkHostResponses(runtime);
-});
-
-test('disconnecting a pending wait releases its listener and preserves the next event', async () => {
-  const session = await openDistinct(runtime, 'wait-disconnect');
-  const id = session.session;
-  const baseline = runtime.store.listenerCount('change');
-  const first = pendingWait(runtime, id);
-  let next;
-  try {
-    await until(
-      () => runtime.store.listenerCount('change') === baseline + 1,
-      'first waiter',
-    );
-    first.request.destroy();
-    await until(
-      () => runtime.store.listenerCount('change') === baseline,
-      'disconnected waiter cleanup',
-    );
-    next = pendingWait(runtime, id);
-    await until(
-      () => runtime.store.listenerCount('change') === baseline + 1,
-      'replacement waiter',
-    );
-    const revision = runtime.store.get(id).revision;
-    const sent = await queue(id, 'Keep this event');
-    assert.equal(sent.status, 200);
-    const received = await within(next.response, 'replacement wait response');
-    assert.equal(received.status, 200);
-    assert.equal(received.data.status, 'feedback');
-    assert.equal(received.data.target.value, session.targetPath);
-    assert.equal(received.data.events[0].id, sent.data.event.id);
-    assert.equal(received.data.events[0].revision, revision);
-    assert.equal(
-      (
-        await api(`/api/sessions/${id}/ack`, 'POST', {
-          receipt: received.data.receipt,
-        })
-      ).status,
-      200,
-    );
-    await until(
-      () => runtime.store.listenerCount('change') === baseline,
-      'completed waiter cleanup',
-    );
-  } finally {
-    first.request.destroy();
-    next?.request.destroy();
-  }
-});
-
-test('shutdown completes pending waits and releases the state directory', async () => {
-  const directory = fixture('shutdown');
-  let server!: Runtime, waiter: ReturnType<typeof pendingWait> | undefined;
-  try {
-    server = await createRuntime({ directory });
-    const session = await openDistinct(server, 'shutdown-clients');
-    const baseline = server.store.listenerCount('change');
-    waiter = pendingWait(server, session.session);
-    await until(
-      () => server.store.listenerCount('change') === baseline + 1,
-      'shutdown waiter',
-    );
-    await within(server.close(), 'server shutdown');
-    const result = await within(waiter.response, 'interrupted waiter');
-    assert.equal(result.status, 200);
-    assert.equal(result.data.status, 'interrupted');
-    await until(
-      () => server.store.listenerCount('change') === baseline,
-      'shutdown listener cleanup',
-    );
-    const restarted = await createRuntime({ directory });
-    await restarted.close();
-  } finally {
-    waiter?.request.destroy();
-    if (server) await server.close();
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-test('Node transport cleans up disconnected waits and shuts down pending clients', async () => {
   const directory = fixture('node-disconnect');
   const node = nodeRuntime(directory);
-  let firstWait, nextWait, shutdownWait;
   try {
     const server = await within(node.ready, 'Node server startup');
     assert.ok(Number(server.version.split('.')[0]) >= 24);
     await checkHostResponses(server);
-    const session = await openDistinct(server, 'node-disconnect');
-    const id = session.session;
-    const baseline = await within(
-      node.call('listeners'),
-      'Node listener count',
+    await checkWaits(
+      server,
+      async () =>
+        (await within(node.call('listeners'), 'Node listener count')) as number,
+      () => node.call('close'),
     );
-    const countIs = (count: number) => async () =>
-      (await within(node.call('listeners'), 'Node listener count')) === count;
-
-    firstWait = pendingWait(server, id);
-    await until(countIs(baseline + 1), 'Node pending waiter');
-    firstWait.request.destroy();
-    await until(countIs(baseline), 'Node disconnected waiter cleanup');
-
-    nextWait = pendingWait(server, id);
-    await until(countIs(baseline + 1), 'Node replacement waiter');
-    const snapshot = await fetch(`${server.origin}/api/sessions/${id}`, {
-      headers: { authorization: `Bearer ${server.token}` },
-    });
-    assert.equal(snapshot.status, 200);
-    const revision = (await snapshot.json()).revision;
-    const write = (action: string, method: string, data: unknown) =>
-      fetch(`${server.origin}/api/sessions/${id}/${action}`, {
-        method,
-        headers: {
-          authorization: `Bearer ${server.token}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(data),
-      });
-    await write('message', 'PUT', { text: 'Keep the Node event' });
-    const response = await write('send', 'POST', { revision });
-    assert.equal(response.status, 200);
-    const { event } = await response.json();
-    const delivered = await within(nextWait.response, 'Node replacement wait');
-    assert.equal(delivered.status, 200);
-    assert.equal(delivered.data.status, 'feedback');
-    assert.equal(delivered.data.target.value, session.targetPath);
-    assert.equal(delivered.data.events[0].id, event.id);
-    assert.equal(delivered.data.events[0].revision, revision);
-    const ack = await fetch(`${server.origin}/api/sessions/${id}/ack`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${server.token}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ receipt: delivered.data.receipt }),
-    });
-    assert.equal(ack.status, 200);
-    shutdownWait = pendingWait(server, id);
-    await until(countIs(baseline + 1), 'Node shutdown waiter');
-    await within(node.call('close'), 'Node server shutdown');
-    const interrupted = await within(
-      shutdownWait.response,
-      'Node interrupted wait',
-    );
-    assert.equal(interrupted.status, 200);
-    assert.equal(interrupted.data.status, 'interrupted');
-    const exit = await within(node.exited, 'Node child exit');
-    assert.equal(exit.code, 0);
+    assert.equal(await within(node.exited, 'Node child exit'), 0);
   } finally {
-    firstWait?.request.destroy();
-    nextWait?.request.destroy();
-    shutdownWait?.request.destroy();
     if (node.child.exitCode === null && node.child.signalCode === null) {
       if (node.child.connected) {
         try {

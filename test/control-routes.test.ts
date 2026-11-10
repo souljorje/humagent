@@ -89,14 +89,14 @@ function chunks(value: string, size = 4096) {
   });
 }
 
-test('control routes enforce origin and credential boundaries', async () => {
+test('control routes enforce origin, credential, content, and method boundaries', async () => {
   const first = await open();
   const second = await open();
-  const key = new URL(first.url).hash.slice(1);
-  const sessionHeaders = {
+  const sessionKey = (session: { url: string }) => ({
     authorization: '',
-    'x-humagent-session': key,
-  };
+    'x-humagent-session': new URL(session.url).hash.slice(1),
+  });
+  const sessionHeaders = sessionKey(first);
   for (const origin of [
     'https://evil.example',
     'null',
@@ -113,39 +113,23 @@ test('control routes enforce origin and credential boundaries', async () => {
     }),
     200,
   );
-  await json(
-    await request('/api/sessions', { headers: { authorization: '' } }),
-    401,
-    'UNAUTHORIZED',
-  );
-  await json(
-    await request('/api/sessions', { headers: sessionHeaders }),
-    401,
-    'UNAUTHORIZED',
-  );
-  await json(
-    await jsonRequest(
-      '/api/open',
-      'POST',
-      { target: first.targetPath },
-      sessionHeaders,
-    ),
-    401,
-    'UNAUTHORIZED',
-  );
-  await json(
-    await request(`/api/sessions/${second.session}`, {
-      headers: sessionHeaders,
-    }),
-    401,
-    'UNAUTHORIZED',
-  );
-  for (const headers of [
-    sessionHeaders,
-    { ...sessionHeaders, 'x-humagent-session': '' },
-  ])
+  for (const [route, headers, data] of [
+    ['/api/sessions', { authorization: '' }],
+    ['/api/sessions', sessionHeaders],
+    ['/api/open', sessionHeaders, { target: first.targetPath }],
+    [`/api/sessions/${second.session}`, sessionHeaders],
+    ['/api/sessions/missing-session', sessionHeaders],
+    [
+      '/api/sessions/missing-session',
+      { ...sessionHeaders, 'x-humagent-session': '' },
+    ],
+    [`/api/sessions/${first.session}/wait`, sessionHeaders, {}],
+    [`/api/sessions/${first.session}/ack`, sessionHeaders, {}],
+  ] as [string, Record<string, string>, unknown?][])
     await json(
-      await request('/api/sessions/missing-session', { headers }),
+      data === undefined
+        ? await request(route, { headers })
+        : await jsonRequest(route, 'POST', data, headers),
       401,
       'UNAUTHORIZED',
     );
@@ -160,34 +144,16 @@ test('control routes enforce origin and credential boundaries', async () => {
   assert.equal('viewKey' in snapshot, false);
   assert.equal('delivery' in snapshot, false);
   assert.equal('acknowledged' in snapshot, false);
-  for (const action of ['wait', 'ack'] as const)
-    await json(
-      await jsonRequest(
-        `/api/sessions/${first.session}/${action}`,
-        'POST',
-        {},
-        sessionHeaders,
-      ),
-      401,
-      'UNAUTHORIZED',
-    );
   const form = {
     revision: snapshot.revision,
     key: 'plan form',
     item: { intent: 'review', values: { selection: 'first' } },
   };
-  await json(
-    await jsonRequest(
-      `/api/sessions/${first.session}/drafts`,
-      'POST',
-      form,
-      sessionHeaders,
-    ),
-    200,
-  );
+  const drafts = `/api/sessions/${first.session}/drafts`;
+  await json(await jsonRequest(drafts, 'POST', form, sessionHeaders), 200);
   const forms = await json(
     await jsonRequest(
-      `/api/sessions/${first.session}/drafts`,
+      drafts,
       'POST',
       { ...form, item: { intent: 'review', values: { selection: 'second' } } },
       sessionHeaders,
@@ -202,7 +168,7 @@ test('control routes enforce origin and credential boundaries', async () => {
   );
   const draft = await json(
     await jsonRequest(
-      `/api/sessions/${first.session}/drafts`,
+      drafts,
       'POST',
       {
         revision: snapshot.revision,
@@ -213,7 +179,7 @@ test('control routes enforce origin and credential boundaries', async () => {
     200,
   );
   await json(
-    await request(`/api/sessions/${first.session}/drafts/${draft.draftId}`, {
+    await request(`${drafts}/${draft.draftId}`, {
       method: 'DELETE',
       headers: sessionHeaders,
     }),
@@ -239,9 +205,7 @@ test('control routes enforce origin and credential boundaries', async () => {
     200,
   );
   assert.equal(ended.session.ended, true);
-});
 
-test('control routes return the expected content and method errors', async () => {
   const health = await json(await request('/health'), 200);
   assert.equal(health.app, 'humagent');
   for (const [route, type] of [
@@ -256,43 +220,35 @@ test('control routes return the expected content and method errors', async () =>
     assert.ok((await response.text()).length > 0);
   }
   await json(await request('/', { method: 'POST' }), 405, 'METHOD');
-  const session = await open();
+  const base = `/api/sessions/${second.session}`;
   for (const [route, method] of [
     ['/unknown', 'GET'],
     ['/api/open', 'GET'],
     ['/api/sessions', 'POST'],
-    [`/api/sessions/${session.session}`, 'POST'],
-    [`/api/sessions/${session.session}/send`, 'GET'],
-    [`/api/sessions/${session.session}/drafts/missing`, 'GET'],
-    [`/api/sessions/${session.session}/unknown`, 'GET'],
+    [base, 'POST'],
+    [`${base}/send`, 'GET'],
+    [`${base}/drafts/missing`, 'GET'],
+    [`${base}/unknown`, 'GET'],
     ['/api/sessions/missing', 'GET'],
   ] as const)
     await json(await request(route, { method }), 404, 'NOT_FOUND');
   const listing = await json(await request('/api/sessions'), 200);
   assert.ok(
     listing.sessions.some(
-      (entry: { id: string }) => entry.id === session.session,
+      (entry: { id: string }) => entry.id === second.session,
     ),
   );
   assert.ok(Array.isArray(listing.errors));
-});
-
-test('HEAD retains route-specific methods after authentication', async () => {
-  const session = await open();
-  const sessionHeaders = {
-    authorization: '',
-    'x-humagent-session': new URL(session.url).hash.slice(1),
-  };
   for (const [route, status, headers] of [
     ['/health', 200, {}],
     ['/', 405, {}],
     ['/api/sessions', 404, {}],
-    [`/api/sessions/${session.session}`, 404, {}],
-    [`/api/sessions/${session.session}/send`, 404, {}],
-    [`/api/sessions/${session.session}`, 404, sessionHeaders],
-    [`/api/sessions/${session.session}/send`, 404, sessionHeaders],
+    [base, 404, {}],
+    [`${base}/send`, 404, {}],
+    [base, 404, sessionKey(second)],
+    [`${base}/send`, 404, sessionKey(second)],
     ['/api/sessions', 401, { authorization: '' }],
-    [`/api/sessions/${session.session}`, 401, { authorization: '' }],
+    [base, 401, { authorization: '' }],
   ] as const) {
     const response = await request(route, { method: 'HEAD', headers });
     assert.equal(response.status, status, `HEAD ${route}`);

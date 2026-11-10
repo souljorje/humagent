@@ -13,6 +13,34 @@ const pkg = JSON.parse(
   fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 );
 
+/** Run JSON CLI commands against one home and stop its server. */
+function cliRunner(home: string, env: NodeJS.ProcessEnv) {
+  const run = async (...args: string[]) =>
+    JSON.parse(
+      (
+        await execute(process.execPath, [cli, ...args, '--home', home], {
+          env,
+          timeout: 10000,
+        })
+      ).stdout,
+    );
+  async function stop() {
+    await run('stop');
+    for (
+      let i = 0;
+      i < 100 && fs.existsSync(path.join(home, 'server.json'));
+      i++
+    )
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(
+      fs.existsSync(path.join(home, 'server.json')),
+      false,
+      'Server must stop before cleanup',
+    );
+  }
+  return { run, stop };
+}
+
 test('Bun CLI preserves runtime and sessions through an agent loop and restart', async () => {
   assert.ok(process.versions.bun, 'Run this suite with Bun');
   const root = fixture('cli');
@@ -23,32 +51,7 @@ test('Bun CLI preserves runtime and sessions through an agent loop and restart',
   fs.writeFileSync(source, '<!doctype html><h1>CLI test</h1>');
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env.HUMAGENT_PORT;
-  const run = async (...args: string[]) => {
-    const { stdout } = await execute(
-      process.execPath,
-      [cli, ...args, '--home', home],
-      {
-        env,
-        timeout: 10000,
-      },
-    );
-    return JSON.parse(stdout);
-  };
-  async function stop() {
-    await run('stop');
-    for (
-      let i = 0;
-      i < 100 && fs.existsSync(path.join(home, 'server.json'));
-      i++
-    ) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    assert.equal(
-      fs.existsSync(path.join(home, 'server.json')),
-      false,
-      'Server must stop before cleanup',
-    );
-  }
+  const { run, stop } = cliRunner(home, env);
   try {
     const opened = await run('open', source, '--no-open');
     assert.ok(opened.session);
@@ -149,15 +152,10 @@ test('demo serves only the editable plan and preserves existing user copies', as
     path.join(old, 'existing.html'),
     '<h1>An older demo copy</h1>',
   );
-  const run = async (...args: string[]) =>
-    JSON.parse(
-      (
-        await execute(process.execPath, [cli, ...args, '--home', home], {
-          env: { ...process.env, HUMAGENT_PORT: '0' },
-          timeout: 10000,
-        })
-      ).stdout,
-    );
+  const { run, stop } = cliRunner(home, {
+    ...process.env,
+    HUMAGENT_PORT: '0',
+  });
   try {
     const opened = await run('demo', '--no-open');
     const snapshot = await run('status', opened.session);
@@ -185,13 +183,7 @@ test('demo serves only the editable plan and preserves existing user copies', as
       '<h1>A saved user plan</h1>',
     );
   } finally {
-    await run('stop');
-    for (
-      let i = 0;
-      i < 100 && fs.existsSync(path.join(home, 'server.json'));
-      i++
-    )
-      await new Promise((resolve) => setTimeout(resolve, 20));
+    await stop();
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
