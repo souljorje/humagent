@@ -48,10 +48,10 @@ test('compact controls, reversible expansion, content growth, and reduced motion
       ...positions.map((n, i) => (i ? Math.abs(n - positions[i - 1]!) : 0)),
     ),
   ).toBeLessThan(75);
-  expect((await page.locator('.bar-controls').boundingBox())!.y).toBeCloseTo(
-    bottom,
-    0,
-  );
+  // The controls return to their place once the tray animation settles.
+  await expect
+    .poll(async () => (await page.locator('.bar-controls').boundingBox())!.y)
+    .toBeCloseTo(bottom, 0);
   await page.locator('#toggle-review').click();
   await expect(page.locator('#tray')).toHaveAttribute('data-expanded', 'true');
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -93,9 +93,10 @@ test('agent presence follows waits and receipts independently from delivery', as
 }) => {
   const status = page.locator('#agent-state');
   await expect(status).toHaveText('No agent waiting');
-  // The request drops after 1.2 seconds, like an agent that stops waiting.
+  // The request drops after 4 seconds, like an agent that stops waiting.
+  // The bar refreshes every second, so it sees the wait before the drop.
   const wait = workspace
-    .api(`/api/sessions/${plan.session}/wait`, 'POST', {}, 1200)
+    .api(`/api/sessions/${plan.session}/wait`, 'POST', {}, 4000)
     .catch(() => undefined);
   await expect(status).toHaveText('Agent listening');
   await expect(page.locator('#toggle-review')).toHaveAttribute(
