@@ -41,8 +41,8 @@ npx --yes --package ./.local/humagent-0.1.0.tgz humagent --version
 The archive includes compiled code, browser assets, examples, the agent skill, and all public guides.
 Use its absolute path when running npx from another directory. npm installation does not build or download application assets.
 
-Version 0.1.0 is not published to npm. The README uses the local archive until a release exists.
-Check `npm view humagent version` and the release archive before changing installation instructions.
+Version 0.1.0 is not published to npm yet. The README shows the npm install that a first release enables.
+Check `npm view humagent version` before you change installation instructions.
 
 ## Checks
 

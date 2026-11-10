@@ -1,0 +1,22 @@
+name: Feature request
+description: Propose a change to behavior, docs, or tooling.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    attributes:
+      label: Problem or goal
+      description: State what you cannot do today and what you want to do.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior you expect.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Alternatives considered
+      description: How do you work around this today?
+    validations:
+      required: false
