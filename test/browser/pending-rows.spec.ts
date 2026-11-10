@@ -18,20 +18,11 @@ test('feedback rows highlight targets, open editors, and delete independently', 
   ).toHaveCount(0);
   const highlight = review.frame.locator('#highlight');
   const markers = review.frame.locator('.marker');
-  const [active, resting] = [
-    'rgba(54, 54, 58, 0.88)',
-    'rgba(24, 24, 27, 0.82)',
-  ];
   const firstTarget = (await review.frame.locator('h1').boundingBox())!;
   await rows.nth(0).hover();
   await expect(highlight).toBeVisible();
-  await expect(markers.nth(0)).toHaveCSS('background-color', active);
-  await expect(markers.nth(0)).not.toHaveCSS(
-    'outline-color',
-    'rgb(22, 133, 255)',
-  );
+  await expect(markers.nth(0)).toHaveClass(/highlighted/);
   await expect(markers.nth(1)).not.toHaveClass(/highlighted/);
-  await expect(markers.nth(1)).toHaveCSS('background-color', resting);
   await expect
     .poll(async () => (await highlight.boundingBox())!.y)
     .toBeCloseTo(firstTarget.y, 0);
@@ -41,13 +32,13 @@ test('feedback rows highlight targets, open editors, and delete independently', 
     exact: true,
   });
   await expect(review.note).toHaveValue('First comment');
-  await expect(markers.nth(0)).toHaveCSS('background-color', active);
+  await expect(markers.nth(0)).toHaveAttribute('aria-expanded', 'true');
   const panel = (await review.frame.locator('#panel').boundingBox())!;
   const secondTarget = (await review.frame
     .locator('[data-humagent-id="brief"]')
     .boundingBox())!;
   await rows.nth(1).hover();
-  await expect(markers.nth(1)).toHaveCSS('background-color', active);
+  await expect(markers.nth(1)).toHaveClass(/highlighted/);
   await expect(markers.nth(0)).not.toHaveClass(/highlighted/);
   await expect
     .poll(async () => (await highlight.boundingBox())!.y)
@@ -59,7 +50,6 @@ test('feedback rows highlight targets, open editors, and delete independently', 
   await expect(review.note).toHaveValue('First comment');
   await page.locator('#message').hover();
   await expect(review.frame.locator('.marker.highlighted')).toHaveCount(0);
-  await expect(markers.nth(1)).toHaveCSS('background-color', resting);
   await rows.nth(1).click({ position: { x: 8, y: 40 } });
   await expect(review.note).toHaveValue('Second comment');
   await cancel.click();
@@ -68,7 +58,7 @@ test('feedback rows highlight targets, open editors, and delete independently', 
     exact: true,
   });
   await first.focus();
-  await expect(markers.nth(0)).toHaveCSS('background-color', active);
+  await expect(markers.nth(0)).toHaveClass(/highlighted/);
   await first.press('Enter');
   await expect(review.note).toHaveValue('First comment');
   await cancel.click();

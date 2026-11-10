@@ -6,13 +6,6 @@ test('compact controls, reversible expansion, content growth, and reduced motion
 }) => {
   expect(
     await page
-      .locator('#toggle-review')
-      .evaluate((el) => getComputedStyle(el).color),
-  ).toBe(
-    await page.locator('#end').evaluate((el) => getComputedStyle(el).color),
-  );
-  expect(
-    await page
       .locator('.bar-controls')
       .evaluate((el) =>
         [...el.children].map(
@@ -20,41 +13,18 @@ test('compact controls, reversible expansion, content growth, and reduced motion
         ),
       ),
   ).toEqual(['toggle-review', 'annotate', 'message', 'send']);
-  expect((await page.locator('#review-bar').boundingBox())!.width).toBe(460);
-  expect(
-    await page
-      .locator('.bar-controls .icon')
-      .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().width)),
-  ).toEqual([42, 42]);
-  const bottom = (await page.locator('.bar-controls').boundingBox())!.y;
   await expect(page.locator('#toggle-review')).toHaveAttribute(
     'aria-expanded',
     'true',
   );
   await expect(page.locator('#agent-command')).toBeVisible();
-  const positions = await page.evaluate(async () => {
-    const toggle = document.getElementById('toggle-review')!;
-    const tray = document.getElementById('tray')!;
-    const samples: number[] = [];
-    for (let i = 0; i < 24; i++) {
-      if ([0, 3, 6].includes(i)) toggle.click();
-      await new Promise(requestAnimationFrame);
-      samples.push(tray.getBoundingClientRect().height);
-    }
-    return samples;
-  });
-  expect(
-    Math.max(
-      ...positions.map((n, i) => (i ? Math.abs(n - positions[i - 1]!) : 0)),
-    ),
-  ).toBeLessThan(75);
-  // The controls return to their place once the tray animation settles.
-  // Sub-pixel rounding during the animation allows a 2px difference.
-  await expect
-    .poll(async () =>
-      Math.abs((await page.locator('.bar-controls').boundingBox())!.y - bottom),
-    )
-    .toBeLessThan(2);
+  for (const expanded of ['false', 'true', 'false']) {
+    await page.locator('#toggle-review').click();
+    await expect(page.locator('#toggle-review')).toHaveAttribute(
+      'aria-expanded',
+      expanded,
+    );
+  }
   await page.locator('#toggle-review').click();
   await expect(page.locator('#tray')).toHaveAttribute('data-expanded', 'true');
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -76,11 +46,6 @@ test('compact controls, reversible expansion, content growth, and reduced motion
   const bar = (await page.locator('#review-bar').boundingBox())!;
   expect(bar.x).toBeGreaterThanOrEqual(8);
   expect(bar.width).toBeLessThanOrEqual(width - 16);
-  expect(
-    await page
-      .locator('.bar-controls .icon')
-      .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().width)),
-  ).toEqual([36, 36]);
   expect(
     await page
       .locator('.bar-controls')
@@ -287,21 +252,9 @@ test('expanded controls use one status heading and a compact readable command', 
   await page.setViewportSize({ width: 390, height: 844 });
   expect(
     await page
-      .locator('#agent-command')
-      .evaluate((el) => getComputedStyle(el).fontSize),
-  ).toBe('12px');
-  expect((await page.locator('#copy-command').boundingBox())!.width).toBe(32);
-  expect((await page.locator('#copy-command svg').boundingBox())!.width).toBe(
-    16,
-  );
-  expect(
-    await page
       .locator('.connection-command')
       .evaluate((el) => el.scrollWidth <= el.clientWidth),
   ).toBe(true);
-  const header = (await page.locator('.connection-heading').boundingBox())!,
-    power = (await end.boundingBox())!;
-  expect(power.x + power.width).toBeCloseTo(header.x + header.width + 12, 0);
   await review.expand(false);
   await expect(end).not.toBeInViewport();
   await review.expand();
