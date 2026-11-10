@@ -99,21 +99,18 @@ test('native selection and context menus are untouched when commenting is off', 
   review,
 }) => {
   const results = await review.evaluate(() => {
-    const host = document.createElement('div');
-    document.body.append(host);
-    const root = host.attachShadow({ mode: 'open' });
-    root.innerHTML = '<input value="Native control">';
-    return [document.querySelector('h1')!, root.querySelector('input')!].map(
-      (el) => {
-        const event = new MouseEvent('contextmenu', {
-          bubbles: true,
-          composed: true,
-          cancelable: true,
-        });
-        el.dispatchEvent(event);
-        return event.defaultPrevented;
-      },
-    );
+    document.body.insertAdjacentHTML('beforeend', '<input value="Native">');
+    return [
+      document.querySelector('h1')!,
+      document.querySelector('input')!,
+    ].map((el) => {
+      const event = new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+      });
+      el.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
   });
   expect(results).toEqual([false, false]);
   await review.frame.locator('h1').dblclick();
@@ -353,4 +350,19 @@ test('two tabs edit one session and see each other’s feedback', async ({
   await review.addComment('h1', 'From the first tab');
   await expect(other.locator('.draft')).toContainText('From the first tab');
   await other.close();
+});
+
+test('a web component is reviewed as one element', async ({
+  plan: _plan,
+  review,
+}) => {
+  await review.evaluate(() => {
+    const host = document.createElement('div');
+    host.id = 'widget';
+    host.attachShadow({ mode: 'open' }).innerHTML = '<p>Inner text</p>';
+    document.body.prepend(host);
+  });
+  await review.addComment('#widget', 'Whole widget');
+  expect((await review.draft()).target).toMatchObject({ id: 'widget' });
+  await expect(review.frame.locator('.marker:visible')).toHaveCount(1);
 });

@@ -48,5 +48,5 @@ export function createReviewView() {
   };
   const $ = <K extends keyof Controls>(id: K): Controls[K] =>
     shadow.getElementById(id) as Controls[K];
-  return { host, shadow, $ };
+  return { $ };
 }

@@ -82,10 +82,9 @@ export function createPageReview(bridge: ReviewBridge) {
     !(el instanceof Element) ||
     el.closest('[data-humagent-ui],script,style,head') ||
     el === document.documentElement;
+  // Page shadow roots are not traversed. At document level, an event inside one targets its host.
   const eventElement = (event: Event) =>
-    event.composedPath().find((item) => item instanceof Element) as
-      | Element
-      | undefined;
+    event.target instanceof Element ? event.target : undefined;
   const ownEvent = (event: Event) =>
     event
       .composedPath()
@@ -449,11 +448,7 @@ export function createPageReview(bridge: ReviewBridge) {
       if (!enabled()) return;
       if (ownEvent(event)) return;
       if (captured || ignored(event.target)) return;
-      hovered = event
-        .composedPath()
-        .find((item) => item instanceof Element && !ignored(item)) as
-        | Element
-        | undefined;
+      hovered = event.target as Element;
       schedule();
     },
     { passive: true },
