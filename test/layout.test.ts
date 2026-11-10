@@ -19,32 +19,10 @@ test('only nonempty boxes inside the viewport height are in view', () => {
   assert.equal(inView(box(0, 100, 0, 0), 800), false);
 });
 
-test('markers use the caret, then the saved offset, then the target center', () => {
+test('markers sit at the saved click offset, or at the target center', () => {
   const target = box(100, 200);
-  assert.deepEqual(markerPoint(target, undefined, undefined, viewport), {
-    x: 150,
-    y: 220,
-  });
-  assert.deepEqual(markerPoint(target, { x: 5, y: 6 }, undefined, viewport), {
-    x: 105,
-    y: 206,
-  });
-  assert.deepEqual(
-    markerPoint(target, { x: 5, y: 6 }, { x: 400, y: 300 }, viewport),
-    { x: 400, y: 300 },
-  );
-});
-
-test('only text-edit markers stay inside the viewport', () => {
-  const offscreen = { x: 1200, y: -40 };
-  assert.deepEqual(
-    markerPoint(box(0, 0), { x: 0, y: 0, textOffset: 3 }, offscreen, viewport),
-    { x: 956, y: 12 },
-  );
-  assert.deepEqual(
-    markerPoint(box(0, 0), { x: 0, y: 0 }, offscreen, viewport),
-    offscreen,
-  );
+  assert.deepEqual(markerPoint(target, undefined), { x: 150, y: 220 });
+  assert.deepEqual(markerPoint(target, { x: 5, y: 6 }), { x: 105, y: 206 });
 });
 
 test('the editor opens after its anchor and flips when it does not fit', () => {

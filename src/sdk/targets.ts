@@ -25,26 +25,11 @@ export function selector(el: Element | null) {
 }
 const interactiveSelector =
   "a[href],button,input,select,textarea,option,optgroup,label,summary,[contenteditable]:not([contenteditable='false']),[role='link'],[role='button'],[role='checkbox'],[role='combobox'],[role='menuitem'],[role='menuitemcheckbox'],[role='menuitemradio'],[role='option'],[role='radio'],[role='switch'],[role='tab'],[role='treeitem'],[role='textbox'],[role='slider'],[role='spinbutton'],[role='listbox'],[role='grid']";
-export function isNativeInteractiveControl(
-  target: EventTarget | null,
-): boolean {
-  let el = target;
-  while (el instanceof Element) {
-    if (el.closest(interactiveSelector)) return true;
-    const root = el.getRootNode();
-    el = root instanceof ShadowRoot ? root.host : null;
-  }
-  return false;
+export function isNativeInteractiveControl(target: EventTarget | null) {
+  return target instanceof Element && !!target.closest(interactiveSelector);
 }
 export function context(el: Element, text: string) {
-  const shadowPath: string[] = [];
-  let root = el.getRootNode();
-  while (root instanceof ShadowRoot) {
-    shadowPath.unshift(selector(root.host));
-    root = root.host.getRootNode();
-  }
   return {
-    ...(shadowPath.length ? { shadowPath } : {}),
     id: el.getAttribute('data-humagent-id') || el.id || '',
     selector: selector(el),
     tag: el.tagName.toLowerCase(),

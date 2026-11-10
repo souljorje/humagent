@@ -37,12 +37,7 @@ export interface Requests {
     result: StageResult;
   };
   edit: {
-    params: {
-      draftId: string;
-      comment: string;
-      after?: string;
-      marker?: MarkerPosition;
-    };
+    params: { draftId: string; comment: string; after?: string };
     result: null;
   };
   remove: { params: { draftId: string }; result: null };

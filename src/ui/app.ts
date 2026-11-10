@@ -19,7 +19,7 @@ type Controls = Record<string, HTMLElement> & {
 const $ = <K extends keyof Controls>(id: K): Controls[K] =>
   document.getElementById(id) as Controls[K];
 const id = new URL(location.href).searchParams.get('session') ?? '';
-const server = createSession(id);
+const server = createSession(id, update);
 
 /** The server owns all feedback. This page renders its latest view. */
 let session: WorkspaceView | undefined,
@@ -71,16 +71,14 @@ async function write<T extends object = object>(
   method: string,
   data?: unknown,
 ) {
-  const result = await server.write<T>(action, method, data).catch((e) => {
+  return server.write<T>(action, method, data).catch((e) => {
     void sync();
     throw e;
   });
-  update(result.session);
-  return result;
 }
 async function sync() {
   try {
-    update(await server.read());
+    await server.read();
   } catch (e) {
     if (connected || !session) error(errorMessage(e));
     connected = false;

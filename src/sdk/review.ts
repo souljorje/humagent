@@ -4,7 +4,6 @@ import {
   createTextEditing,
   selectedRun,
   isEditableText,
-  selectionRange,
 } from './text-editing.js';
 import { hitTestText } from './text-hit.js';
 import { inView, markerPoint, panelPoint } from './layout.js';
@@ -59,7 +58,6 @@ export function createPageReview(bridge: ReviewBridge) {
     scheduled = false;
   let lastAvailability = '',
     lastDirty = false;
-  const addedTrees = new Set<Element>();
   let returnFocus: Element | null = null;
   let candidates: Element[] = [],
     cursor = -1;
@@ -70,7 +68,6 @@ export function createPageReview(bridge: ReviewBridge) {
     input,
     confirm: () => void save(),
     cancel,
-    invalidate: schedule,
   });
   function canEditText(node: Node | null): node is Text {
     if (!writable || !isEditableText(node)) return false;
@@ -275,7 +272,6 @@ export function createPageReview(bridge: ReviewBridge) {
         suffix: suffix.toString().slice(0, 32),
       };
     }
-    watchRoots(el);
     captured = {
       target,
       before,
@@ -315,7 +311,6 @@ export function createPageReview(bridge: ReviewBridge) {
       textNode: [...el.childNodes].indexOf(node),
       anchor: { quote: before },
     };
-    watchRoots(el);
     captured = {
       target,
       before,
@@ -378,7 +373,7 @@ export function createPageReview(bridge: ReviewBridge) {
     const selection = document.getSelection();
     if (!selection || !selection.rangeCount || !selection.toString().trim())
       return false;
-    const range = selectionRange(selection, [...shadowRoots]);
+    const range = selection.getRangeAt(0).cloneRange();
     const node = range.commonAncestorContainer;
     const el = node instanceof Element ? node : node.parentElement;
     if (ignored(el)) return false;
@@ -424,11 +419,6 @@ export function createPageReview(bridge: ReviewBridge) {
     }
     captured.el = el;
     const current = captured;
-    const endpoint =
-      current.text && text.value !== text.initial ? text.endpoint() : undefined;
-    const marker = endpoint
-      ? { ...anchor(current.el, endpoint), textOffset: endpoint.textOffset }
-      : undefined;
     saving = true;
     updateEditor();
     try {
@@ -438,7 +428,6 @@ export function createPageReview(bridge: ReviewBridge) {
           draftId: current.draft.item.id,
           comment: $('note').value,
           ...(current.text ? { after: text.value } : {}),
-          ...(marker ? { marker } : {}),
         });
       else {
         const targetRect = current.el.getBoundingClientRect();
@@ -460,7 +449,7 @@ export function createPageReview(bridge: ReviewBridge) {
                 }
               : {}),
           },
-          marker || current.point,
+          current.point,
         );
       }
       saving = false;
@@ -491,7 +480,6 @@ export function createPageReview(bridge: ReviewBridge) {
         .find((item) => item instanceof Element && !ignored(item)) as
         | Element
         | undefined;
-      if (hovered) watchRoots(hovered);
       schedule();
     },
     { passive: true },
@@ -502,7 +490,7 @@ export function createPageReview(bridge: ReviewBridge) {
       schedule();
     }
   });
-  /** Classify a captured event: the inline text editor, Humagent UI, a native control, or page content. */
+  /** Classify a press: the inline text editor, Humagent UI, a native control, or page content. */
   function source(event: Event): 'editor' | 'own' | 'control' | 'page' {
     if (text.element && event.composedPath().includes(text.element))
       return 'editor';
@@ -511,84 +499,61 @@ export function createPageReview(bridge: ReviewBridge) {
       ? 'control'
       : 'page';
   }
-  function controlPress(event: MouseEvent) {
+  function stop(event: Event, prevent = false) {
+    if (prevent) event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+  /** While commenting is on, presses target elements before the page can act on them. */
+  function intercept(event: MouseEvent) {
     const from = source(event);
-    if (from === 'editor') return event.stopImmediatePropagation();
+    if (from === 'editor') return stop(event, event.type === 'click');
     if (from === 'own') return;
-    if (changed()) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    } else if (enabled && from === 'control') {
-      const hit = hitTestText(
-        { x: event.clientX, y: event.clientY },
-        shadowRoots,
-        canEditText,
-      );
-      if (!hit?.text) event.preventDefault();
-      event.stopImmediatePropagation();
+    const point = clickPoint(event);
+    switch (event.type) {
+      case 'pointerdown':
+      case 'mousedown':
+        if (changed()) stop(event, true);
+        // A press on a control's plain label may start a text edit, so only that keeps its default.
+        else if (enabled && from === 'control')
+          stop(
+            event,
+            !hitTestText({ x: event.clientX, y: event.clientY }, canEditText),
+          );
+        return;
+      case 'click': {
+        if (captured && outside()) return stop(event, true);
+        if (ignored(event.target) || !enabled) return;
+        stop(event, true);
+        if (document.getSelection()?.toString().trim()) return;
+        const hit = point ? hitTestText(point, canEditText) : undefined;
+        if (hit) showText(hit.node, hit.offset, hit.offset, undefined, point);
+        else show(eventElement(event) || event.target, undefined, point);
+        return;
+      }
+      case 'pointerup':
+        if (enabled && from === 'control') stop(event);
+        return;
+      case 'mouseup':
+        if (!enabled) return;
+        // The selection settles only after the default mouseup action.
+        if (!captured && !ignored(event.target))
+          setTimeout(() => selectedText(point), 0);
+        if (from === 'control') stop(event);
     }
   }
-  document.addEventListener('pointerdown', controlPress, true);
-  document.addEventListener('mousedown', controlPress, true);
-  document.addEventListener(
+  for (const type of [
+    'pointerdown',
+    'mousedown',
     'click',
-    (event) => {
-      const from = source(event);
-      if (from === 'editor') {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        return;
-      }
-      if (from === 'own') return;
-      if (captured && outside()) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        return;
-      }
-      if (ignored(event.target)) return;
-      if (!enabled) {
-        return;
-      }
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      const selection = document.getSelection();
-      if (selection?.toString().trim()) return;
-      const point = clickPoint(event);
-      const hit = point
-        ? hitTestText(point, shadowRoots, canEditText)?.text
-        : undefined;
-      if (hit) showText(hit.node, hit.offset, hit.offset, undefined, point);
-      else show(eventElement(event) || event.target, undefined, point);
-    },
-    true,
-  );
-  document.addEventListener(
     'pointerup',
-    (event) => {
-      const from = source(event);
-      if (from === 'editor' || (enabled && from === 'control'))
-        event.stopImmediatePropagation();
-    },
-    true,
-  );
-  document.addEventListener(
     'mouseup',
-    (event) => {
-      const from = source(event);
-      if (from === 'editor') return event.stopImmediatePropagation();
-      if (!enabled || from === 'own') return;
-      // The selection settles only after the default mouseup action.
-      if (!captured && !ignored(event.target))
-        setTimeout(() => selectedText(clickPoint(event)), 0);
-      if (from === 'control') event.stopImmediatePropagation();
-    },
-    true,
-  );
+  ])
+    document.addEventListener(type, intercept as EventListener, true);
   document.addEventListener(
     'keyup',
     (event) => {
       const from = source(event);
-      if (from === 'editor') return event.stopImmediatePropagation();
+      if (from === 'editor') return stop(event);
       if (enabled && !captured && event.shiftKey && from !== 'own')
         selectedText();
     },
@@ -637,23 +602,12 @@ export function createPageReview(bridge: ReviewBridge) {
   );
   function findTarget(target: ReviewTarget): Element | null {
     try {
-      let root: Document | ShadowRoot = document;
-      if (Array.isArray(target.shadowPath)) {
-        for (const selector of target.shadowPath) {
-          const hosts: NodeListOf<Element> = root.querySelectorAll(
-            String(selector),
-          );
-          if (hosts.length !== 1 || !hosts[0]!.shadowRoot) return null;
-          root = hosts[0]!.shadowRoot!;
-        }
-      }
       const matches = target.id
-        ? root.querySelectorAll(
+        ? document.querySelectorAll(
             `[data-humagent-id="${CSS.escape(String(target.id))}"],#${CSS.escape(String(target.id))}`,
           )
-        : root.querySelectorAll(String(target.selector || ''));
+        : document.querySelectorAll(String(target.selector || ''));
       if (matches.length !== 1 || ignored(matches[0]!)) return null;
-      watchRoots(matches[0]!);
       return matches[0]!;
     } catch {
       return null;
@@ -676,9 +630,6 @@ export function createPageReview(bridge: ReviewBridge) {
   }
   function position() {
     scheduled = false;
-    for (const tree of addedTrees)
-      if (enabled && tree.isConnected) discoverRoots(tree);
-    addedTrees.clear();
     text.reconcile(previews);
     const available: Availability[] = [];
     const layouts: {
@@ -717,7 +668,7 @@ export function createPageReview(bridge: ReviewBridge) {
       let marker = markers.get(draft.item.id);
       if (!marker) {
         marker = document.createElement('button');
-        marker.className = 'marker';
+        marker.className = 'marker glass-surface';
         marker.dataset.draftId = draft.item.id;
         const activate = (event: MouseEvent) => {
           if (saving) return;
@@ -755,10 +706,7 @@ export function createPageReview(bridge: ReviewBridge) {
       ])
         if (marker.getAttribute(name!) !== value)
           marker.setAttribute(name!, value!);
-      const point = markerPoint(rect, draft.marker, text.markerPoint(draft), {
-        width: innerWidth,
-        height: innerHeight,
-      });
+      const point = markerPoint(rect, draft.marker);
       place(marker, point.x, point.y);
     }
     $('highlight').hidden = !highlight;
@@ -815,21 +763,8 @@ export function createPageReview(bridge: ReviewBridge) {
       )
     )
       return;
-    if (enabled)
-      for (const record of records) {
-        for (const node of record.addedNodes)
-          if (node instanceof Element && !node.closest('[data-humagent-ui]'))
-            addedTrees.add(node);
-        if (
-          record.target instanceof Element &&
-          record.target.shadowRoot &&
-          !shadowRoots.has(record.target.shadowRoot)
-        )
-          addedTrees.add(record.target);
-      }
     schedule();
   });
-  const shadowRoots = new Set<ShadowRoot>();
   const observation = {
     subtree: true,
     childList: true,
@@ -851,41 +786,14 @@ export function createPageReview(bridge: ReviewBridge) {
     '*:not([data-humagent-ui],input,textarea,select,option){user-select:text!important;-webkit-user-select:text!important}',
   );
   observer.observe(document.body || document.documentElement, observation);
-  function discoverRoots(root: Document | ShadowRoot | Element = document) {
-    if (root instanceof ShadowRoot) {
-      if (root.host.matches('[data-humagent-ui]')) return;
-      if (!shadowRoots.has(root)) {
-        observer.observe(root, observation);
-        shadowRoots.add(root);
-      }
-    }
-    if (
-      !(root instanceof Element) &&
-      enabled &&
-      !root.adoptedStyleSheets.includes(selectionStyle)
-    )
-      root.adoptedStyleSheets = [...root.adoptedStyleSheets, selectionStyle];
-    if (root instanceof Element && root.shadowRoot)
-      discoverRoots(root.shadowRoot);
-    for (const element of root.querySelectorAll('*'))
-      if (element.shadowRoot) discoverRoots(element.shadowRoot);
-  }
+  // Pages can block text selection with CSS. Selection must work while commenting.
   function syncSelection() {
-    for (const root of [document, ...shadowRoots]) {
-      const sheets = root.adoptedStyleSheets.filter(
-        (sheet) => sheet !== selectionStyle,
-      );
-      if (enabled) sheets.push(selectionStyle);
-      root.adoptedStyleSheets = sheets;
-    }
-    if (enabled) discoverRoots();
-  }
-  function watchRoots(el: Element) {
-    let root = el.getRootNode();
-    while (root instanceof ShadowRoot) {
-      if (!shadowRoots.has(root)) discoverRoots(root);
-      root = root.host.getRootNode();
-    }
+    const sheets = document.adoptedStyleSheets.filter(
+      (sheet) => sheet !== selectionStyle,
+    );
+    document.adoptedStyleSheets = enabled
+      ? [...sheets, selectionStyle]
+      : sheets;
   }
   return {
     outside,

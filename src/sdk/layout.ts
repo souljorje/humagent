@@ -16,7 +16,6 @@ export interface Box extends Size {
 }
 const MARGIN = 12;
 const GAP = 10;
-const MARKER = 32;
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(value, max));
 
@@ -26,26 +25,13 @@ export function inView(box: Box, viewportHeight: number) {
     !!(box.width || box.height) && box.bottom >= 0 && box.top <= viewportHeight
   );
 }
-/**
- * A marker sits at the caret of a text edit, at its saved offset, or at the target center.
- * Text-edit markers stay inside the viewport.
- */
+/** A marker sits where the human clicked inside its target, or at the target center. */
 export function markerPoint(
   target: Box,
   marker: MarkerPosition | undefined,
-  caret: Point | undefined,
-  viewport: Size,
 ): Point {
   const offset = marker || { x: target.width / 2, y: target.height / 2 };
-  const point = caret || {
-    x: target.left + offset.x,
-    y: target.top + offset.y,
-  };
-  if (marker?.textOffset === undefined) return point;
-  return {
-    x: clamp(point.x, MARGIN, viewport.width - MARGIN - MARKER),
-    y: clamp(point.y, MARGIN, viewport.height - MARGIN - MARKER),
-  };
+  return { x: target.left + offset.x, y: target.top + offset.y };
 }
 /** The editor opens after its anchor point, flips when it does not fit, and stays inside the viewport. */
 export function panelPoint(point: Point, panel: Size, viewport: Size): Point {

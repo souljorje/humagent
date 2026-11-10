@@ -22,13 +22,11 @@ export function installTooltips(root: Document | ShadowRoot) {
   tooltip.hidden = true;
   container.append(tooltip);
   let active: HTMLElement | null = null;
-  let frame = 0;
   let timer: ReturnType<typeof setTimeout>;
   const label = (el: HTMLElement) =>
     el.dataset.tooltip || el.getAttribute('aria-label') || el.textContent || '';
   function hide() {
     clearTimeout(timer);
-    cancelAnimationFrame(frame);
     active?.removeAttribute('aria-describedby');
     active = null;
     tooltip.hidden = true;
@@ -42,7 +40,6 @@ export function installTooltips(root: Document | ShadowRoot) {
     const top = `${Math.max(12, Math.min(rect.top - box.height - 8 >= 12 ? rect.top - box.height - 8 : rect.bottom + 8, innerHeight - box.height - 12))}px`;
     if (tooltip.style.left !== left) tooltip.style.left = left;
     if (tooltip.style.top !== top) tooltip.style.top = top;
-    frame = requestAnimationFrame(position);
   }
   function show(el: HTMLElement, delay = 0) {
     if (active === el && !tooltip.hidden) return;
@@ -86,6 +83,7 @@ export function installTooltips(root: Document | ShadowRoot) {
   root.addEventListener('pointerdown', hide, true);
   root.addEventListener('keydown', hide, true);
   root.addEventListener('scroll', hide, true);
+  addEventListener('resize', position);
   function prepare(button: HTMLButtonElement) {
     if (button.classList.contains('marker')) return;
     let wrapper = button.parentElement!;
@@ -102,14 +100,6 @@ export function installTooltips(root: Document | ShadowRoot) {
       wrapper.setAttribute('aria-label', text);
     if (wrapper.dataset.tooltip !== text) wrapper.dataset.tooltip = text;
   }
-  function collect(node: Node, buttons: Set<HTMLButtonElement>) {
-    if (!(node instanceof Element)) return;
-    if (node instanceof HTMLButtonElement) buttons.add(node);
-    for (const button of node.querySelectorAll<HTMLButtonElement>(
-      'button:not(.marker)',
-    ))
-      buttons.add(button);
-  }
   for (const button of root.querySelectorAll<HTMLButtonElement>(
     'button:not(.marker)',
   ))
@@ -122,11 +112,16 @@ export function installTooltips(root: Document | ShadowRoot) {
         const button = record.target.closest('button');
         if (button) buttons.add(button);
       }
-      for (const node of record.addedNodes) collect(node, buttons);
+      for (const node of record.addedNodes)
+        if (node instanceof Element)
+          for (const button of [node, ...node.querySelectorAll('button')])
+            if (button instanceof HTMLButtonElement) buttons.add(button);
     }
     for (const button of buttons) if (button.isConnected) prepare(button);
-    if (active && !tooltip.hidden && tooltip.textContent !== label(active))
+    if (active && !tooltip.hidden && tooltip.textContent !== label(active)) {
       tooltip.textContent = label(active);
+      position();
+    }
   }).observe(root, {
     subtree: true,
     childList: true,

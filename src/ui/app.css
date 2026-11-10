@@ -240,14 +240,15 @@ textarea::placeholder {
   position: relative;
   isolation: isolate;
   counter-increment: feedback;
-  padding: 12px 0;
-  border-top: 1px solid var(--line);
+  margin: 4px 0;
+  padding: 12px 10px;
+  border-radius: 12px;
   overflow-wrap: anywhere;
   transition: background 140ms;
 }
-.draft:has(.draft-open:not(:disabled):hover),
+.draft:has(.draft-open:not(:disabled)):hover,
 .draft:focus-within {
-  background: #ffffff0a;
+  background: #ffffff0d;
 }
 .draft-content {
   position: relative;
@@ -257,19 +258,19 @@ textarea::placeholder {
   position: absolute;
   inset: 0;
   display: block;
-  border-radius: 8px;
+  border-radius: 12px;
 }
 .draft-open {
   width: 100%;
   height: 100%;
   padding: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   background: transparent !important;
   transform: none !important;
 }
 .draft > .tooltip-anchor:has(.draft-remove) {
   position: absolute;
-  right: 0;
+  right: 6px;
   top: 8px;
   z-index: 1;
 }
@@ -277,6 +278,12 @@ textarea::placeholder {
   width: 32px;
   min-height: 32px;
   padding: 0;
+  border-radius: 8px;
+  color: var(--muted);
+}
+.draft-remove:not(:disabled):hover {
+  background: #ffffff1a;
+  color: var(--ink);
 }
 .draft-remove svg {
   width: 16px;
@@ -304,7 +311,7 @@ textarea::placeholder {
   color: var(--muted);
 }
 .draft .replacement {
-  margin: 8px 0;
+  margin: 6px 0 0;
   font-size: 13px;
   line-height: 1.6;
   white-space: normal;
@@ -318,6 +325,9 @@ textarea::placeholder {
 }
 .replacement ins {
   text-decoration: none;
+  background: #ffffff12;
+  border-radius: 3px;
+  box-decoration-break: clone;
 }
 .replacement del + ins {
   margin-inline-start: 0.25em;

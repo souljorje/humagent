@@ -1,4 +1,4 @@
-import type { Draft, MarkerPosition } from '../shared/feedback.js';
+import type { Draft } from '../shared/feedback.js';
 import { caretAtPoint } from './text-hit.js';
 
 interface Preview {
@@ -7,6 +7,7 @@ interface Preview {
   target: Element;
   before: string;
   written: string;
+  /** Counts Humagent's own writes, so any other write proves the application took the text over. */
   observer: MutationObserver;
   writes: number;
   owned: boolean;
@@ -17,19 +18,18 @@ interface Editing {
   parent: Node;
   initial: string;
   before: string;
-  endpoint?: MarkerPosition;
 }
 
-/** Own only the selected text node. Restore it only while our editor or preview still owns it. */
+/** Own only the selected text node. Restore it only while no one else wrote to it. */
 export function createTextEditing(hooks: {
   resolve(draft: Draft): Element | null;
   input(): void;
   confirm(): void;
   cancel(): void;
-  invalidate(): void;
 }) {
   const previews = new Map<string, Preview>();
   const nodes = new WeakMap<Text, Preview>();
+  // Drafts whose text the application changed. Humagent stops drawing their preview.
   const suppressed = new Set<string>();
   let editing: Editing | undefined;
   function plainText(node: Node): string {
@@ -38,17 +38,14 @@ export function createTextEditing(hooks: {
       return node.hasAttribute('data-humagent-placeholder') ? '' : '\n';
     return [...node.childNodes].map(plainText).join('');
   }
-
   function mutations(
     preview: Preview,
     records = preview.observer.takeRecords(),
   ) {
     const own = Math.min(preview.writes, records.length);
     preview.writes -= own;
-    if (records.length > own && preview.owned) {
-      preview.owned = false;
-      hooks.invalidate();
-    }
+    // The application may write the same text after the agent applies the change.
+    if (records.length > own) preview.owned = false;
   }
   function valid(preview: Preview) {
     mutations(preview);
@@ -83,52 +80,11 @@ export function createTextEditing(hooks: {
   }
   function close() {
     if (!editing) return;
-    document.removeEventListener('selectionchange', rememberCaret);
     const { node, element, parent } = editing;
     // A framework may have replaced the parent or removed the editor.
     if (element.isConnected && element.parentNode === parent)
       element.replaceWith(node);
     editing = undefined;
-  }
-  function editorRoots() {
-    const roots: ShadowRoot[] = [];
-    let root = editing?.element.getRootNode();
-    while (root instanceof ShadowRoot) {
-      roots.push(root);
-      root = root.host.getRootNode();
-    }
-    return roots;
-  }
-  function rememberCaret() {
-    if (!editing) return;
-    const selection = getSelection();
-    if (!selection?.rangeCount) return;
-    const range = selectionRange(selection, editorRoots());
-    if (!editing.element.contains(range.commonAncestorContainer)) return;
-    range.collapse(
-      (selection as Selection & { direction?: string }).direction ===
-        'backward',
-    );
-    let caret = range.getBoundingClientRect();
-    const { startContainer: node, startOffset: offset } = range;
-    let next =
-      node instanceof Text
-        ? offset === node.length
-          ? node.nextSibling
-          : null
-        : node.childNodes[offset];
-    while (next instanceof Text && !next.length) next = next.nextSibling;
-    // Empty text can report the previous line. Its following BR owns the caret line.
-    if (next instanceof HTMLBRElement) caret = next.getBoundingClientRect();
-    const rect = caret.height ? caret : editing.element.getBoundingClientRect();
-    const parent = editing.element.parentElement!.getBoundingClientRect();
-    range.setStart(editing.element, 0);
-    editing.endpoint = {
-      x: (caret.height ? rect.right : rect.left) + 4 - parent.left,
-      y: rect.top + rect.height / 2 - 16 - parent.top,
-      textOffset: plainText(range.cloneContents()).replace(/\r\n/g, '\n')
-        .length,
-    };
   }
   function reconcile(drafts: Draft[]) {
     const wanted = new Map(drafts.map((draft) => [draft.item.id, draft]));
@@ -210,44 +166,6 @@ export function createTextEditing(hooks: {
     get initial() {
       return editing?.initial ?? '';
     },
-    markerPoint(draft: Draft) {
-      const offset = draft.marker?.textOffset;
-      const preview = previews.get(draft.item.id);
-      if (
-        offset === undefined ||
-        !preview ||
-        !valid(preview) ||
-        !preview.node.isConnected
-      )
-        return;
-      // A trailing preserved newline has no rendered caret line in a bare Text node.
-      // Keep its measured editor-line anchor instead.
-      if (
-        offset === preview.node.length &&
-        preview.node.data.endsWith('\n') &&
-        /^(pre|pre-wrap|pre-line|break-spaces)$/.test(
-          getComputedStyle(preview.target).whiteSpace,
-        )
-      )
-        return;
-      const range = document.createRange();
-      range.setStart(preview.node, Math.min(offset, preview.node.length));
-      range.collapse(true);
-      const rect = range.getBoundingClientRect();
-      if (rect.height)
-        return { x: rect.right + 4, y: rect.top + rect.height / 2 - 16 };
-    },
-    endpoint() {
-      if (!editing?.element.isConnected) return;
-      rememberCaret();
-      if (!editing.endpoint) return;
-      const rect = editing.element.parentElement!.getBoundingClientRect();
-      return {
-        x: rect.left + editing.endpoint.x,
-        y: rect.top + editing.endpoint.y,
-        textOffset: editing.endpoint.textOffset,
-      };
-    },
     open(
       node: Text,
       start: number,
@@ -270,18 +188,11 @@ export function createTextEditing(hooks: {
         'display:inline;white-space:inherit;outline:none;cursor:text;min-width:1ch;';
       element.textContent = initial;
       if (!initial) element.style.display = 'inline-block';
-      editing = {
-        node,
-        element,
-        parent: node.parentNode!,
-        initial,
-        before,
-      };
+      editing = { node, element, parent: node.parentNode!, initial, before };
       node.replaceWith(element);
       element.addEventListener('input', (event) => {
         event.stopPropagation();
         element.style.display = element.textContent ? 'inline' : 'inline-block';
-        rememberCaret();
         hooks.input();
       });
       element.addEventListener('change', (event) => event.stopPropagation());
@@ -289,7 +200,7 @@ export function createTextEditing(hooks: {
         if (element.contentEditable !== 'true') return;
         const selection = getSelection();
         if (!selection?.rangeCount) return;
-        const range = selectionRange(selection, editorRoots());
+        const range = selection.getRangeAt(0);
         if (!element.contains(range.commonAncestorContainer)) return;
         range.deleteContents();
         const fragment = document.createDocumentFragment();
@@ -299,6 +210,7 @@ export function createTextEditing(hooks: {
         }
         const last = fragment.lastChild as Text;
         range.insertNode(fragment);
+        // A trailing line break needs a following node, or the browser does not show the new line.
         if (!element.querySelector('[data-humagent-placeholder]')) {
           const end = document.createElement('br');
           end.dataset.humagentPlaceholder = '';
@@ -308,7 +220,6 @@ export function createTextEditing(hooks: {
         range.collapse(true);
         selection.removeAllRanges();
         selection.addRange(range);
-        rememberCaret();
         hooks.input();
       }
       element.addEventListener('paste', (event) => {
@@ -322,10 +233,7 @@ export function createTextEditing(hooks: {
       element.addEventListener('drop', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        const range = caretAtPoint(
-          { x: event.clientX, y: event.clientY },
-          editorRoots(),
-        );
+        const range = caretAtPoint({ x: event.clientX, y: event.clientY });
         if (!range || !element.contains(range.commonAncestorContainer)) return;
         const selection = getSelection();
         selection?.removeAllRanges();
@@ -373,31 +281,11 @@ export function createTextEditing(hooks: {
         selection?.removeAllRanges();
         selection?.addRange(range);
       }
-      rememberCaret();
-      document.addEventListener('selectionchange', rememberCaret);
     },
     setReadOnly(value: boolean) {
       if (editing) editing.element.contentEditable = value ? 'false' : 'true';
     },
   };
-}
-
-/** Native selections may be retargeted at shadow hosts. */
-export function selectionRange(
-  selection: Selection,
-  shadowRoots: ShadowRoot[],
-) {
-  const composed = selection as Selection & {
-    getComposedRanges?: (options: {
-      shadowRoots: ShadowRoot[];
-    }) => StaticRange[];
-  };
-  const current = composed.getComposedRanges?.({ shadowRoots })[0];
-  if (!current) return selection.getRangeAt(0).cloneRange();
-  const range = document.createRange();
-  range.setStart(current.startContainer, current.startOffset);
-  range.setEnd(current.endContainer, current.endOffset);
-  return range;
 }
 
 export function selectedRun(range: Range) {
@@ -418,24 +306,15 @@ export function selectedRun(range: Range) {
   };
 }
 
+/** Plain text outside Humagent UI, native fields, and application editors. */
 export function isEditableText(node: Node | null): node is Text {
-  if (
-    !(node instanceof Text) ||
-    !node.data.trim() ||
-    node.length > 50000 ||
-    !(node.parentElement instanceof HTMLElement)
-  )
-    return false;
-  let el: Element = node.parentElement;
-  while (true) {
-    if (
-      el.closest(
-        '[data-humagent-ui],script,style,head,input,textarea,select,option,optgroup,[contenteditable]:not([contenteditable="false"])',
-      )
+  return (
+    node instanceof Text &&
+    !!node.data.trim() &&
+    node.length <= 50000 &&
+    node.parentElement instanceof HTMLElement &&
+    !node.parentElement.closest(
+      '[data-humagent-ui],script,style,head,input,textarea,select,option,optgroup,[contenteditable]:not([contenteditable="false"])',
     )
-      return false;
-    const root = el.getRootNode();
-    if (!(root instanceof ShadowRoot)) return true;
-    el = root.host;
-  }
+  );
 }
