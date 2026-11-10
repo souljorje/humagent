@@ -178,10 +178,6 @@ textarea::placeholder {
   align-items: center;
   gap: 6px;
 }
-#copy-status {
-  font-size: 11px;
-  color: var(--muted);
-}
 .connection-command {
   display: flex;
   align-items: stretch;

@@ -374,32 +374,22 @@ $('toggle-review').onclick = () => {
   openTray($('toggle-review').getAttribute('aria-expanded') !== 'true');
 };
 let copyTimer: ReturnType<typeof setTimeout>;
-$('copy-command').onclick = async () => {
-  clearTimeout(copyTimer);
-  $('copy-status').classList.add('sr-only');
-  try {
-    await navigator.clipboard.writeText($('agent-command').textContent || '');
-    $('copy-command').innerHTML = icon('check');
-    $('copy-command').dataset.copied = 'true';
-    $('copy-status').textContent = 'Copied';
-    copyTimer = setTimeout(() => {
-      $('copy-command').innerHTML = icon('copy');
-      delete $('copy-command').dataset.copied;
-      $('copy-status').textContent = '';
-    }, 1500);
-  } catch {
-    $('copy-command').innerHTML = icon('copy');
-    delete $('copy-command').dataset.copied;
-    const range = document.createRange();
-    range.selectNodeContents($('agent-command'));
-    const selection = getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-    $('agent-command').focus();
-    $('copy-status').textContent = 'Select and copy the command.';
-    $('copy-status').classList.remove('sr-only');
-  }
-};
+// A blocked clipboard changes nothing. The command stays selectable.
+$('copy-command').onclick = () =>
+  navigator.clipboard.writeText($('agent-command').textContent || '').then(
+    () => {
+      clearTimeout(copyTimer);
+      $('copy-command').innerHTML = icon('check');
+      $('copy-command').dataset.copied = 'true';
+      $('copy-status').textContent = 'Copied';
+      copyTimer = setTimeout(() => {
+        $('copy-command').innerHTML = icon('copy');
+        delete $('copy-command').dataset.copied;
+        $('copy-status').textContent = '';
+      }, 1500);
+    },
+    () => {},
+  );
 $('annotate').onclick = (event) => {
   $('frame').focus();
   bridge.post('annotate', {

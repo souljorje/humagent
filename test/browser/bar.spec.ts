@@ -130,7 +130,7 @@ test('agent presence follows waits and receipts independently from delivery', as
   await expect(status).toHaveText('Session ended');
 });
 
-test('agent command is session-specific with copy feedback and selectable fallback', async ({
+test('agent command is session-specific with copy feedback', async ({
   page,
   plan,
 }) => {
@@ -160,21 +160,6 @@ test('agent command is session-specific with copy feedback and selectable fallba
     'true',
     { timeout: 2500 },
   );
-  await page.evaluate(() =>
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: {
-        writeText: async () => {
-          throw new Error('Denied');
-        },
-      },
-    }),
-  );
-  await page.getByRole('button', { name: 'Copy agent command' }).click();
-  await expect(page.locator('#copy-status')).toHaveText(
-    'Select and copy the command.',
-  );
-  expect(await page.evaluate(() => getSelection()?.toString())).toBe(command);
 });
 
 test('tooltips explain disabled buttons with pointer and keyboard', async ({
