@@ -86,8 +86,8 @@ test('the plan demo combines text edits, comments, and choices without changing 
   await review.frame
     .getByLabel('How much should change per pass?')
     .selectOption('behavior');
+  // Typed text saves without leaving the field.
   await notes.fill('Keep existing interactions.');
-  await notes.blur();
   await expect
     .poll(() => workspace.form(opened.session, 'review-plan')?.notes)
     .toBe('Keep existing interactions.');

@@ -22,7 +22,7 @@ Humagent injects its SDK into supported local HTML and HTTP localhost apps. Gene
 | `data-humagent-message` | Add the item's comment |
 | `data-humagent-id` | Identify annotation targets |
 
-A marked form owns one draft. Each committed change saves it: a new choice, or a text field that loses focus. The submit button adds the form unchanged. The form shows **Added to review** while its draft exists. Marked forms do not send feedback. Unmarked forms behave normally.
+A marked form owns one draft. Each change saves it. Choices save at once. Typed text saves 300 milliseconds after typing stops. The submit button adds the form unchanged. The form shows **Added to review** while its draft exists. Marked forms do not send feedback. Unmarked forms behave normally.
 
 Send delivers the values that the form shows. A reload refills the form from its draft. Deleting the draft in the bar resets the form to its HTML defaults. After a source revision change, the next form change replaces the stale draft.
 

@@ -142,10 +142,14 @@ interface FormBridge {
   stage(item: DraftItem, key: string, labels: DraftLabels): Promise<unknown>;
   notice(message: string): void;
 }
-/** Each intent form is one live draft. Every committed change saves it. */
+/** Each intent form is one live draft. Choices save at once, typed text shortly after typing stops. */
 export function createForms({ revision, stage, notice }: FormBridge) {
-  // Forms with typed text that no `change` event has saved yet.
-  const typing = new Set<HTMLFormElement>();
+  // Forms with typed text that is not saved yet.
+  const typing = new Map<HTMLFormElement, ReturnType<typeof setTimeout>>();
+  const settle = (form: HTMLFormElement) => {
+    clearTimeout(typing.get(form));
+    typing.delete(form);
+  };
   // A failed save keeps its message until a later save succeeds.
   const failed = new Set<HTMLFormElement>();
   const key = (form: HTMLFormElement) =>
@@ -154,7 +158,7 @@ export function createForms({ revision, stage, notice }: FormBridge) {
   // Restoring and resetting dispatch input events for page scripts. Those events must not save.
   let quiet = false;
   function silently(form: HTMLFormElement, change: () => void) {
-    typing.delete(form);
+    settle(form);
     quiet = true;
     try {
       change();
@@ -176,7 +180,7 @@ export function createForms({ revision, stage, notice }: FormBridge) {
     output.textContent = message;
   }
   function save(form: HTMLFormElement) {
-    typing.delete(form);
+    settle(form);
     const { values, labels } = readForm(form);
     const message = form.dataset.humagentMessage;
     return stage(
@@ -201,8 +205,12 @@ export function createForms({ revision, stage, notice }: FormBridge) {
       if (quiet || !isElement(event.target)) return;
       const form = event.target.closest<HTMLFormElement>(FORMS);
       if (!form) return;
-      if (type === 'change') void save(form);
-      else typing.add(form);
+      if (type === 'change') return void save(form);
+      clearTimeout(typing.get(form));
+      typing.set(
+        form,
+        setTimeout(() => void save(form), 300),
+      );
     });
   document.addEventListener(
     'submit',
@@ -216,9 +224,9 @@ export function createForms({ revision, stage, notice }: FormBridge) {
     },
     true,
   );
-  // A text field reports `change` only when it loses focus. Save typed text before the page unloads.
+  // Save typed text that is still waiting when the page unloads.
   window.addEventListener('beforeunload', () => {
-    for (const form of typing) void save(form);
+    for (const form of typing.keys()) void save(form);
   });
   const current = (drafts: Draft[], form: HTMLFormElement) =>
     drafts.find((d) => d.key === key(form) && d.revision === revision);
