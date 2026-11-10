@@ -111,6 +111,8 @@ function current(s: Session, revision: unknown) {
 export class Store extends EventEmitter {
   private sessions = new Map<string, Session>();
   private failures = new Map<string, string>();
+  /** The interruption of each waiting agent. At most one agent waits per session. */
+  private waiting = new Map<string, () => void>();
   private directory: string;
   constructor(home: string) {
     super();
@@ -209,8 +211,10 @@ export class Store extends EventEmitter {
         fields.target.revision === s.revision,
       'Target revision does not match the page',
     );
-    if (value.key !== undefined) text(value.key, 'Form key', LIMITS.formKey);
-    const key = value.key as string | undefined;
+    const key =
+      value.key === undefined
+        ? undefined
+        : text(value.key, 'Form key', LIMITS.formKey);
     const previous =
       key === undefined ? undefined : s.drafts.find((d) => d.key === key);
     ensure(
@@ -244,16 +248,15 @@ export class Store extends EventEmitter {
     current(s, value.revision);
     const draft = this.draft(s, draftId);
     current(s, draft.revision);
-    text(value.comment, 'Comment', LIMITS.comment, true);
+    const comment = text(value.comment, 'Comment', LIMITS.comment, true);
     const { id: _, comment: _comment, ...previous } = draft.item;
-    const changes: DraftItem = {
-      ...previous,
-      ...(value.comment ? { comment: value.comment } : {}),
-    };
+    const changes: DraftItem = { ...previous, ...(comment ? { comment } : {}) };
     if (value.after !== undefined) {
       ensure(previous.replacement, 'This feedback is not a replacement.');
-      text(value.after, 'Replacement', LIMITS.text, true);
-      changes.replacement = { ...previous.replacement, after: value.after };
+      changes.replacement = {
+        ...previous.replacement,
+        after: text(value.after, 'Replacement', LIMITS.text, true),
+      };
     }
     const updated: Draft = {
       ...draft,
@@ -274,8 +277,8 @@ export class Store extends EventEmitter {
   }
   setMessage(id: string, value: unknown) {
     const s = this.writable(id);
-    text(value, 'Instruction', LIMITS.message, true);
-    if (s.message !== value) this.commit({ ...s, message: value });
+    const message = text(value, 'Instruction', LIMITS.message, true);
+    if (s.message !== message) this.commit({ ...s, message });
   }
   /** Turn the current drafts and instruction into one event. */
   send(id: string, revision: unknown) {
@@ -366,5 +369,57 @@ export class Store extends EventEmitter {
   }
   end(id: string) {
     return this.commit({ ...this.get(id), ended: true });
+  }
+  isWaiting(id: string) {
+    return this.waiting.has(id);
+  }
+  /**
+   * Resolve with the first delivery from `take`, after each session change.
+   * Resolve with an interruption when the signal aborts or the server stops.
+   * Ownership and session errors throw before the wait starts. Later errors reject.
+   */
+  wait(
+    id: string,
+    signal: AbortSignal,
+  ): Promise<
+    NonNullable<ReturnType<Store['take']>> | { status: 'interrupted' }
+  > {
+    ensure(
+      !this.waiting.has(id),
+      'Another agent is already waiting',
+      'LISTENER_ACTIVE',
+      409,
+    );
+    if (signal.aborted) return Promise.resolve({ status: 'interrupted' });
+    const immediate = this.take(id);
+    if (immediate) return Promise.resolve(immediate);
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const finish = (settle: () => void) => {
+        if (done) return;
+        done = true;
+        this.off('change', changed);
+        signal.removeEventListener('abort', cancel);
+        this.waiting.delete(id);
+        settle();
+      };
+      const cancel = () => finish(() => resolve({ status: 'interrupted' }));
+      const changed = (session: string) => {
+        if (session !== id || done) return;
+        try {
+          const next = this.take(id);
+          if (next) finish(() => resolve(next));
+        } catch (error) {
+          finish(() => reject(error));
+        }
+      };
+      this.on('change', changed);
+      this.waiting.set(id, cancel);
+      signal.addEventListener('abort', cancel, { once: true });
+    });
+  }
+  /** Interrupt every waiting agent. */
+  interruptWaits() {
+    for (const cancel of this.waiting.values()) cancel();
   }
 }

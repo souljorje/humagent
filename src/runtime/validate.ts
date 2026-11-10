@@ -33,18 +33,20 @@ export function object(
     `${name} must be an object`,
   );
 }
+/** Return `value` when it is text within the length limit. */
 export function text(
   value: unknown,
   name: string,
   limit: number,
   allowEmpty = false,
-): asserts value is string {
+): string {
   ensure(
     typeof value === 'string' &&
       (allowEmpty || value.trim().length > 0) &&
       value.length <= limit,
     `${name} must be ${allowEmpty ? 0 : 1}–${limit} characters`,
   );
+  return value;
 }
 /** Targets must be explicit HTTP loopback addresses without credentials. */
 export function localUrl(url: URL) {
@@ -87,24 +89,19 @@ export function item(value: unknown): DraftItem {
     object(target, 'Target');
     result.target = target;
   }
-  if (comment !== undefined) {
-    text(comment, 'Comment', LIMITS.comment, true);
-    result.comment = comment;
-  }
+  if (comment !== undefined)
+    result.comment = text(comment, 'Comment', LIMITS.comment, true);
   if (replacement !== undefined) {
     object(replacement, 'Replacement');
     ensure(target, 'A replacement requires a target');
-    text(replacement.before, 'Original text', LIMITS.text);
-    text(replacement.after, 'Replacement', LIMITS.text, true);
     result.replacement = {
-      before: replacement.before,
-      after: replacement.after,
+      before: text(replacement.before, 'Original text', LIMITS.text),
+      after: text(replacement.after, 'Replacement', LIMITS.text, true),
     };
   }
   if (intent !== undefined || values !== undefined) {
-    text(intent, 'Intent', LIMITS.intent);
+    result.intent = text(intent, 'Intent', LIMITS.intent);
     object(values, 'Values');
-    result.intent = intent;
     result.values = values;
   }
   ensure(
@@ -130,19 +127,20 @@ export function marker(value: unknown): MarkerPosition | undefined {
 export function labels(value: unknown): DraftLabels | undefined {
   if (value === undefined) return undefined;
   object(value, 'Labels');
-  text(value.title, 'Form title', LIMITS.label);
+  const title = text(value.title, 'Form title', LIMITS.label);
   const { fields } = value;
   ensure(
     Array.isArray(fields) && fields.length <= LIMITS.labelFields,
     `Labels support at most ${LIMITS.labelFields} fields`,
   );
   return {
-    title: value.title,
+    title,
     fields: fields.map((field) => {
       object(field, 'Field label');
-      text(field.label, 'Field label', LIMITS.label);
-      text(field.value, 'Field value', LIMITS.label, true);
-      return { label: field.label, value: field.value };
+      return {
+        label: text(field.label, 'Field label', LIMITS.label),
+        value: text(field.value, 'Field value', LIMITS.label, true),
+      };
     }),
   };
 }

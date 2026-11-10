@@ -89,7 +89,7 @@ function chunks(value: string, size = 4096) {
   });
 }
 
-test('control routes enforce host, origin, and credential boundaries', async () => {
+test('control routes enforce origin and credential boundaries', async () => {
   const first = await open();
   const second = await open();
   const key = new URL(first.url).hash.slice(1);
@@ -97,12 +97,6 @@ test('control routes enforce host, origin, and credential boundaries', async () 
     authorization: '',
     'x-humagent-session': key,
   };
-  for (const host of ['', 'evil.example', 'localhost:1234'] as const)
-    await json(
-      await request('/health', { headers: { host } }),
-      403,
-      'FORBIDDEN',
-    );
   for (const origin of [
     'https://evil.example',
     'null',

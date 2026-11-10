@@ -38,13 +38,13 @@ test('Bun CLI preserves runtime and sessions through an agent loop and restart',
     await run('stop');
     for (
       let i = 0;
-      i < 100 && fs.existsSync(path.join(home, 'server.lock'));
+      i < 100 && fs.existsSync(path.join(home, 'server.json'));
       i++
     ) {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     assert.equal(
-      fs.existsSync(path.join(home, 'server.lock')),
+      fs.existsSync(path.join(home, 'server.json')),
       false,
       'Server must stop before cleanup',
     );
@@ -188,7 +188,7 @@ test('demo serves only the editable plan and preserves existing user copies', as
     await run('stop');
     for (
       let i = 0;
-      i < 100 && fs.existsSync(path.join(home, 'server.lock'));
+      i < 100 && fs.existsSync(path.join(home, 'server.json'));
       i++
     )
       await new Promise((resolve) => setTimeout(resolve, 20));

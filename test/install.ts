@@ -258,7 +258,7 @@ try {
   try {
     await run('stop');
   } catch {}
-  for (let n = 0; n < 150 && fs.existsSync(path.join(home, 'server.lock')); n++)
+  for (let n = 0; n < 150 && fs.existsSync(path.join(home, 'server.json')); n++)
     await new Promise((r) => setTimeout(r, 20));
   if (app) {
     app.closeAllConnections();

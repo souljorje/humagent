@@ -100,7 +100,7 @@ try {
   } catch {}
   for (
     let i = 0;
-    i < 100 && fs.existsSync(path.join(env.HUMAGENT_HOME!, 'server.lock'));
+    i < 100 && fs.existsSync(path.join(env.HUMAGENT_HOME!, 'server.json'));
     i++
   )
     await new Promise((r) => setTimeout(r, 20));

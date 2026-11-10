@@ -367,7 +367,13 @@ async function checkHostResponses(server: ServerAddress) {
   assert.match(head, /\r\ncontent-type: application\/json\b/i);
   assert.equal(JSON.parse(missing.slice(separator + 4)).error, 'FORBIDDEN');
 
-  for (const host of ['', '[::1', 'bad host', 'evil.example']) {
+  for (const host of [
+    '',
+    '[::1',
+    'bad host',
+    'evil.example',
+    'localhost:1234',
+  ]) {
     const result = await within(
       new Promise<{
         status: number | undefined;

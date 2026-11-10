@@ -116,26 +116,27 @@ function record(): ServerRecord | null {
     return null;
   }
 }
-async function alive(r: ServerRecord | null) {
-  if (!r) return false;
+/** Return the server record only when that server answers its health check. */
+async function running(r = record()) {
+  if (!r) return null;
   try {
     const res = await fetch(`${r.origin}/health`, {
       signal: AbortSignal.timeout(1000),
     });
     const info = (await res.json()) as { app?: string; pid?: number };
-    return res.ok && info.app === 'humagent' && info.pid === r.pid;
+    return res.ok && info.app === 'humagent' && info.pid === r.pid ? r : null;
   } catch {
-    return false;
+    return null;
   }
 }
 async function service() {
-  const existing = record();
-  if (await alive(existing)) {
+  const existing = await running();
+  if (existing) {
     ensure(
-      existing!.version === version,
+      existing.version === version,
       'An older server is running. Run humagent stop, then repeat this command. Saved sessions remain available.',
     );
-    return existing!;
+    return existing;
   }
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const log = fs.openSync(path.join(directory, 'server.log'), 'a', 0o600);
@@ -152,20 +153,25 @@ async function service() {
   child.on('error', () => {});
   child.unref();
   fs.closeSync(log);
-  for (let n = 0; n < 80; n++) {
-    await new Promise((r) => setTimeout(r, 100));
-    const current = record();
-    if (await alive(current)) {
-      ensure(
-        current!.version === version,
-        'Another server version started. Run humagent stop, then retry.',
-      );
-      return current!;
-    }
-  }
-  throw new Error(
+  const started = await poll(() => running(), 80);
+  ensure(
+    started,
     `Could not start the server. Read ${path.join(directory, 'server.log')}.`,
   );
+  ensure(
+    started.version === version,
+    'Another server version started. Run humagent stop, then retry.',
+  );
+  return started;
+}
+/** Check every 100 ms until `check` returns a value, at most `attempts` times. */
+async function poll<T>(check: () => Promise<T | null>, attempts: number) {
+  for (let n = 0; n < attempts; n++) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const value = await check();
+    if (value) return value;
+  }
+  return null;
 }
 async function request(
   r: ServerRecord,
@@ -193,12 +199,19 @@ async function request(
     throw new Error(`${result.error}: ${result.message}`);
   return result;
 }
-async function output(value: unknown) {
+/** Print the value as JSON. With text, print the text unless the output is for machines. */
+async function output(value: unknown, text?: string) {
+  const line =
+    text === undefined || machine ? JSON.stringify(value, null, 2) : text;
   await new Promise<void>((resolve) =>
-    process.stdout.write(JSON.stringify(value, null, 2) + '\n', () =>
-      resolve(),
-    ),
+    process.stdout.write(line + '\n', () => resolve()),
   );
+}
+/** Copy a shipped file. Keep a file that the user already has unless `replace` is set. */
+function copy(source: URL, destination: string, replace = false) {
+  if (!replace && fs.existsSync(destination)) return;
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  fs.writeFileSync(destination, fs.readFileSync(source));
 }
 function openBrowser(url: string) {
   const [exe, parameters] =
@@ -232,11 +245,10 @@ async function openTarget(target: string) {
     network: flags.has('network'),
   })) as { url: string; session: string; note: string };
   if (!flags.has('no-open')) openBrowser(result.url);
-  if (machine) await output(result);
-  else
-    console.log(
-      `Open this private URL in your browser:\n${result.url}\n\nSession: ${result.session}\nSource: ${target}\n\nAsk your agent to run:\n  humagent wait ${result.session}\n\n${result.note}\nNo agent is connected until it starts waiting.`,
-    );
+  await output(
+    result,
+    `Open this private URL in your browser:\n${result.url}\n\nSession: ${result.session}\nSource: ${target}\n\nAsk your agent to run:\n  humagent wait ${result.session}\n\n${result.note}\nNo agent is connected until it starts waiting.`,
+  );
 }
 interface Command {
   flags: string[];
@@ -267,12 +279,11 @@ const commands: Record<string, Command> = {
     argument: false,
     async run() {
       const destination = path.join(directory, 'demos', version, 'plan');
-      fs.mkdirSync(destination, { recursive: true });
-      for (const file of ['plan.html', 'plan.css']) {
-        const to = path.join(destination, file);
-        if (!fs.existsSync(to))
-          fs.copyFileSync(new URL(`../examples/${file}`, import.meta.url), to);
-      }
+      for (const file of ['plan.html', 'plan.css'])
+        copy(
+          new URL(`../examples/${file}`, import.meta.url),
+          path.join(destination, file),
+        );
       await openTarget(path.join(destination, 'plan.html'));
     },
   },
@@ -306,9 +317,9 @@ const commands: Record<string, Command> = {
     argument: true,
     async run(argument) {
       const r = record();
-      const running = await alive(r);
-      if (running && argument) {
-        await output(await request(r!, sessionRoute(argument)));
+      const live = await running(r);
+      if (live && argument) {
+        await output(await request(live, sessionRoute(argument)));
         return;
       }
       await output({
@@ -321,10 +332,10 @@ const commands: Record<string, Command> = {
           '../sdk/sdk.js',
           '../../skills/humagent/SKILL.md',
         ].every((p) => fs.existsSync(new URL(p, import.meta.url))),
-        serverRunning: running,
+        serverRunning: !!live,
         serverVersion: r?.version ?? null,
-        ...(running
-          ? await request(r!, '/api/sessions')
+        ...(live
+          ? await request(live, '/api/sessions')
           : {
               note: 'The server is stopped. Use open to resume a saved target.',
             }),
@@ -343,12 +354,12 @@ const commands: Record<string, Command> = {
     flags: [],
     argument: false,
     async run() {
-      const r = record();
-      if (!(await alive(r))) {
-        await output({ stopped: true, alreadyStopped: true });
-        return;
-      }
-      await output(await request(r!, '/api/stop', 'POST', {}));
+      const r = await running();
+      await output(
+        r
+          ? await request(r, '/api/stop', 'POST', {})
+          : { stopped: true, alreadyStopped: true },
+      );
     },
   },
   setup: {
@@ -359,12 +370,9 @@ const commands: Record<string, Command> = {
         flags.get('directory') ?? '.agents/skills/humagent',
       );
       const file = path.join(destination, 'SKILL.md');
-      const skill = fs.readFileSync(
-        new URL('../../skills/humagent/SKILL.md', import.meta.url),
-        'utf8',
-      );
+      const skill = new URL('../../skills/humagent/SKILL.md', import.meta.url);
       if (fs.existsSync(file)) {
-        if (fs.readFileSync(file, 'utf8') === skill) {
+        if (fs.readFileSync(file, 'utf8') === fs.readFileSync(skill, 'utf8')) {
           await output({ installed: file, unchanged: true });
           return;
         }
@@ -373,13 +381,11 @@ const commands: Record<string, Command> = {
           'The skill contains different text. Preserve your changes or use --force to replace it.',
         );
       }
-      fs.mkdirSync(destination, { recursive: true });
-      fs.writeFileSync(file, skill);
-      if (machine) await output({ installed: file });
-      else
-        console.log(
-          `Installed the agent skill:\n${file}\n\nAsk your agent to read it before starting a session.`,
-        );
+      copy(skill, file, true);
+      await output(
+        { installed: file },
+        `Installed the agent skill:\n${file}\n\nAsk your agent to read it before starting a session.`,
+      );
     },
   },
   server: {

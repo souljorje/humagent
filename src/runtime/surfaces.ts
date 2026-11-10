@@ -29,6 +29,8 @@ const MIME: Record<string, string> = {
   '.wasm': 'application/wasm',
   '.txt': 'text/plain',
 };
+/** Browser modules of the page SDK. */
+const SDK_ASSET = /^\/(?:sdk|shared)\/[a-z][a-z0-9-]*\.(?:js|css|html)$/;
 const digest = (value: string | Buffer) =>
   createHash('sha256').update(value).digest('hex');
 export async function targetOf(
@@ -245,8 +247,8 @@ export async function startSurface(
       if (requestOrigin && !['GET', 'HEAD'].includes(req.method ?? 'GET'))
         ensure(requestOrigin === origin, 'Foreign origin', 'FORBIDDEN', 403);
       if (rawPath.startsWith('/__humagent/')) {
-        const name = rawPath.slice('/__humagent/'.length);
-        const asset = await browserAsset(name, ['sdk', 'shared']);
+        const name = rawPath.slice('/__humagent'.length);
+        const asset = SDK_ASSET.test(name) && (await browserAsset(name));
         ensure(asset, 'Not found', 'NOT_FOUND', 404);
         res.writeHead(200, {
           'content-type': 'text/javascript',

@@ -6,7 +6,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { Store, sessionView } from './store.js';
-import { createWaiters } from './waiters.js';
 import { version } from './version.js';
 import { ensure, Failure, object, parseJson } from './validate.js';
 import {
@@ -31,6 +30,25 @@ const JSON_HEADERS = {
 };
 const json = (status: number, data: unknown) =>
   new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
+/** Public browser modules of the control page. */
+const ASSET = /^\/(?:ui|shared)\/[a-z][a-z0-9-]*\.(?:js|css)$/;
+/**
+ * The credential each control path needs. Paths without a rule need the control token.
+ * A `session` path also accepts the page key of its session. An `agent` path does not.
+ */
+const ACCESS: [RegExp, 'none' | 'session' | 'agent'][] = [
+  [/^\/(?:health)?$/, 'none'],
+  [ASSET, 'none'],
+  [/^\/api\/sessions\/([\w-]+)\/(?:wait|ack)(?:\/[^/]+)?$/, 'agent'],
+  [/^\/api\/sessions\/([\w-]+)(?:\/\w+(?:\/[^/]+)?)?$/, 'session'],
+];
+function accessOf(pathname: string) {
+  for (const [pattern, access] of ACCESS) {
+    const match = pattern.exec(pathname);
+    if (match) return [access, match[1]] as const;
+  }
+  return ['control', undefined] as const;
+}
 /** A wait can last hours. Regular spaces keep idle-connection and fetch timeouts from ending it. */
 const HEARTBEAT_MS = 5000;
 
@@ -63,14 +81,21 @@ export interface RuntimeOptions {
 export async function createRuntime(options: RuntimeOptions) {
   const directory = path.resolve(options.directory);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const lock = path.join(directory, 'server.lock');
-  try {
-    const fd = fs.openSync(lock, 'wx', 0o600);
-    fs.writeFileSync(fd, String(process.pid));
+  // The record claims the directory before the store opens. It gains origin and token after listen.
+  const record = path.join(directory, 'server.json');
+  const claim = () => {
+    const fd = fs.openSync(record, 'wx', 0o600);
+    fs.writeFileSync(fd, JSON.stringify({ pid: process.pid }));
     fs.closeSync(fd);
+  };
+  try {
+    claim();
   } catch {
     let alive = true;
-    const pid = Number(fs.readFileSync(lock, 'utf8'));
+    let pid = 0;
+    try {
+      pid = Number(JSON.parse(fs.readFileSync(record, 'utf8')).pid);
+    } catch {}
     if (Number.isInteger(pid) && pid > 0) {
       try {
         process.kill(pid, 0);
@@ -84,21 +109,18 @@ export async function createRuntime(options: RuntimeOptions) {
       'SERVER_ACTIVE',
       409,
     );
-    fs.unlinkSync(lock);
-    const fd = fs.openSync(lock, 'wx', 0o600);
-    fs.writeFileSync(fd, String(process.pid));
-    fs.closeSync(fd);
+    fs.unlinkSync(record);
+    claim();
   }
   let store: Store;
   try {
     store = new Store(directory);
   } catch (error) {
-    fs.unlinkSync(lock);
+    fs.unlinkSync(record);
     throw error;
   }
   const token = randomBytes(32).toString('hex');
   const surfaces = new Map<string, Promise<Surface>>();
-  const waiters = createWaiters(store);
   let origin = '';
   let closing: Promise<void> | undefined;
   function surface(id: string) {
@@ -112,8 +134,7 @@ export async function createRuntime(options: RuntimeOptions) {
     }
     return surfaces.get(id)!;
   }
-  const view = (id: string) =>
-    sessionView(store.get(id), waiters.isWaiting(id));
+  const view = (id: string) => sessionView(store.get(id), store.isWaiting(id));
   async function snapshot(id: string): Promise<WorkspaceView> {
     store.get(id);
     const panel = await surfaces.get(id);
@@ -135,13 +156,9 @@ export async function createRuntime(options: RuntimeOptions) {
   /** Workspace writes return the fresh session, so the browser never guesses the result. */
   const reply = async (id: string, extra: object = {}) =>
     json(200, { ...extra, session: await snapshot(id) });
-  function checkHost(host: string | undefined) {
-    ensure(host === new URL(origin).host, 'Invalid host', 'FORBIDDEN', 403);
-  }
   const app = new Hono({ getPath: (request) => new URL(request.url).pathname });
   app.onError((error) => fail(error));
   app.use('*', async (c, next) => {
-    checkHost(c.req.header('host'));
     const from = c.req.header('origin');
     ensure(
       !from || from === origin,
@@ -149,23 +166,15 @@ export async function createRuntime(options: RuntimeOptions) {
       'FORBIDDEN',
       403,
     );
-    const pathname = new URL(c.req.url).pathname;
-    if (
-      pathname === '/health' ||
-      pathname === '/' ||
-      /^\/(ui|shared)\/[a-z][a-z0-9-]*\.(js|css)$/.test(pathname)
-    ) {
-      await next();
-      return;
-    }
+    const [access, session] = accessOf(c.req.path);
+    if (access === 'none') return next();
     const control = equal(c.req.header('authorization'), `Bearer ${token}`);
-    const match = /^\/api\/sessions\/([\w-]+)(?:\/(\w+)(?:\/[^/]+)?)?$/.exec(
-      pathname,
-    );
-    if (match) {
+    if (session === undefined)
+      ensure(control, 'Unauthorized', 'UNAUTHORIZED', 401);
+    else {
       let viewKey: string | undefined;
       try {
-        viewKey = store.get(match[1]!).viewKey;
+        viewKey = store.get(session).viewKey;
       } catch (error) {
         // Without the control token, an unknown session looks like a wrong key.
         const unknown = error instanceof Failure && error.code === 'NOT_FOUND';
@@ -180,20 +189,18 @@ export async function createRuntime(options: RuntimeOptions) {
         401,
       );
       ensure(
-        !['wait', 'ack'].includes(match[2] ?? '') || control,
+        control || access !== 'agent',
         'This operation requires the agent credential',
         'UNAUTHORIZED',
         401,
       );
-    } else {
-      ensure(control, 'Unauthorized', 'UNAUTHORIZED', 401);
     }
     // Hono dispatches HEAD through GET, but control routes do not allow it.
     if (c.req.method === 'HEAD')
       throw new Failure(
         404,
         'NOT_FOUND',
-        match ? 'Unknown session operation' : 'Not found',
+        session ? 'Unknown session operation' : 'Not found',
       );
     await next();
   });
@@ -201,22 +208,19 @@ export async function createRuntime(options: RuntimeOptions) {
   app.all('/health', () =>
     json(200, { app: 'humagent', pid: process.pid, version }),
   );
-  for (const root of ['ui', 'shared']) {
-    app.get(`/${root}/:file`, async (c) => {
-      const name = `${root}/${c.req.param('file')}`;
-      const asset = await browserAsset(name, ['ui', 'shared']);
-      ensure(asset, 'Not found', 'NOT_FOUND', 404);
-      return new Response(asset, {
-        headers: {
-          'content-type': name.endsWith('.css')
-            ? 'text/css'
-            : 'text/javascript',
-          'cache-control': 'no-store',
-          'x-content-type-options': 'nosniff',
-        },
-      });
+  app.get('/:root{ui|shared}/:file', async (c) => {
+    const asset = ASSET.test(c.req.path) && (await browserAsset(c.req.path));
+    ensure(asset, 'Not found', 'NOT_FOUND', 404);
+    return new Response(asset, {
+      headers: {
+        'content-type': c.req.path.endsWith('.css')
+          ? 'text/css'
+          : 'text/javascript',
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff',
+      },
     });
-  }
+  });
   app.all('/', (c) => {
     ensure(c.req.method === 'GET', 'Method not allowed', 'METHOD', 405);
     return new Response(fs.readFileSync(path.join(UI, 'index.html')), {
@@ -293,9 +297,7 @@ export async function createRuntime(options: RuntimeOptions) {
       once: true,
     });
     // Ownership and session errors throw here, before the response starts.
-    const result = waiters
-      .wait(id, () => store.take(id), stop.signal)
-      .catch(failure);
+    const result = store.wait(id, stop.signal).catch(failure);
     let beat: ReturnType<typeof setInterval> | undefined;
     return new Response(
       new ReadableStream<Uint8Array>({
@@ -373,8 +375,13 @@ export async function createRuntime(options: RuntimeOptions) {
   });
   const server = http.createServer((req, res) => {
     try {
-      // The adapter parses Host before it invokes the Hono middleware.
-      checkHost(req.headers.host);
+      // The adapter parses Host before it invokes Hono, so check it here.
+      ensure(
+        req.headers.host === new URL(origin).host,
+        'Invalid host',
+        'FORBIDDEN',
+        403,
+      );
     } catch (error) {
       const response = fail(error);
       res.writeHead(response.status, Object.fromEntries(response.headers));
@@ -390,7 +397,7 @@ export async function createRuntime(options: RuntimeOptions) {
     });
     origin = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`;
     await Promise.all(store.list().map((session) => surface(session.id)));
-    writeJson(path.join(directory, 'server.json'), {
+    writeJson(record, {
       pid: process.pid,
       origin,
       token,
@@ -403,22 +410,21 @@ export async function createRuntime(options: RuntimeOptions) {
     server.closeAllConnections();
     if (server.listening)
       await new Promise<void>((resolve) => server.close(() => resolve()));
-    fs.unlinkSync(lock);
+    fs.unlinkSync(record);
     throw e;
   }
   const close = () => {
     if (closing) return closing;
     closing = (async () => {
-      waiters.cancelAll();
+      store.interruptWaits();
       await Promise.all(
         [...surfaces.values()].map(async (p) => (await p).close()),
       );
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      for (const name of ['server.json', 'server.lock'])
-        try {
-          fs.unlinkSync(path.join(directory, name));
-        } catch {}
+      try {
+        fs.unlinkSync(record);
+      } catch {}
     })();
     return closing;
   };
