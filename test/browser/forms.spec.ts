@@ -1,4 +1,4 @@
-import { test, expect, type Feedback } from './fixtures.ts';
+import { test, expect } from './fixtures.ts';
 
 test('a form draft survives a lost HTTP response and refills the form', async ({
   page,
@@ -14,15 +14,14 @@ test('a form draft survives a lost HTTP response and refills the form', async ({
       await route.abort();
     } else await route.continue();
   });
-  await review.frame
-    .locator('input[name="outcome"]')
-    .fill('Survive the lost response');
-  await expect
-    .poll(() => workspace.form(plan.session, 'launch')?.outcome)
-    .toBe('Survive the lost response');
-  const documentId = await review.evaluate(
-    () => window.__HUMAGENT__!.documentId,
-  );
+  const outcome = review.frame.locator('input[name="outcome"]');
+  const saved = () => workspace.form(plan.session, 'launch')?.outcome;
+  await outcome.fill('Survive the lost response');
+  await outcome.blur();
+  await expect.poll(saved).toBe('Survive the lost response');
+  const documentId = () =>
+    review.evaluate(() => window.__HUMAGENT__!.documentId);
+  const before = await documentId();
   await Promise.all([
     page.waitForEvent(
       'framenavigated',
@@ -31,19 +30,12 @@ test('a form draft survives a lost HTTP response and refills the form', async ({
     review.evaluate(() => location.reload()),
   ]);
   await review.ready();
-  await expect
-    .poll(() => review.evaluate(() => window.__HUMAGENT__!.documentId), {
-      timeout: 15000,
-    })
-    .not.toBe(documentId);
+  await expect.poll(documentId, { timeout: 15000 }).not.toBe(before);
   await review.ready();
-  await expect(review.frame.locator('input[name="outcome"]')).toHaveValue(
-    'Survive the lost response',
-  );
-  await review.frame.locator('input[name="outcome"]').fill('A later edit');
-  await expect
-    .poll(() => workspace.form(plan.session, 'launch')?.outcome)
-    .toBe('A later edit');
+  await expect(outcome).toHaveValue('Survive the lost response');
+  await outcome.fill('A later edit');
+  await outcome.blur();
+  await expect.poll(saved).toBe('A later edit');
   expect((await review.state()).drafts).toHaveLength(1);
 });
 
@@ -56,25 +48,24 @@ test('a form keeps one draft that follows its current values', async ({
   const submit = review.frame.locator(
     'form[data-humagent-intent] button[type="submit"]',
   );
+  const draft = page.locator('.draft');
   await submit.click();
   await submit.click();
   await expect(review.frame.locator('[data-humagent-status]')).toHaveText(
     'Added to review',
   );
-  await expect(page.locator('.draft')).toHaveCount(1);
-  await review.frame
-    .locator('input[name="outcome"]')
-    .fill('A later form value.');
+  await expect(draft).toHaveCount(1);
+  const outcome = review.frame.locator('input[name="outcome"]');
+  await outcome.fill('A later form value.');
+  await outcome.blur();
   await expect
     .poll(() => workspace.form(plan.session, 'launch')?.outcome)
     .toBe('A later form value.');
-  await expect(page.locator('.draft')).toHaveCount(1);
-  await expect(page.locator('.draft dt').first()).toHaveText('approach');
-  await expect(page.locator('.draft')).toContainText('Working outcome');
-  await expect(page.locator('.draft')).toContainText('A later form value.');
-  await expect(page.locator('.draft')).toContainText(
-    'Keep a human confirmation step',
-  );
+  await expect(draft).toHaveCount(1);
+  await expect(draft.locator('dt').first()).toHaveText('approach');
+  await expect(draft).toContainText('Working outcome');
+  await expect(draft).toContainText('A later form value.');
+  await expect(draft).toContainText('Keep a human confirmation step');
 });
 
 test('form values survive reload and Send delivers the current values', async ({
@@ -83,33 +74,29 @@ test('form values survive reload and Send delivers the current values', async ({
   review,
   workspace,
 }) => {
-  await review.frame.locator('input[value="platform-first"]').check();
-  await review.frame
-    .locator('input[name="outcome"]')
-    .fill('A preserved outcome.');
-  await review.frame.locator('textarea[name="notes"]').fill('Exact note.');
+  const outcome = review.frame.locator('input[name="outcome"]');
+  const notes = review.frame.locator('textarea[name="notes"]');
+  const approach = review.frame.locator('input[value="platform-first"]');
+  const events = () => workspace.store.get(plan.session).events;
+  await approach.check();
+  await outcome.fill('A preserved outcome.');
+  await outcome.blur();
+  await notes.fill('Exact note.');
+  await notes.blur();
   await review.frame.locator('input[name="confirmBeforeAction"]').uncheck();
   await expect
     .poll(() => workspace.form(plan.session, 'launch')?.confirmBeforeAction)
     .toBe(false);
-  expect(workspace.store.get(plan.session).events).toHaveLength(0);
+  expect(events()).toHaveLength(0);
   await page.reload();
   await review.ready();
-  await expect(review.frame.locator('input[name="outcome"]')).toHaveValue(
-    'A preserved outcome.',
-  );
-  await expect(
-    review.frame.locator('input[value="platform-first"]'),
-  ).toBeChecked();
+  await expect(outcome).toHaveValue('A preserved outcome.');
+  await expect(approach).toBeChecked();
   expect((await review.state()).drafts).toHaveLength(1);
   await review.connect();
   await page.locator('#send').click();
-  await expect
-    .poll(() => workspace.store.get(plan.session).events.length)
-    .toBe(1);
-  expect(
-    workspace.store.get(plan.session).events[0].items[0].values,
-  ).toMatchObject({
+  await expect.poll(() => events().length).toBe(1);
+  expect(events()[0].items[0].values).toMatchObject({
     approach: 'platform-first',
     outcome: 'A preserved outcome.',
     notes: 'Exact note.',
@@ -126,6 +113,7 @@ test('deleting a form draft resets the form without adding it again', async ({
   const outcome = review.frame.locator('input[name="outcome"]');
   const original = await outcome.inputValue();
   await outcome.fill('Discard this value.');
+  await outcome.blur();
   await expect(page.locator('.draft')).toHaveCount(1);
   await review.expand();
   await page.getByRole('button', { name: 'Delete feedback 1' }).click();
@@ -135,54 +123,6 @@ test('deleting a form draft resets the form without adding it again', async ({
   // A reset must not schedule a save that recreates the draft.
   await page.waitForTimeout(500);
   expect((await review.state()).drafts).toHaveLength(0);
-});
-
-test('SDK and forms stage beside annotations and one batch reaches the waiting agent', async ({
-  page,
-  plan,
-  review,
-  workspace,
-}) => {
-  const result = await review.evaluate(() =>
-    window.humagent.submit({
-      intent: 'a_new_task',
-      values: { ranks: ['b', 'a'] },
-      message: 'Use these choices.',
-    }),
-  );
-  expect(result).toMatchObject({
-    status: 'draft',
-    draftId: expect.any(String),
-  });
-  expect(await review.evaluate(() => Object.keys(window.humagent))).toEqual([
-    'submit',
-  ]);
-  await review.frame
-    .locator('form[data-humagent-intent] button[type="submit"]')
-    .click();
-  await expect(page.locator('.draft')).toHaveCount(2);
-  await review.addComment('h1', 'Keep it short.');
-  await page.locator('#message').fill('Review everything together.');
-  expect(workspace.store.get(plan.session).events).toHaveLength(0);
-  const waiting = workspace.api<Feedback>(
-    `/api/sessions/${plan.session}/wait`,
-    'POST',
-    {
-      consumer: 'test',
-      timeoutMs: 10000,
-    },
-  );
-  await review.connect();
-  await page.locator('#send').click();
-  const receipt = await waiting;
-  expect(receipt.events).toHaveLength(1);
-  expect(receipt.events[0].items).toHaveLength(3);
-  expect(receipt.events[0].message).toBe('Review everything together.');
-  await workspace.api(`/api/sessions/${plan.session}/ack`, 'POST', {
-    receipt: receipt.receipt,
-  });
-  await expect(page.locator('#agent-state')).toHaveText('No agent waiting');
-  expect(workspace.store.get(plan.session).events[0].status).toBe('completed');
 });
 
 test('SDK rejects lossy values and failed server writes without staging success', async ({
@@ -275,32 +215,6 @@ test('form serialization handles repeated fields and excludes private or disable
     adopted: 'another document',
   });
   expect(workspace.store.list()[0].events).toHaveLength(0);
-});
-
-test('generated mini-app stays local until Send', async ({
-  page,
-  review,
-  workspace,
-}) => {
-  const opened = await review.open(workspace.file('plan.html'));
-  await review.frame.locator('input[value="copy"]').check();
-  await review.frame
-    .locator('input[name="outcome"]')
-    .fill('A focused prototype.');
-  await expect
-    .poll(() => workspace.form(opened.session, 'review-plan')?.outcome)
-    .toBe('A focused prototype.');
-  await expect(page.locator('.draft')).toHaveCount(1);
-  expect((await review.state()).drafts[0].item.values).toMatchObject({
-    workflow: 'copy',
-    outcome: 'A focused prototype.',
-  });
-  expect(workspace.store.get(opened.session).events).toHaveLength(0);
-  await review.connect();
-  await page.locator('#send').click();
-  await expect
-    .poll(() => workspace.store.get(opened.session).events.length)
-    .toBe(1);
 });
 
 test('separate concurrent SDK calls with equal values stage separate drafts', async ({

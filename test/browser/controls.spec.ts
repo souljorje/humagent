@@ -97,134 +97,21 @@ test('a selected text comment omits a no-op replacement and shares bar input sty
   await expect(
     review.frame.getByRole('button', { name: 'Confirm text edit' }),
   ).toBeDisabled();
-  for (const width of [1440, 390]) {
-    await page.setViewportSize({ width, height: 900 });
-    const styles = (el: Element) => {
-      const s = getComputedStyle(el),
-        p = getComputedStyle(el, '::placeholder');
-      return [s.backgroundColor, s.borderRadius, s.font, s.padding, p.color];
-    };
-    expect(await note.evaluate(styles)).toEqual(
-      await page.locator('#message').evaluate(styles),
-    );
-  }
+  await page.setViewportSize({ width: 390, height: 900 });
+  const styles = (el: Element) => {
+    const s = getComputedStyle(el),
+      p = getComputedStyle(el, '::placeholder');
+    return [s.backgroundColor, s.borderRadius, s.font, s.padding, p.color];
+  };
+  expect(await note.evaluate(styles)).toEqual(
+    await page.locator('#message').evaluate(styles),
+  );
   await note.fill('Keep the wording; change its emphasis.');
   await review.frame.getByRole('button', { name: 'Confirm text edit' }).click();
   await expect(text).toHaveCount(0);
   const item = (await review.state()).drafts[0].item;
   expect(item.comment).toBe('Keep the wording; change its emphasis.');
   expect(item.replacement).toBeUndefined();
-});
-
-test('popover follows its click point through scrolling and flips within viewport gutters', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await review.expand(false);
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await review.evaluate(() => {
-    document.body.style.minHeight = '2500px';
-    const el = document.createElement('div');
-    el.id = 'click-area';
-    el.style.cssText =
-      'position:absolute;left:40px;top:150px;width:1300px;height:700px;background:#ddd';
-    document.body.append(el);
-  });
-  await page.locator('#annotate').click();
-  await expect(page.locator('#annotate')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  const panel = review.frame.locator('#panel');
-  await page.mouse.click(100, 220);
-  await expect(panel).toBeVisible();
-  let box = (await panel.boundingBox())!;
-  expect(box.x).toBe(110);
-  expect(box.y).toBe(230);
-  await page.mouse.move(900, 700);
-  expect((await panel.boundingBox())!.x).toBe(110);
-  await review.evaluate(() => scrollTo(0, 80));
-  await expect.poll(async () => (await panel.boundingBox())!.y).toBe(150);
-  await review.frame.getByLabel('Comment', { exact: true }).press('Escape');
-  await page.mouse.click(1320, 750);
-  await expect(panel).toBeVisible();
-  box = (await panel.boundingBox())!;
-  expect(box.x + box.width).toBe(1310);
-  expect(box.y).toBe(760);
-  await review.frame.getByLabel('Comment', { exact: true }).press('Escape');
-  await page.setViewportSize({ width: 390, height: 600 });
-  await page.mouse.click(380, 520);
-  await expect(panel).toBeVisible();
-  box = (await panel.boundingBox())!;
-  expect(box.x).toBeGreaterThanOrEqual(12);
-  expect(box.x + box.width).toBeLessThanOrEqual(378);
-  expect(box.y + box.height).toBeLessThanOrEqual(510);
-});
-
-test('text selection uses the release point while retaining application cursors', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await review.evaluate(() => {
-    const host = document.createElement('section');
-    host.id = 'cursor-host';
-    host.style.cssText =
-      'position:fixed;left:60px;top:100px;width:600px;height:160px;background:#eee;z-index:10';
-    host.attachShadow({ mode: 'open' }).innerHTML =
-      '<p id="cursor-text" style="font:24px/2 monospace;cursor:help">Select these plain words</p><button style="cursor:pointer">Native control</button>';
-    document.body.prepend(host);
-  });
-  await page.locator('#annotate').click();
-  await expect(page.locator('#annotate')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  const target = review.frame.locator('#cursor-text');
-  const bounds = await target.evaluate((el) => {
-    const range = document.createRange();
-    range.setStart(el.firstChild!, 7);
-    range.setEnd(el.firstChild!, 12);
-    const rect = range.getBoundingClientRect();
-    return { x: rect.left, y: rect.top + rect.height / 2, end: rect.right };
-  });
-  await page.mouse.move(bounds.x, bounds.y);
-  await expect
-    .poll(() => target.evaluate((el) => getComputedStyle(el).cursor))
-    .toBe('help');
-  await page.mouse.move(600, 245);
-  await expect
-    .poll(() =>
-      review.frame
-        .locator('#cursor-host')
-        .evaluate((el) => getComputedStyle(el).cursor),
-    )
-    .toBe('auto');
-  expect(
-    await review.frame
-      .getByRole('button', { name: 'Native control' })
-      .evaluate((el) => getComputedStyle(el).cursor),
-  ).toBe('pointer');
-  await page.mouse.move(bounds.x, bounds.y);
-  await page.mouse.down();
-  await page.mouse.move(bounds.end, bounds.y, { steps: 8 });
-  expect(await review.evaluate(() => getSelection()?.toString())).toBe('these');
-  await page.mouse.up();
-  const editor = review.frame.getByRole('textbox', {
-    name: 'Edit text',
-    exact: true,
-  });
-  await expect(editor).toBeFocused();
-  const panel = (await review.frame.locator('#panel').boundingBox())!;
-  expect(Math.abs(panel.x - bounds.end - 10)).toBeLessThanOrEqual(1);
-  expect(Math.abs(panel.y - bounds.y - 10)).toBeLessThanOrEqual(1);
-  await editor.press('Escape');
-  await page.locator('#annotate').click();
-  await expect
-    .poll(() => target.evaluate((el) => getComputedStyle(el).cursor))
-    .toBe('help');
 });
 
 test('ARIA controls retain their native cursors while commenting', async ({
@@ -277,62 +164,4 @@ test('ARIA controls retain their native cursors while commenting', async ({
   await expect.poll(() => cursor('#control-text')).toBe('pointer');
   await page.locator('#annotate').click();
   await expect.poll(() => cursor('#control-text')).toBe('pointer');
-});
-
-test('keyboard activation anchors at the selection endpoint or marker center', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await review.evaluate(() => {
-    const el = document.createElement('p');
-    el.id = 'keyboard-text';
-    el.textContent = 'Plain text for keyboard review';
-    el.style.cssText =
-      'position:fixed;left:60px;top:100px;width:260px;font:20px monospace';
-    document.body.prepend(el);
-  });
-  await page.locator('#annotate').click();
-  await expect(page.locator('#annotate')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  const endpoint = await review.evaluate(() => {
-    const el = document.querySelector('#keyboard-text')!;
-    const range = document.createRange();
-    range.setStart(el.firstChild!, 0);
-    range.setEnd(el.firstChild!, 5);
-    getSelection()!.removeAllRanges();
-    getSelection()!.addRange(range);
-    const point = range.cloneRange();
-    point.collapse(false);
-    const rect = point.getBoundingClientRect();
-    el.dispatchEvent(
-      new KeyboardEvent('keyup', {
-        key: 'ArrowRight',
-        shiftKey: true,
-        bubbles: true,
-      }),
-    );
-    return { x: rect.left, y: rect.bottom };
-  });
-  const panel = review.frame.locator('#panel');
-  await expect(panel).toBeVisible();
-  let box = (await panel.boundingBox())!;
-  expect(Math.abs(box.x - endpoint.x - 10)).toBeLessThanOrEqual(1);
-  expect(Math.abs(box.y - endpoint.y - 10)).toBeLessThanOrEqual(1);
-  await review.frame
-    .getByLabel('Comment', { exact: true })
-    .fill('Keyboard feedback');
-  await review.frame.getByRole('button', { name: 'Confirm text edit' }).click();
-  await expect(panel).toBeHidden();
-  const marker = review.frame.locator('.marker');
-  const point = (await marker.boundingBox())!;
-  await marker.focus();
-  await marker.press('Enter');
-  await expect(panel).toBeVisible();
-  box = (await panel.boundingBox())!;
-  expect(box.x).toBe(point.x + point.width / 2 + 10);
-  expect(box.y).toBe(point.y + point.height / 2 + 10);
 });

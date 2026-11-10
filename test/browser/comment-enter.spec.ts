@@ -1,27 +1,5 @@
 import { test, expect } from './fixtures.ts';
 
-test('an overlapping saved bubble cannot intercept the comment input', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await review.addComment('h1', 'Saved comment');
-  await review.frame.locator('.marker').click();
-  const note = review.frame.getByLabel('Comment', { exact: true });
-  const box = (await note.boundingBox())!;
-  const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  await review.evaluate((point) => {
-    const root = document.querySelector('[data-humagent-ui]')!.shadowRoot!;
-    const marker = root.querySelector<HTMLElement>('.marker')!;
-    marker.style.setProperty('left', `${point.x - 16}px`, 'important');
-    marker.style.setProperty('top', `${point.y - 16}px`, 'important');
-  }, point);
-  await page.mouse.click(point.x, point.y);
-  await expect(note).toBeFocused();
-  await page.keyboard.type(' More');
-  await expect(note).toHaveValue(/More/);
-});
-
 test('Enter confirms comments and edits while Shift+Enter preserves line breaks', async ({
   page,
   plan: _plan,

@@ -33,10 +33,12 @@ interface Workspace {
   /** Values of the draft that a form owns, by form key. */
   form(sessionId: string, key: string): ObjectValue | undefined;
   restart(): Promise<void>;
+  /** `timeout` drops the request after that many milliseconds. Zero never drops it. */
   api<T = WorkspaceView>(
     route: string,
     method?: string,
     data?: unknown,
+    timeout?: number,
   ): Promise<T>;
 }
 interface Review {
@@ -44,7 +46,8 @@ interface Review {
   evaluate: Frame['evaluate'];
   ready(): Promise<void>;
   expand(open?: boolean): Promise<void>;
-  connect(leaseMs?: number, timeoutMs?: number): Promise<void>;
+  /** Start an agent wait. `stopAfterMs` drops it, like an agent that stops. */
+  connect(stopAfterMs?: number): Promise<void>;
   receive(): Promise<Feedback>;
   addComment(selector: string, comment: string): Promise<void>;
   replace(selector: string, replacement: string): Promise<void>;
@@ -111,9 +114,11 @@ export const test = base.extend<Fixtures>({
           route: string,
           method = 'GET',
           data?: unknown,
+          timeout?: number,
         ): Promise<T> {
           const response = await request.fetch(runtime.origin + route, {
             method,
+            timeout,
             headers: {
               authorization: `Bearer ${runtime.token}`,
               'content-type': 'application/json',
@@ -159,16 +164,20 @@ export const test = base.extend<Fixtures>({
         return frame.evaluate.bind(frame);
       },
       ready,
-      async connect(leaseMs = 120000, timeoutMs = 600000) {
+      async connect(stopAfterMs) {
         const id = new URL(page.url()).searchParams.get('session')!;
         const session = await workspace.api(`/api/sessions/${id}`);
-        if (session.agent === 'idle')
-          receipts.push(
-            workspace.api(`/api/sessions/${id}/wait`, 'POST', {
-              timeoutMs,
-              leaseMs,
-            }),
+        if (session.agent === 'idle') {
+          const wait = workspace.api<Feedback | { status: string }>(
+            `/api/sessions/${id}/wait`,
+            'POST',
+            {},
+            stopAfterMs ?? 0,
           );
+          receipts.push(
+            stopAfterMs ? wait.catch(() => ({ status: 'stopped' })) : wait,
+          );
+        }
         await expect(page.locator('#agent-state')).toHaveText(
           /Agent (listening|working)/,
         );
@@ -177,7 +186,7 @@ export const test = base.extend<Fixtures>({
         const id = new URL(page.url()).searchParams.get('session')!;
         const received = receipts.length
           ? await receipts.shift()!
-          : workspace.store.take(id, 'browser-test');
+          : workspace.store.take(id);
         if (received?.status !== 'feedback' || !('receipt' in received))
           throw new Error('Expected agent feedback');
         return received as Feedback;

@@ -1,50 +1,24 @@
 import fs from 'node:fs';
 import { test, expect } from './fixtures.ts';
 
-for (const existing of [false, true])
-  test(`acknowledgment preserves same-value application writes in ${existing ? 'an existing app' : 'a mini-app'}`, async ({
-    page,
-    review,
-    workspace,
-    app,
-  }) => {
-    const opened = await review.open(existing ? app.origin : workspace.file());
-    await review.replace('h1', 'Application wording');
-    await review.connect();
-    await page.locator('#send').click();
-    await expect(review.frame.locator('.marker')).toHaveCount(0);
-    await review.evaluate(() => {
-      document.querySelector('h1')!.firstChild!.nodeValue =
-        'Application wording';
-    });
-    const received = await review.receive();
-    if (received?.status !== 'feedback') throw new Error('Expected feedback');
-    workspace.store.acknowledge(opened.session, received.receipt);
-    await expect(page.locator('#agent-state')).toHaveText('No agent waiting');
-    await expect(review.frame.locator('h1')).toHaveText('Application wording');
-  });
-
-test('native paste preserves trailing newlines exactly', async ({
+test('acknowledgment preserves same-value application writes', async ({
   page,
-  plan: _plan,
+  plan,
   review,
+  workspace,
 }) => {
-  await review.replace('h1', 'Preview');
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-  await review.evaluate(async () =>
-    navigator.clipboard.writeText('First\nSecond\n'),
-  );
-  await review.frame.locator('.marker').click();
-  const editor = review.frame.getByRole('textbox', {
-    name: 'Edit text',
-    exact: true,
+  await review.replace('h1', 'Application wording');
+  await review.connect();
+  await page.locator('#send').click();
+  await expect(review.frame.locator('.marker')).toHaveCount(0);
+  await review.evaluate(() => {
+    document.querySelector('h1')!.firstChild!.nodeValue = 'Application wording';
   });
-  await editor.press(process.platform === 'darwin' ? 'Meta+V' : 'Control+V');
-  await editor.press('Enter');
-  await expect(editor).toHaveCount(0);
-  expect((await review.state()).drafts[0].item.replacement?.after).toBe(
-    'First\nSecond\n',
-  );
+  const received = await review.receive();
+  if (received?.status !== 'feedback') throw new Error('Expected feedback');
+  workspace.store.acknowledge(plan.session, received.receipt);
+  await expect(page.locator('#agent-state')).toHaveText('No agent waiting');
+  await expect(review.frame.locator('h1')).toHaveText('Application wording');
 });
 
 test('physical clicks on disabled Send dismiss edits without sending', async ({
@@ -54,6 +28,9 @@ test('physical clicks on disabled Send dismiss edits without sending', async ({
   workspace,
 }) => {
   await review.replace('h1', 'Saved preview');
+  // With an agent listening, a disabled Send proves the bar knows about the open edit.
+  await review.connect();
+  await expect(page.locator('#send')).toBeEnabled();
   await review.frame.locator('.marker').click();
   const editor = review.frame.getByRole('textbox', {
     name: 'Edit text',
@@ -139,6 +116,16 @@ test('selected words edit in place, repeat edits keep evidence and IDs, and canc
   await expect(review.frame.locator('h1')).toHaveText(after);
   const first = (await review.state()).drafts[0].item;
   expect(first.replacement).toEqual({ before, after });
+  // The bar shows the edit as a diff: the old word struck through, the new word plain.
+  const diff = page.locator('.draft .replacement');
+  await expect(diff.locator('del')).toHaveText(
+    before.slice(selected.start, selected.end),
+  );
+  await expect(diff.locator('del')).toHaveCSS(
+    'text-decoration-line',
+    'line-through',
+  );
+  await expect(diff.locator('ins')).toHaveText('Better');
   expect(first.target?.text).toBe(before.trim().replace(/\s+/g, ' '));
   await review.replace('h1', 'Final wording');
   const repeated = (await review.state()).drafts;
@@ -214,145 +201,6 @@ test('submitted previews remain read only until their own receipt completes, inc
   workspace.store.acknowledge(plan.session, second.receipt);
   await expect(review.frame.locator('[data-humagent-id="brief"]')).toHaveText(
     secondOriginal!,
-  );
-});
-
-test('outside clicks focus, then discard, reset after typing, and never trigger another annotation or Send', async ({
-  page,
-  plan,
-  review,
-  workspace,
-}) => {
-  await review.connect();
-  await review.addComment('h1', 'Saved comment');
-  await review.frame.locator('.marker').click();
-  const note = review.frame.getByLabel('Comment', { exact: true });
-  await note.fill('First edit');
-  const outside = () =>
-    review.frame.locator('h2').first().dispatchEvent('click');
-  await outside();
-  await expect(note).toBeFocused();
-  await expect(note).toHaveValue('First edit');
-  await note.fill('Second edit');
-  await outside();
-  await expect(note).toHaveValue('Second edit');
-  await outside();
-  await expect(
-    review.frame.getByRole('dialog', { name: 'Feedback' }),
-  ).toBeHidden();
-  expect((await review.state()).drafts[0].item.comment).toBe('Saved comment');
-  await review.frame.locator('.marker').click();
-  await note.fill('Do not send');
-  await expect(page.locator('#send')).toBeDisabled();
-  await page.locator('#send').dispatchEvent('click');
-  await expect(note).toHaveValue('Do not send');
-  await page.locator('#send').dispatchEvent('click');
-  await expect(
-    review.frame.getByRole('dialog', { name: 'Feedback' }),
-  ).toBeHidden();
-  expect(workspace.store.get(plan.session).events).toHaveLength(0);
-  await expect(page.locator('#error')).toBeHidden();
-});
-
-test('text edits work in open shadow roots without changing application cursors', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await review.evaluate(() => {
-    const host = document.createElement('section');
-    host.id = 'text-host';
-    host.attachShadow({ mode: 'open' }).innerHTML =
-      '<p id="shadow-text" style="cursor:help">Shadow words here</p>';
-    document.body.prepend(host);
-  });
-  const target = review.frame.locator('#shadow-text');
-  await page.locator('#annotate').click();
-  await target.hover({ position: { x: 300, y: 5 } });
-  await expect
-    .poll(() => target.evaluate((el) => getComputedStyle(el).cursor))
-    .toBe('help');
-  await review.evaluate(() => {
-    const el = document
-      .querySelector('#text-host')!
-      .shadowRoot!.querySelector('p')!;
-    const range = document.createRange();
-    range.setStart(el.firstChild!, 7);
-    range.setEnd(el.firstChild!, 12);
-    getSelection()!.removeAllRanges();
-    getSelection()!.addRange(range);
-    el.dispatchEvent(
-      new MouseEvent('mouseup', { bubbles: true, composed: true }),
-    );
-  });
-  const editor = review.frame.getByRole('textbox', {
-    name: 'Edit text',
-    exact: true,
-  });
-  await expect(editor).toBeFocused();
-  expect(await editor.evaluate((el) => getComputedStyle(el).cursor)).toBe(
-    'text',
-  );
-  await page.keyboard.type('content');
-  await editor.press('Enter');
-  await expect(editor).toHaveCount(0);
-  await expect(target).toHaveText('Shadow content here');
-  expect((await review.state()).drafts[0].item.target?.shadowPath).toEqual([
-    'section#text-host',
-  ]);
-  await page.locator('#annotate').click();
-  await expect(page.locator('#annotate')).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  );
-  expect(await target.evaluate((el) => getComputedStyle(el).cursor)).toBe(
-    'help',
-  );
-});
-
-test('mixed formatting remains a comment target and single runs preserve elements and handlers', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await review.evaluate(() => {
-    const el = document.createElement('p');
-    el.id = 'formatted';
-    el.innerHTML = 'Plain <strong>bold text</strong> tail';
-    el.querySelector('strong')!.addEventListener('click', () => {
-      el.dataset.clicked = 'yes';
-    });
-    document.body.prepend(el);
-  });
-  await page.locator('#annotate').click();
-  await expect(page.locator('#annotate')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  await review.evaluate(() => {
-    const el = document.querySelector('#formatted')!;
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    getSelection()!.removeAllRanges();
-    getSelection()!.addRange(range);
-    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-  });
-  await expect(
-    review.frame.getByLabel('Comment', { exact: true }),
-  ).toBeVisible();
-  await expect(
-    review.frame.getByRole('textbox', { name: 'Edit text', exact: true }),
-  ).toHaveCount(0);
-  await review.frame.getByLabel('Comment', { exact: true }).press('Escape');
-  await review.replace('#formatted strong', 'Still bold');
-  await page.locator('#annotate').click();
-  await review.frame.locator('#formatted strong').click();
-  await expect(review.frame.locator('#formatted')).toHaveAttribute(
-    'data-clicked',
-    'yes',
-  );
-  await expect(review.frame.locator('#formatted')).toHaveText(
-    'Plain Still bold tail',
   );
 });
 

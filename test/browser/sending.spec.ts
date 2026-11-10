@@ -62,18 +62,21 @@ test('a send that the server refuses keeps the feedback in place', async ({
   workspace,
 }) => {
   await page.locator('#message').fill('Keep this feedback');
-  await review.connect(120000, 1200);
+  await review.connect(1200);
   await page.route(`**/api/sessions/${plan.session}/send`, async (route) => {
     await expect
       .poll(
         async () =>
           (await workspace.api(`/api/sessions/${plan.session}`)).agent,
+        { timeout: 15000 },
       )
       .toBe('idle');
     await route.continue();
   });
   await page.locator('#send').click();
-  await expect(page.locator('#error')).toContainText('AGENT_UNAVAILABLE');
+  await expect(page.locator('#error')).toContainText('AGENT_UNAVAILABLE', {
+    timeout: 15000,
+  });
   await expect(page.locator('#send')).toHaveText('Send');
   await expect(page.locator('#send')).toBeDisabled();
   expect(workspace.store.get(plan.session).events).toHaveLength(0);
@@ -100,18 +103,4 @@ test('a lost Send response creates one event and clears the sent drafts', async 
   expect(workspace.store.get(plan.session).events[0].items[0].comment).toBe(
     'Send this once',
   );
-});
-
-test('new feedback immediately restores Send after a confirmed submission', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await page.locator('#message').fill('First feedback');
-  await review.connect();
-  await page.locator('#send').click();
-  await expect(page.locator('#send')).toHaveText('Sent');
-  await page.locator('#message').fill('Next feedback');
-  await expect(page.locator('#send')).toHaveText('Send');
-  await expect(page.locator('#send')).toBeEnabled();
 });

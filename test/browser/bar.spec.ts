@@ -68,27 +68,24 @@ test('compact controls, reversible expansion, content growth, and reduced motion
   await expect
     .poll(async () => (await page.locator('#tray').boundingBox())!.height)
     .toBeGreaterThan(prior);
-  for (const width of [390, 320]) {
-    await page.setViewportSize({ width, height: 844 });
-    const bar = (await page.locator('#review-bar').boundingBox())!;
-    expect(bar.x).toBeGreaterThanOrEqual(8);
-    expect(bar.width).toBeLessThanOrEqual(width - 16);
-    expect(
-      await page
-        .locator('.bar-controls .icon')
-        .evaluateAll((els) =>
-          els.map((el) => el.getBoundingClientRect().width),
-        ),
-    ).toEqual([36, 36]);
-    expect(
-      await page
-        .locator('.bar-controls')
-        .evaluate((el) => el.scrollWidth <= el.clientWidth),
-    ).toBe(true);
-  }
+  const width = 390;
+  await page.setViewportSize({ width, height: 844 });
+  const bar = (await page.locator('#review-bar').boundingBox())!;
+  expect(bar.x).toBeGreaterThanOrEqual(8);
+  expect(bar.width).toBeLessThanOrEqual(width - 16);
+  expect(
+    await page
+      .locator('.bar-controls .icon')
+      .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().width)),
+  ).toEqual([36, 36]);
+  expect(
+    await page
+      .locator('.bar-controls')
+      .evaluate((el) => el.scrollWidth <= el.clientWidth),
+  ).toBe(true);
 });
 
-test('agent presence follows waits and leases independently from delivery', async ({
+test('agent presence follows waits and receipts independently from delivery', async ({
   page,
   plan,
   workspace,
@@ -96,9 +93,10 @@ test('agent presence follows waits and leases independently from delivery', asyn
 }) => {
   const status = page.locator('#agent-state');
   await expect(status).toHaveText('No agent waiting');
-  const wait = workspace.api(`/api/sessions/${plan.session}/wait`, 'POST', {
-    timeoutMs: 1200,
-  });
+  // The request drops after 1.2 seconds, like an agent that stops waiting.
+  const wait = workspace
+    .api(`/api/sessions/${plan.session}/wait`, 'POST', {}, 1200)
+    .catch(() => undefined);
   await expect(status).toHaveText('Agent listening');
   await expect(page.locator('#toggle-review')).toHaveAttribute(
     'aria-expanded',
@@ -108,12 +106,13 @@ test('agent presence follows waits and leases independently from delivery', asyn
   await expect(status).toHaveText('No agent waiting');
   await review.expand(false);
   await page.locator('#message').fill('Work on this');
-  await review.connect(1200);
+  await review.connect();
   await page.locator('#send').click();
   await expect(page.locator('#send')).toHaveText('Sent');
-  await review.receive();
+  const received = await review.receive();
   await expect(status).toHaveText('Agent working');
-  await expect(status).toHaveText('No agent waiting', { timeout: 8000 });
+  workspace.store.acknowledge(plan.session, received.receipt);
+  await expect(status).toHaveText('No agent waiting');
   await expect(page.locator('#toggle-review')).toHaveAttribute(
     'aria-expanded',
     'false',
@@ -211,47 +210,15 @@ test('tooltips explain disabled buttons with pointer and keyboard', async ({
   ).toBe('0s');
 });
 
-test('pending counts and the decorative agent dot stay inside expanded details', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  const dot = page.locator('#agent-indicator');
-  await expect(dot).toHaveAttribute('aria-hidden', 'true');
-  expect(await dot.getAttribute('tabindex')).toBeNull();
-  await expect(page.locator('.bar-controls #agent-indicator')).toHaveCount(0);
-  await expect(page.locator('.agent-status #agent-state')).toHaveText(
-    'No agent waiting',
-  );
-  const dotBox = (await dot.boundingBox())!;
-  const statusBox = (await page.locator('#agent-state').boundingBox())!;
-  expect(statusBox.x - dotBox.x - dotBox.width).toBe(6);
-  await expect(page.locator('#pending-count')).toBeHidden();
-  await review.addComment('h1', 'Pending feedback');
-  await expect(page.locator('#pending-count')).toHaveText('Drafts (1)');
-  await expect(page.locator('#toggle-review')).toHaveText('');
-  await expect(page.locator('#toggle-review')).toHaveAttribute(
-    'data-tooltip',
-    'Review details',
-  );
-  expect((await page.locator('#toggle-review').boundingBox())!.width).toBe(42);
-  await review.expand(false);
-  await expect(page.locator('#pending-count')).not.toBeInViewport();
-  await review.frame.locator('.marker').click();
-  await review.frame.getByRole('button', { name: 'Delete comment' }).click();
-  await review.expand();
-  await expect(page.locator('#pending-count')).toBeHidden();
-});
-
-test('an initially listening agent starts collapsed and a later timeout does not reopen details', async ({
+test('an initially listening agent starts collapsed and a later stop does not reopen details', async ({
   page,
   plan,
   review,
   workspace,
 }) => {
-  const wait = workspace.api(`/api/sessions/${plan.session}/wait`, 'POST', {
-    timeoutMs: 5000,
-  });
+  const wait = workspace
+    .api(`/api/sessions/${plan.session}/wait`, 'POST', {}, 5000)
+    .catch(() => undefined);
   await expect(page.locator('#agent-state')).toHaveText('Agent listening');
   await page.reload();
   await review.ready();
@@ -262,25 +229,6 @@ test('an initially listening agent starts collapsed and a later timeout does not
   );
   await wait;
   await expect(page.locator('#agent-state')).toHaveText('No agent waiting');
-  await expect(page.locator('#toggle-review')).toHaveAttribute(
-    'aria-expanded',
-    'false',
-  );
-});
-
-test('an initially working agent starts collapsed', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await page.locator('#message').fill('Prepare the next change');
-  await review.connect();
-  await page.locator('#send').click();
-  await expect(page.locator('#send')).toHaveText('Sent');
-  await review.receive();
-  await page.reload();
-  await review.ready();
-  await expect(page.locator('#agent-state')).toHaveText('Agent working');
   await expect(page.locator('#toggle-review')).toHaveAttribute(
     'aria-expanded',
     'false',

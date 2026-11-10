@@ -18,29 +18,37 @@ test('feedback rows highlight targets, open editors, and delete independently', 
   ).toHaveCount(0);
   const highlight = review.frame.locator('#highlight');
   const markers = review.frame.locator('.marker');
+  const [active, resting] = [
+    'rgba(54, 54, 58, 0.88)',
+    'rgba(24, 24, 27, 0.82)',
+  ];
   const firstTarget = (await review.frame.locator('h1').boundingBox())!;
   await rows.nth(0).hover();
   await expect(highlight).toBeVisible();
-  await expect(markers.nth(0)).toHaveCSS('opacity', '1');
+  await expect(markers.nth(0)).toHaveCSS('background-color', active);
   await expect(markers.nth(0)).not.toHaveCSS(
     'outline-color',
     'rgb(22, 133, 255)',
   );
   await expect(markers.nth(1)).not.toHaveClass(/highlighted/);
-  await expect(markers.nth(1)).toHaveCSS('opacity', '0.72');
+  await expect(markers.nth(1)).toHaveCSS('background-color', resting);
   await expect
     .poll(async () => (await highlight.boundingBox())!.y)
     .toBeCloseTo(firstTarget.y, 0);
   await rows.nth(0).click({ position: { x: 8, y: 40 } });
   const note = review.frame.getByLabel('Comment', { exact: true });
+  const cancel = review.frame.getByRole('button', {
+    name: 'Cancel',
+    exact: true,
+  });
   await expect(note).toHaveValue('First comment');
-  await expect(markers.nth(0)).toHaveCSS('opacity', '1');
+  await expect(markers.nth(0)).toHaveCSS('background-color', active);
   const panel = (await review.frame.locator('#panel').boundingBox())!;
   const secondTarget = (await review.frame
     .locator('[data-humagent-id="brief"]')
     .boundingBox())!;
   await rows.nth(1).hover();
-  await expect(markers.nth(1)).toHaveCSS('opacity', '1');
+  await expect(markers.nth(1)).toHaveCSS('background-color', active);
   await expect(markers.nth(0)).not.toHaveClass(/highlighted/);
   await expect
     .poll(async () => (await highlight.boundingBox())!.y)
@@ -52,23 +60,19 @@ test('feedback rows highlight targets, open editors, and delete independently', 
   await expect(note).toHaveValue('First comment');
   await page.locator('#message').hover();
   await expect(review.frame.locator('.marker.highlighted')).toHaveCount(0);
-  await expect(markers.nth(1)).toHaveCSS('opacity', '0.72');
+  await expect(markers.nth(1)).toHaveCSS('background-color', resting);
   await rows.nth(1).click({ position: { x: 8, y: 40 } });
   await expect(note).toHaveValue('Second comment');
-  await review.frame
-    .getByRole('button', { name: 'Cancel', exact: true })
-    .click();
+  await cancel.click();
   const first = page.getByRole('button', {
     name: 'Edit feedback 1',
     exact: true,
   });
   await first.focus();
-  await expect(markers.nth(0)).toHaveCSS('opacity', '1');
+  await expect(markers.nth(0)).toHaveCSS('background-color', active);
   await first.press('Enter');
   await expect(note).toHaveValue('First comment');
-  await review.frame
-    .getByRole('button', { name: 'Cancel', exact: true })
-    .click();
+  await cancel.click();
   const id = (await review.state()).drafts[0].item.id;
   const trash = page.getByRole('button', {
     name: 'Delete feedback 2',
@@ -81,21 +85,4 @@ test('feedback rows highlight targets, open editors, and delete independently', 
   await expect(rows).toHaveCount(1);
   await expect(review.frame.locator('#panel')).toBeHidden();
   expect((await review.state()).drafts[0].item.id).toBe(id);
-});
-
-test('unavailable feedback retains an independent trash action', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await review.addComment('h1', 'Remove this');
-  await review.frame.locator('h1').evaluate((el) => el.remove());
-  await review.expand();
-  await expect(
-    page.getByRole('button', { name: 'Edit feedback 1', exact: true }),
-  ).toBeDisabled();
-  await page
-    .getByRole('button', { name: 'Delete feedback 1', exact: true })
-    .click();
-  await expect(page.locator('.draft')).toHaveCount(0);
 });

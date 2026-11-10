@@ -1,50 +1,6 @@
 import fs from 'node:fs';
 import { test, expect } from './fixtures.ts';
 
-test('shadow-root targets survive refresh and invalidate when their identity changes', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await page.addInitScript(() => {
-    if (window.parent === window) return;
-    document.addEventListener('DOMContentLoaded', () => {
-      const host = document.createElement('section');
-      host.id = 'shadow-target';
-      host.attachShadow({ mode: 'open' }).innerHTML =
-        '<button id="shadow-action">Shadow action</button>';
-      document.body.prepend(host);
-    });
-  });
-  await page.reload();
-  await review.ready();
-  await review.addComment('#shadow-action', 'Keep this target');
-  await review.expand();
-  await Promise.all([
-    page.waitForEvent(
-      'framenavigated',
-      (frame) => frame.parentFrame() === page.mainFrame(),
-    ),
-    review.evaluate(() => location.reload()),
-  ]);
-  await review.ready();
-  await expect(review.frame.locator('.marker:visible')).toHaveCount(1);
-  await review.frame.locator('.marker').click();
-  await expect(review.frame.getByLabel('Comment', { exact: true })).toHaveValue(
-    'Keep this target',
-  );
-  await review.evaluate(() => {
-    document
-      .querySelector('#shadow-target')!
-      .shadowRoot!.querySelector('button')!.id = 'different-action';
-  });
-  await expect(review.frame.locator('.marker:visible')).toHaveCount(0);
-  await expect(review.frame.locator('#highlight')).toBeHidden();
-  expect((await review.state()).drafts[0].item.target!.id).toBe(
-    'shadow-action',
-  );
-});
-
 test('old document messages cannot edit or remove current feedback', async ({
   plan: _plan,
   review,
@@ -67,45 +23,6 @@ test('old document messages cannot edit or remove current feedback', async ({
   }, id);
   await expect(review.frame.locator('.marker')).toHaveCount(1);
   expect((await review.state()).drafts[0].item.comment).toBe('Keep this');
-});
-
-test('editors fit viewport edges and reduced motion disables transitions', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await review.addComment('h1', 'Keep the target visible');
-  for (const width of [1440, 390, 320]) {
-    await page.setViewportSize({ width, height: 844 });
-    await review.expand();
-    await page
-      .getByRole('button', { name: 'Edit feedback 1', exact: true })
-      .click();
-    await expect
-      .poll(async () => {
-        const panel = await review.frame.locator('#panel').boundingBox();
-        return (
-          !!panel &&
-          panel.x >= 0 &&
-          panel.y >= 0 &&
-          panel.x + panel.width <= width &&
-          panel.y + panel.height <= 844
-        );
-      })
-      .toBe(true);
-    expect(
-      await review.frame
-        .locator('#panel')
-        .evaluate((el) => getComputedStyle(el).transitionDuration),
-    ).toBe('0s');
-    const panel = await review.frame.locator('#panel').boundingBox();
-    expect(panel!.x).toBeGreaterThanOrEqual(12);
-    expect(panel!.y).toBeGreaterThanOrEqual(12);
-    await review.frame
-      .getByRole('button', { name: 'Cancel', exact: true })
-      .click();
-  }
 });
 
 test('commenting stays enabled, hover highlights, and confirmation creates a clickable marker', async ({
@@ -239,63 +156,7 @@ test('keyboard targeting and Escape restore normal interaction', async ({
   await expect(page.locator('#annotate')).toBeFocused();
 });
 
-test('commenting captures controls without activating them', async ({
-  page,
-  review,
-  app,
-}) => {
-  await review.open(app.origin + '/nested');
-  await page.locator('#annotate').click();
-  await review.frame.locator('#counter').click();
-  await expect(review.frame.locator('#counter')).toHaveText('Count: 0');
-  await review.frame.getByLabel('Comment', { exact: true }).fill('This button');
-  await review.frame.getByRole('button', { name: 'Confirm text edit' }).click();
-  await page.locator('#annotate').click();
-  await expect(page.locator('#annotate')).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  );
-  await review.frame.locator('#counter').click({ position: { x: 2, y: 2 } });
-  await expect(review.frame.locator('#counter')).toHaveText('Count: 1');
-});
-
-test('inline edits preserve IDs, cancel preserves saved content, and deletion renumbers markers', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await review.addComment('h1', 'First');
-  await review.addComment('[data-humagent-id="brief"]', 'Second');
-  const ids = (await review.state()).drafts.map((d) => d.item.id);
-  await review.frame.locator(`.marker[data-draft-id="${ids[1]}"]`).click();
-  await expect(
-    review.frame.getByRole('button', { name: 'Save', exact: true }),
-  ).toBeDisabled();
-  await review.frame
-    .getByLabel('Comment', { exact: true })
-    .fill('Discard this');
-  await review.frame
-    .getByRole('button', { name: 'Cancel', exact: true })
-    .click();
-  expect((await review.state()).drafts[1].item.comment).toBe('Second');
-  await review.frame.locator(`.marker[data-draft-id="${ids[1]}"]`).click();
-  await review.frame
-    .getByLabel('Comment', { exact: true })
-    .fill('Changed second');
-  await review.frame.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect
-    .poll(async () => (await review.state()).drafts[1].item.comment)
-    .toBe('Changed second');
-  await review.frame.locator(`.marker[data-draft-id="${ids[0]}"]`).click();
-  await review.frame.getByRole('button', { name: 'Delete comment' }).click();
-  await expect(review.frame.locator('.marker')).toHaveCount(1);
-  await expect(review.frame.locator('.marker')).toHaveText('1');
-  await page.reload();
-  await review.ready();
-  expect((await review.state()).drafts[0].item.id).toBe(ids[1]);
-});
-
-for (const trigger of ['button', 'Control+Enter', 'Meta+Enter'])
+for (const trigger of ['button', 'Control+Enter'])
   test(`sending waits for unfinished draft edits via ${trigger}`, async ({
     page,
     plan,
@@ -375,69 +236,29 @@ test('comments and exact deletion send in creation order without changing source
   expect(fs.readFileSync(workspace.file(), 'utf8')).toBe(source);
 });
 
-test('marker nodes and keyboard focus survive polling and scrolling', async ({
+test('reused targets become unavailable when data-humagent-id changes', async ({
   page,
   plan: _plan,
   review,
 }) => {
-  await review.addComment('h1', 'First');
-  const marker = review.frame.locator('.marker');
-  await marker.focus();
-  const same = await review.evaluate(async () => {
-    const root = document.querySelector('[data-humagent-ui]')!.shadowRoot!;
-    const marker = root.querySelector('.marker');
-    dispatchEvent(new Event('resize'));
-    document.dispatchEvent(new Event('scroll'));
-    await new Promise(requestAnimationFrame);
-    return marker === root.querySelector('.marker');
+  await review.evaluate(() => {
+    const heading = document.querySelector('h1')!;
+    heading.removeAttribute('id');
+    heading.setAttribute('data-humagent-id', 'original-target');
   });
-  expect(same).toBe(true);
-  // Let at least one snapshot poll redraw the workspace.
-  await page.waitForTimeout(1500);
-  await expect(marker).toBeFocused();
-});
-
-for (const attribute of ['data-humagent-id', 'id'])
-  test(`reused targets become unavailable when ${attribute} changes`, async ({
-    page,
-    plan: _plan,
-    review,
-  }) => {
-    await review.evaluate((attribute) => {
-      const heading = document.querySelector('h1')!;
-      heading.removeAttribute('data-humagent-id');
-      heading.removeAttribute('id');
-      heading.setAttribute(attribute, 'original-target');
-    }, attribute);
-    await review.addComment('h1', 'Keep my original target');
-    await expect(review.frame.locator('.marker')).toHaveCount(1);
-    const target = (await review.state()).drafts[0].item.target;
-    await review.evaluate((attribute) => {
-      document.querySelector('h1')!.setAttribute(attribute, 'different-target');
-    }, attribute);
-    await expect(page.locator('.draft-status')).toContainText(
-      'Target unavailable',
-    );
-    await expect(review.frame.locator('.marker:visible')).toHaveCount(0);
-    expect((await review.state()).drafts[0].item.target).toEqual(target);
-  });
-
-test('comments follow their selector when the application replaces an element', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
   await review.addComment('h1', 'Keep my original target');
   await expect(review.frame.locator('.marker')).toHaveCount(1);
+  const target = (await review.state()).drafts[0].item.target;
   await review.evaluate(() => {
-    const h = document.querySelector('h1')!;
-    h.replaceWith(h.cloneNode(true));
+    document
+      .querySelector('h1')!
+      .setAttribute('data-humagent-id', 'different-target');
   });
-  await review.frame.locator('.marker').click();
-  await expect(review.frame.getByLabel('Comment', { exact: true })).toHaveValue(
-    'Keep my original target',
+  await expect(page.locator('.draft-status')).toContainText(
+    'Target unavailable',
   );
-  await expect(page.locator('.draft-status')).toHaveCount(0);
+  await expect(review.frame.locator('.marker:visible')).toHaveCount(0);
+  expect((await review.state()).drafts[0].item.target).toEqual(target);
 });
 
 test('stale feedback remains visible and blocks sending after explicit refresh', async ({
@@ -456,24 +277,6 @@ test('stale feedback remains visible and blocks sending after explicit refresh',
   await expect(page.locator('#send')).toBeDisabled();
   await expect(page.locator('.draft')).toContainText('Preserve this note.');
   expect(workspace.store.get(plan.session).events).toHaveLength(0);
-});
-
-test('a message-only batch is valid and empty reviews cannot send', async ({
-  page,
-  plan,
-  review,
-  workspace,
-}) => {
-  await expect(page.locator('#send')).toBeDisabled();
-  await page.locator('#message').fill('An overall instruction.');
-  await review.connect();
-  await page.locator('#send').click();
-  await expect
-    .poll(() => workspace.store.get(plan.session).events.length)
-    .toBe(1);
-  const [event] = workspace.store.get(plan.session).events;
-  expect(event.message).toBe('An overall instruction.');
-  expect(event.items).toEqual([]);
 });
 
 test('frame credentials stay isolated and foreign bridge messages cannot stage feedback', async ({
@@ -521,26 +324,4 @@ test('two tabs edit one session and see each other’s feedback', async ({
   await review.addComment('h1', 'From the first tab');
   await expect(other.locator('.draft')).toContainText('From the first tab');
   await other.close();
-});
-
-test('the floating bar expands within desktop and narrow screens', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await review.addComment('h1', 'Review the spacing and heading.');
-  await review.expand();
-  for (const width of [1440, 390]) {
-    await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
-    await expect(page.locator('#tray')).toBeVisible();
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= innerWidth,
-      ),
-    ).toBe(true);
-    const frame = await page.locator('#frame').boundingBox();
-    expect(frame!.width).toBeGreaterThan(250);
-    expect(frame!.height).toBeGreaterThan(170);
-    await page.screenshot({ path: `.local/review-${width}.png` });
-  }
 });

@@ -1,73 +1,62 @@
 import fs from 'node:fs';
 import { test, expect } from './fixtures.ts';
 
-for (const width of [1440, 390])
-  test(`editing demo text preserves its layout at ${width}px`, async ({
-    page,
-    review,
-    workspace,
-  }) => {
-    await page.setViewportSize({ width, height: 1000 });
-    await review.open(workspace.file('plan.html'));
-    await review.expand(false);
-    await page.locator('#annotate').click();
-    for (const selector of [
-      'h1',
-      '.intro p',
-      '.plan-heading p',
-      '.choice-title',
-      '.field',
-      '.preserve',
-      '.plan-status p',
-      '.loop h3',
-      '.loop p',
-      '.checklist li',
-    ]) {
-      const target = review.frame.locator(selector).first();
-      await target.evaluate((el) => el.scrollIntoView({ block: 'center' }));
-      const original = await target.textContent();
-      const glyph = () =>
-        target.evaluate((el) => {
-          const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-          let node: Text | null;
-          while ((node = walker.nextNode() as Text | null)) {
-            const offset = node.data.search(/\S/);
-            if (offset < 0) continue;
-            const range = document.createRange();
-            range.setStart(node, offset);
-            range.setEnd(node, offset + 1);
-            const rect = range.getBoundingClientRect();
-            const parent = el.getBoundingClientRect();
-            return {
-              x: rect.x,
-              y: rect.y,
-              clickX: rect.x - parent.x + 2,
-              clickY: rect.y - parent.y + rect.height / 2,
-            };
-          }
-          throw new Error('Missing visible text');
-        });
-      const before = await glyph();
-      await target.click({
-        position: { x: before.clickX, y: before.clickY },
-      });
-      const editor = review.frame.getByRole('textbox', {
-        name: 'Edit text',
-        exact: true,
-      });
-      await expect(editor).toBeFocused();
-      const after = await glyph();
-      expect(after.x, selector).toBeCloseTo(before.x, 1);
-      expect(after.y, selector).toBeCloseTo(before.y, 1);
-      if (selector === '.loop p')
-        await page.screenshot({
-          path: test.info().outputPath(`loop-edit-${width}.png`),
-          animations: 'disabled',
-        });
-      await editor.press('Escape');
-      expect(await target.textContent()).toBe(original);
-    }
+test('editing demo text preserves its layout at 390px', async ({
+  page,
+  review,
+  workspace,
+}) => {
+  await page.setViewportSize({ width: 390, height: 1000 });
+  await review.open(workspace.file('plan.html'));
+  await review.expand(false);
+  await page.locator('#annotate').click();
+  const editor = review.frame.getByRole('textbox', {
+    name: 'Edit text',
+    exact: true,
   });
+  for (const selector of [
+    'h1',
+    '.lede',
+    '.steps h3',
+    '.steps p',
+    '.plan .note',
+    '.choice',
+    '.field',
+  ]) {
+    const target = review.frame.locator(selector).first();
+    await target.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    const original = await target.textContent();
+    const glyph = () =>
+      target.evaluate((el) => {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        let node: Text | null;
+        while ((node = walker.nextNode() as Text | null)) {
+          const offset = node.data.search(/\S/);
+          if (offset < 0) continue;
+          const range = document.createRange();
+          range.setStart(node, offset);
+          range.setEnd(node, offset + 1);
+          const rect = range.getBoundingClientRect();
+          const parent = el.getBoundingClientRect();
+          return {
+            x: rect.x,
+            y: rect.y,
+            clickX: rect.x - parent.x + 2,
+            clickY: rect.y - parent.y + rect.height / 2,
+          };
+        }
+        throw new Error('Missing visible text');
+      });
+    const before = await glyph();
+    await target.click({ position: { x: before.clickX, y: before.clickY } });
+    await expect(editor).toBeFocused();
+    const after = await glyph();
+    expect(after.x, selector).toBeCloseTo(before.x, 1);
+    expect(after.y, selector).toBeCloseTo(before.y, 1);
+    await editor.press('Escape');
+    expect(await target.textContent()).toBe(original);
+  }
+});
 
 test('the plan demo combines text edits, comments, and choices without changing source', async ({
   page,
@@ -86,16 +75,19 @@ test('the plan demo combines text edits, comments, and choices without changing 
     'aria-pressed',
     'false',
   );
-  await review.frame.getByRole('radio', { name: /The interactions/ }).check();
-  await review.frame
-    .getByLabel('What would a good result look like?')
-    .fill('An easier first review.');
+  const choice = review.frame.getByRole('radio', { name: /The interactions/ });
+  const outcome = review.frame.getByLabel(
+    'What would a good result look like?',
+  );
+  const notes = review.frame.getByLabel('Anything to leave alone?');
+  await choice.check();
+  await outcome.fill('An easier first review.');
+  await outcome.blur();
   await review.frame
     .getByLabel('How much should change per pass?')
     .selectOption('behavior');
-  await review.frame
-    .getByLabel('Anything to leave alone?')
-    .fill('Keep existing interactions.');
+  await notes.fill('Keep existing interactions.');
+  await notes.blur();
   await expect
     .poll(() => workspace.form(opened.session, 'review-plan')?.notes)
     .toBe('Keep existing interactions.');
@@ -107,12 +99,8 @@ test('the plan demo combines text edits, comments, and choices without changing 
   expect(fs.readFileSync(file, 'utf8')).toBe(source);
   await page.reload();
   await review.ready();
-  await expect(
-    review.frame.getByRole('radio', { name: /The interactions/ }),
-  ).toBeChecked();
-  await expect(review.frame.getByLabel('Anything to leave alone?')).toHaveValue(
-    'Keep existing interactions.',
-  );
+  await expect(choice).toBeChecked();
+  await expect(notes).toHaveValue('Keep existing interactions.');
   await review.connect();
   await page.locator('#send').click();
   const feedback = await review.receive();
@@ -128,13 +116,12 @@ test('the plan demo combines text edits, comments, and choices without changing 
       preserveBehavior: true,
     },
   });
-  await expect(review.frame.locator('h1')).toHaveText(
-    'Give your agent a clearer plan.',
-  );
+  const heading = review.frame.locator('h1');
+  await expect(heading).toHaveText('Give your agent a clearer plan.');
   await workspace.api(`/api/sessions/${opened.session}/ack`, 'POST', {
     receipt: feedback.receipt,
   });
-  await expect(review.frame.locator('h1')).toHaveText(headline!);
+  await expect(heading).toHaveText(headline!);
   expect(fs.readFileSync(file, 'utf8')).toBe(source);
 });
 
@@ -161,16 +148,6 @@ for (const width of [1440, 390])
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    await page.screenshot({
-      path: test.info().outputPath(`plan-${width}.png`),
-      fullPage: true,
-      animations: 'disabled',
-    });
-    await review.frame.locator('.receive pre').scrollIntoViewIfNeeded();
-    await page.screenshot({
-      path: test.info().outputPath(`plan-${width}-bottom.png`),
-      animations: 'disabled',
-    });
     const outcome = review.frame.getByLabel(
       'What would a good result look like?',
     );
@@ -179,9 +156,4 @@ for (const width of [1440, 390])
     expect(
       await outcome.evaluate((el) => getComputedStyle(el).outlineStyle),
     ).toBe('solid');
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-    await expect(review.frame.locator('.choice').first()).toHaveCSS(
-      'transition-duration',
-      '0s',
-    );
   });

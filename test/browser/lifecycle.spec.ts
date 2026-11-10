@@ -34,7 +34,6 @@ test('new document can stage before an older snapshot response returns', async (
     await expect.poll(() => finished).toBe(true);
     await review.connect();
     await expect(page.locator('#send')).toBeEnabled();
-    await review.connect();
     await page.locator('#send').click();
     await expect
       .poll(() => workspace.store.get(opened.session).events.length)
@@ -45,153 +44,59 @@ test('new document can stage before an older snapshot response returns', async (
   }
 });
 
-test('navigation stays current when a corrective request also arrives late', async ({
+test('a slow attach of an older page cannot replace the newer page', async ({
   page,
   review,
   workspace,
   app,
 }) => {
   const opened = await review.open(app.origin + '/a');
-  let releaseA!: () => void, releaseB!: () => void, secondDocument: string;
-  const waitA = new Promise<void>((resolve) => {
-    releaseA = resolve;
-  });
-  const waitB = new Promise<void>((resolve) => {
-    releaseB = resolve;
-  });
-  let heldA = false,
-    heldB = false,
-    appliedB = false;
-  await page.route(
-    `**/api/sessions/${opened.session}/surface`,
-    async (route) => {
-      if (!heldA) {
-        const response = await route.fetch();
-        heldA = true;
-        await waitA;
-        return route.fulfill({ response });
-      }
-      if (
-        !heldB &&
-        route.request().postDataJSON().documentId === secondDocument
-      ) {
-        heldB = true;
-        await waitB;
-        const response = await route.fetch();
-        appliedB = true;
-        return route.fulfill({ response });
-      }
-      await route.continue();
-    },
-  );
-  try {
-    if (
-      (await page.locator('#toggle-review').getAttribute('aria-expanded')) !==
-      'true'
-    )
-      await page.locator('#toggle-review').click();
-    await review.evaluate(() => location.reload());
-    await expect.poll(() => heldA).toBe(true);
-    await review.evaluate(() => {
-      location.href = '/b';
-    });
-    await expect(review.frame.locator('h1')).toHaveText('Page b');
-    await review.ready();
-    secondDocument = await review.evaluate(
-      () => window.__HUMAGENT__!.documentId,
-    );
-    releaseA();
-    await expect.poll(() => heldB).toBe(true);
-    await review.evaluate(() => {
-      location.href = '/c';
-    });
-    await expect(review.frame.locator('h1')).toHaveText('Page c');
-    await review.ready();
-    await review.evaluate(() =>
-      window.humagent.submit({ intent: 'current', values: { page: 'c' } }),
-    );
-    releaseB();
-    await expect.poll(() => appliedB).toBe(true);
-    await expect
-      .poll(() => workspace.store.get(opened.session).surfacePath)
-      .toBe('/c');
-    await review.connect();
-    await expect(page.locator('#send')).toBeEnabled();
-    await review.connect();
-    await page.locator('#send').click();
-    await expect
-      .poll(() => workspace.store.get(opened.session).events.length)
-      .toBe(1);
-  } finally {
-    releaseA();
-    releaseB();
-  }
-});
-
-test('late navigation responses cannot replace the current revision', async ({
-  page,
-  review,
-  workspace,
-  app,
-}) => {
-  const opened = await review.open(app.origin + '/a');
-  let release!: () => void;
-  const delayed = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  let held = false,
-    finished = false;
+  let held = false;
   await page.route(
     `**/api/sessions/${opened.session}/surface`,
     async (route) => {
       if (held) return route.continue();
-      const response = await route.fetch();
       held = true;
-      await delayed;
+      const response = await route.fetch();
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       await route.fulfill({ response });
-      finished = true;
     },
   );
-  try {
-    if (
-      (await page.locator('#toggle-review').getAttribute('aria-expanded')) !==
-      'true'
-    )
-      await page.locator('#toggle-review').click();
-    await review.evaluate(() => location.reload());
-    await expect.poll(() => held).toBe(true);
-    await review.evaluate(() => {
-      location.href = '/b';
-    });
-    await expect(review.frame.locator('h1')).toHaveText('Page b');
-    await review.ready();
-    await review.evaluate(() =>
-      window.humagent.submit({ intent: 'current', values: { page: 'b' } }),
-    );
-    await review.connect();
-    await expect(page.locator('#send')).toBeEnabled();
-    release();
-    await expect.poll(() => finished).toBe(true);
-    await review.connect();
-    await page.locator('#send').click();
-    await expect
-      .poll(() => workspace.store.get(opened.session).events.length)
-      .toBe(1);
-    expect(workspace.store.get(opened.session).surfacePath).toBe('/b');
-    await expect(page.locator('#error')).toBeHidden();
-  } finally {
-    release();
-  }
+  await review.evaluate(() => location.reload());
+  await expect.poll(() => held).toBe(true);
+  await review.evaluate(() => {
+    location.href = '/b';
+  });
+  await expect(review.frame.locator('h1')).toHaveText('Page b');
+  await review.ready();
+  const result = await review.evaluate(() =>
+    window.humagent.submit({ intent: 'current', values: { page: 'b' } }),
+  );
+  expect(result.status).toBe('draft');
+  expect(workspace.store.get(opened.session).surfacePath).toBe('/b');
+  await review.connect();
+  await page.locator('#send').click();
+  await expect
+    .poll(() => workspace.store.get(opened.session).events.length)
+    .toBe(1);
+  expect(workspace.store.get(opened.session).events[0].items[0].values).toEqual(
+    { page: 'b' },
+  );
 });
 
-test('nested app frames preserve the attached document and keep their native forms', async ({
+test('existing apps keep native clicks, API requests, nested frames, and annotations', async ({
   page,
   review,
   workspace,
   app,
 }) => {
-  const opened = await review.open(app.origin + '/a');
+  const opened = await review.open(app.origin + '/nested');
   const before = workspace.store.get(opened.session);
+  await review.frame.locator('#counter').click();
+  await expect(review.frame.locator('#counter')).toHaveText('Count: 1');
+  expect(
+    await review.evaluate(async () => (await fetch('/api/value')).json()),
+  ).toEqual({ value: 42 });
   await review.evaluate(() => {
     const child = document.createElement('iframe');
     child.id = 'child';
@@ -208,16 +113,16 @@ test('nested app frames preserve the attached document and keep their native for
     })),
   ).toEqual({ sdk: 'undefined', boot: 'undefined' });
   expect(workspace.store.get(opened.session).revision).toBe(before.revision);
-  expect(workspace.store.get(opened.session).surfacePath).toBe('/a');
-  await review.addComment('h1', 'Review the parent');
+  expect(workspace.store.get(opened.session).surfacePath).toBe('/nested');
+  await review.addComment('#headline', 'Review an existing app.');
   await review.connect();
   await page.locator('#send').click();
   await expect
     .poll(() => workspace.store.get(opened.session).events.length)
     .toBe(1);
-  expect(workspace.store.get(opened.session).events[0].revision).toBe(
-    before.revision,
-  );
+  const [event] = workspace.store.get(opened.session).events;
+  expect(event.items[0].target!.id).toBe('headline');
+  expect(event.revision).toBe(before.revision);
 });
 
 test('a server restart keeps drafts, the instruction, and form values', async ({
@@ -229,6 +134,7 @@ test('a server restart keeps drafts, the instruction, and form values', async ({
   await review.frame
     .locator('input[name="outcome"]')
     .fill('A preserved outcome.');
+  await review.frame.locator('input[name="outcome"]').blur();
   await expect
     .poll(() => workspace.form(plan.session, 'launch')?.outcome)
     .toBe('A preserved outcome.');
@@ -252,28 +158,6 @@ test('a server restart keeps drafts, the instruction, and form values', async ({
   );
 });
 
-test('existing apps retain native clicks, API requests, and annotations', async ({
-  page,
-  review,
-  workspace,
-  app,
-}) => {
-  const session = await review.open(app.origin + '/nested');
-  await review.frame.locator('#counter').click();
-  await expect(review.frame.locator('#counter')).toHaveText('Count: 1');
-  expect(
-    await review.evaluate(async () => (await fetch('/api/value')).json()),
-  ).toEqual({ value: 42 });
-  await review.addComment('#headline', 'Review an existing app.');
-  await review.connect();
-  await page.locator('#send').click();
-  await expect
-    .poll(
-      () => workspace.store.get(session.session).events[0]?.items[0].target!.id,
-    )
-    .toBe('headline');
-});
-
 test('browser reload retains saved form state and the displayed route', async ({
   page,
   review,
@@ -284,16 +168,8 @@ test('browser reload retains saved form state and the displayed route', async ({
   await review.frame.locator('a').click();
   await expect(review.frame.locator('h1')).toHaveText('Page b');
   await review.ready();
+  // Typed text that never lost focus is saved when the page unloads.
   await review.frame.locator('input[name="note"]').fill('Save before reload.');
-  expect(
-    await review.evaluate(
-      () =>
-        !window.dispatchEvent(new Event('beforeunload', { cancelable: true })),
-    ),
-  ).toBe(true);
-  await expect
-    .poll(() => workspace.form(session.session, 'route')?.note)
-    .toBe('Save before reload.');
   if (
     (await page.locator('#toggle-review').getAttribute('aria-expanded')) !==
     'true'
@@ -310,6 +186,9 @@ test('browser reload retains saved form state and the displayed route', async ({
   expect(await review.evaluate(() => location.pathname)).toBe('/b');
   await expect(review.frame.locator('h1')).toHaveText('Page b');
   await expect(review.frame.locator('input[name="note"]')).toHaveValue(
+    'Save before reload.',
+  );
+  expect(workspace.form(session.session, 'route')?.note).toBe(
     'Save before reload.',
   );
   expect(workspace.store.get(session.session).surfacePath).toBe('/b');
@@ -348,7 +227,6 @@ test('HTML fragment fetches preserve the displayed app and allow submissions', a
   await expect
     .poll(() => workspace.store.get(opened.session).events.length)
     .toBe(1);
-  expect(workspace.store.get(opened.session).events).toHaveLength(1);
   await expect(page.locator('#error')).toBeHidden();
 });
 
