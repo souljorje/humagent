@@ -30,6 +30,8 @@ Disable commenting to use the application normally. Saved markers remain availab
 
 Collect comments, edits, or form decisions. Include an overall instruction when useful. Choose **Send** to deliver them as one event.
 
+A marked form keeps one draft that follows its fields. Delete that draft in the bar to reset the form.
+
 Expand the bar to inspect drafts, connection status, and errors. Hover a draft to highlight its target. Text changes appear as an inline diff. Decisions display their values.
 
 | Status | Meaning |
@@ -48,7 +50,7 @@ The agent reports results in its own chat. Acknowledgment does not grant permiss
 
 ## Refresh and recovery
 
-The server stores drafts, the overall instruction, and opted-in form values in the session file. Other application state can reset.
+The server stores drafts, including marked form values, and the overall instruction in the session file. Other application state can reset.
 This input survives browser reloads, other browsers, and server restarts while the data directory stays the same.
 Several tabs can edit one session. The workspace reads the server state about once per second.
 

@@ -127,15 +127,34 @@ test('edits keep the item ID, target, and original text', () => {
     /needs a comment/,
   );
 });
-test('form values persist per form', () => {
+test('a form key keeps one draft and replaces it in place', () => {
   const { store, id, dir } = setup();
-  store.saveForm(id, 'plan', { approach: 'pilot' });
-  store.saveForm(id, 'other', { x: true });
-  assert.deepEqual(new Store(dir).get(id).forms, {
-    plan: { approach: 'pilot' },
-    other: { x: true },
+  const form = (approach: string, revision = 'v1') => ({
+    revision,
+    key: 'plan',
+    item: { intent: 'revise_plan', values: { approach } },
+    labels: {
+      title: 'Plan',
+      fields: [{ label: 'Approach', value: approach }],
+    },
   });
-  assert.throws(() => store.saveForm(id, '__proto__', {}), /Reserved/);
+  const first = store.addDraft(id, form('pilot'));
+  store.addDraft(id, comment());
+  assert.equal(store.addDraft(id, form('platform')), first);
+  const saved = new Store(dir).get(id).drafts;
+  assert.equal(saved.length, 2);
+  assert.equal(saved[0].item.id, first);
+  assert.deepEqual(saved[0].item.values, { approach: 'platform' });
+  assert.deepEqual(saved[0].labels!.fields, [
+    { label: 'Approach', value: 'platform' },
+  ]);
+  store.setRevision(id, 'v2');
+  assert.equal(store.addDraft(id, form('later', 'v2')), first);
+  assert.equal(store.get(id).drafts[0].revision, 'v2');
+  assert.throws(
+    () => store.addDraft(id, { ...form('x', 'v2'), labels: { title: '' } }),
+    /Form title/,
+  );
 });
 test('receipt completes only leased events, not newer input', () => {
   const { store, id } = setup();
@@ -191,7 +210,6 @@ test('ending a session rejects writes but delivers previously queued work', () =
   store.end(id);
   assert.throws(() => store.addDraft(id, comment()), /ended/);
   assert.throws(() => store.setMessage(id, 'new'), /ended/);
-  assert.throws(() => store.saveForm(id, 'plan', {}), /ended/);
   const batch = store.take(id, 'agent');
   assert.ok(batch?.status === 'feedback');
   store.acknowledge(id, batch.receipt);

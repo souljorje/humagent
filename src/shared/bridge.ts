@@ -3,11 +3,11 @@ import type {
   Availability,
   Draft,
   DraftItem,
+  DraftLabels,
   MarkerPosition,
   StageResult,
   Submission,
 } from './feedback.js';
-import type { ObjectValue } from './json.js';
 
 export interface Bootstrap {
   session: string;
@@ -26,8 +26,14 @@ export interface Presentation {
 
 /** Page requests. The workspace answers each one with exactly one `result`. */
 export interface Requests {
+  /** A `key` makes this the one draft of a form. */
   stage: {
-    params: { item: DraftItem; marker?: MarkerPosition };
+    params: {
+      item: DraftItem;
+      marker?: MarkerPosition;
+      key?: string;
+      labels?: DraftLabels;
+    };
     result: StageResult;
   };
   edit: {
@@ -40,7 +46,6 @@ export interface Requests {
     result: null;
   };
   remove: { params: { draftId: string }; result: null };
-  saveForm: { params: { formId: string; values: ObjectValue }; result: null };
 }
 export interface PageEvents {
   hello: Record<string, never>;
@@ -60,16 +65,14 @@ export type PageMessage = {
 } & (Messages<RequestParams, { id: string }> | Messages<PageEvents>);
 
 export interface WorkspaceEvents {
-  init: Presentation & {
-    forms: Record<string, ObjectValue>;
-    ended: boolean;
-    annotating: boolean;
-  };
+  init: Presentation & { ended: boolean; annotating: boolean };
   update: Presentation;
   annotate: { enabled: boolean; keyboard?: boolean };
   open: { draftId: string };
   highlight: { draftId?: string };
   outside: Record<string, never>;
+  /** The human deletes a form's draft. The page resets the form, then removes the draft. */
+  reset: { key: string; draftId: string };
   ended: Record<string, never>;
 }
 export type WorkspaceMessage = { channel: string } & (

@@ -168,18 +168,35 @@ test('control routes enforce host, origin, and credential boundaries', async () 
       401,
       'UNAUTHORIZED',
     );
-  const forms = await json(
+  const form = {
+    revision: snapshot.revision,
+    key: 'plan form',
+    item: { intent: 'review', values: { selection: 'first' } },
+  };
+  await json(
     await jsonRequest(
-      `/api/sessions/${first.session}/forms/plan%20form`,
-      'PUT',
-      { values: { selection: 'first' } },
+      `/api/sessions/${first.session}/drafts`,
+      'POST',
+      form,
       sessionHeaders,
     ),
     200,
   );
-  assert.deepEqual(forms.session.forms, {
-    'plan form': { selection: 'first' },
-  });
+  const forms = await json(
+    await jsonRequest(
+      `/api/sessions/${first.session}/drafts`,
+      'POST',
+      { ...form, item: { intent: 'review', values: { selection: 'second' } } },
+      sessionHeaders,
+    ),
+    200,
+  );
+  assert.deepEqual(
+    forms.session.drafts.map(
+      (draft: { item: { values: unknown } }) => draft.item.values,
+    ),
+    [{ selection: 'second' }],
+  );
   const draft = await json(
     await jsonRequest(
       `/api/sessions/${first.session}/drafts`,

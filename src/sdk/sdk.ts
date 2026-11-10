@@ -9,6 +9,7 @@ import type {
   WorkspaceMessage,
 } from '../shared/bridge.js';
 import type { Submission } from '../shared/feedback.js';
+import { errorMessage } from '../shared/errors.js';
 
 if (window.parent === window.top) {
   if (!window.__HUMAGENT__ || window.parent === window)
@@ -68,8 +69,9 @@ if (window.parent === window.top) {
   window.humagent = Object.freeze({ submit });
   const notice = (message: string) => emit('notice', { message });
   const forms = createForms({
-    saveForm: (formId, values) => request('saveForm', { formId, values }),
-    submit,
+    revision: boot.revision,
+    stage: (item, key, labels) =>
+      request('stage', { item: cloneJson(item), key, labels }),
     notice,
   });
   const review = createPageReview({
@@ -94,19 +96,30 @@ if (window.parent === window.top) {
       if (!initialized) {
         initialized = true;
         clearInterval(hello);
-        forms.restore(params.forms);
+        forms.restore(params.drafts);
         resolveReady();
       }
+      forms.present(params.drafts);
       review.present(params);
       review.setMode(params.annotating);
     },
-    update: (params) => review.present(params),
+    update(params) {
+      forms.present(params.drafts);
+      review.present(params);
+    },
     annotate(params) {
       if (!ended) review.setMode(params.enabled, params.keyboard);
     },
     open: (params) => review.edit(params.draftId),
     highlight: (params) => review.highlight(params.draftId),
     outside: () => review.outside(),
+    reset(params) {
+      // Page requests stay in order, so a save sent earlier cannot recreate the draft.
+      forms.reset(params.key);
+      request('remove', { draftId: params.draftId }).catch((error: unknown) =>
+        notice(errorMessage(error)),
+      );
+    },
     ended() {
       ended = true;
       review.end();

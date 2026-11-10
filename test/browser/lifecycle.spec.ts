@@ -230,7 +230,7 @@ test('a server restart keeps drafts, the instruction, and form values', async ({
     .locator('input[name="outcome"]')
     .fill('A preserved outcome.');
   await expect
-    .poll(() => workspace.forms(plan.session).launch?.outcome)
+    .poll(() => workspace.form(plan.session, 'launch')?.outcome)
     .toBe('A preserved outcome.');
   await review.addComment('h1', 'Keep this draft.');
   await page.locator('#message').fill('Keep this unsent message.');
@@ -243,7 +243,10 @@ test('a server restart keeps drafts, the instruction, and form values', async ({
   await expect(page.locator('#message')).toHaveValue(
     'Keep this unsent message.',
   );
-  await expect(page.locator('.draft')).toContainText('Keep this draft.');
+  await expect(
+    page.locator('.draft', { hasText: 'Keep this draft.' }),
+  ).toHaveCount(1);
+  await expect(page.locator('.draft')).toHaveCount(2);
   await expect(review.frame.locator('input[name="outcome"]')).toHaveValue(
     'A preserved outcome.',
   );
@@ -289,7 +292,7 @@ test('browser reload retains saved form state and the displayed route', async ({
     ),
   ).toBe(true);
   await expect
-    .poll(() => workspace.forms(session.session).route?.note)
+    .poll(() => workspace.form(session.session, 'route')?.note)
     .toBe('Save before reload.');
   if (
     (await page.locator('#toggle-review').getAttribute('aria-expanded')) !==

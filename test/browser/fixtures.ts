@@ -30,7 +30,8 @@ interface Workspace {
   file(name?: string): string;
   origin: string;
   store: Runtime['store'];
-  forms(sessionId: string): Record<string, ObjectValue>;
+  /** Values of the draft that a form owns, by form key. */
+  form(sessionId: string, key: string): ObjectValue | undefined;
   restart(): Promise<void>;
   api<T = WorkspaceView>(
     route: string,
@@ -98,8 +99,9 @@ export const test = base.extend<Fixtures>({
         get store() {
           return runtime.store;
         },
-        forms(sessionId) {
-          return runtime.store.get(sessionId).forms;
+        form(sessionId, key) {
+          return runtime.store.get(sessionId).drafts.find((d) => d.key === key)
+            ?.item.values;
         },
         async restart() {
           await runtime.close();
@@ -275,7 +277,7 @@ export const test = base.extend<Fixtures>({
         );
       } else if (['/a', '/b', '/c'].includes(req.url || '')) {
         res.end(
-          `<h1>Page ${req.url!.slice(1)}</h1><a href="/b">Next page</a><form id="route" data-humagent-intent="review" data-humagent-persist><input name="note"></form>`,
+          `<h1>Page ${req.url!.slice(1)}</h1><a href="/b">Next page</a><form id="route" data-humagent-intent="review"><input name="note"></form>`,
         );
       } else {
         const name =

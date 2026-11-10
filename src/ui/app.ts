@@ -259,12 +259,13 @@ function render() {
           element(
             'div',
             String(
-              item.replacement
-                ? 'Text edit'
-                : item.intent ||
+              draft.labels?.title ??
+                (item.replacement
+                  ? 'Text edit'
+                  : item.intent ||
                     item.target?.id ||
                     item.target?.tag ||
-                    'Comment',
+                    'Comment'),
             ),
             'draft-title',
           ),
@@ -292,14 +293,15 @@ function render() {
         if (item.comment) content.append(element('p', item.comment));
         if (item.values) {
           const values = element('dl');
-          for (const [key, value] of Object.entries(item.values))
-            values.append(
-              element('dt', key),
-              element(
-                'dd',
-                typeof value === 'string' ? value : JSON.stringify(value),
-              ),
-            );
+          // Forms send readable labels for the bar. SDK calls show raw values.
+          const fields =
+            draft.labels?.fields ??
+            Object.entries(item.values).map(([label, value]) => ({
+              label,
+              value: typeof value === 'string' ? value : JSON.stringify(value),
+            }));
+          for (const { label, value } of fields)
+            values.append(element('dt', label), element('dd', value));
           content.append(values);
         }
         const status = stale
@@ -337,7 +339,10 @@ function render() {
         }
         const remove = button(
           '',
-          () => write(`drafts/${encodeURIComponent(item.id)}`, 'DELETE'),
+          () =>
+            draft.key !== undefined && page
+              ? post('reset', { key: draft.key, draftId: item.id })
+              : write(`drafts/${encodeURIComponent(item.id)}`, 'DELETE'),
           !mutable,
         );
         remove.className = 'draft-remove';
@@ -546,12 +551,7 @@ async function attach(msg: PageMessage) {
   $('bridge-status').textContent = 'Interface connected';
   const params = presentation(session);
   lastPresentation = JSON.stringify(params);
-  post('init', {
-    ...params,
-    forms: session.forms,
-    ended: session.ended,
-    annotating,
-  });
+  post('init', { ...params, ended: session.ended, annotating });
   render();
 }
 const requests: {
@@ -560,13 +560,16 @@ const requests: {
     revision: string,
   ) => Promise<Requests[M]['result']>;
 } = {
-  async stage({ item, marker }, revision) {
+  async stage({ item, marker, key, labels }, revision) {
+    const known = session?.drafts.some((d) => d.key === key);
     const { draftId } = await write<{ draftId: string }>('drafts', 'POST', {
       item,
       revision,
       ...(marker ? { marker } : {}),
+      ...(key !== undefined ? { key, labels } : {}),
     });
-    if (item.intent) openTray();
+    // A form updates its draft while the human types. Only a new decision opens the bar.
+    if (item.intent && (key === undefined || !known)) openTray();
     sent = false;
     error();
     return { draftId, status: 'draft' };
@@ -580,10 +583,6 @@ const requests: {
   },
   async remove({ draftId }) {
     await write(`drafts/${encodeURIComponent(draftId)}`, 'DELETE');
-    return null;
-  },
-  async saveForm({ formId, values }) {
-    await write(`forms/${encodeURIComponent(formId)}`, 'PUT', { values });
     return null;
   },
 };

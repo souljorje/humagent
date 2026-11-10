@@ -5,7 +5,7 @@ Humagent injects its SDK into supported local HTML and HTTP localhost apps. Gene
 ## Declarative forms
 
 ```html
-<form id="plan" data-humagent-intent="revise_plan" data-humagent-persist>
+<form id="plan" aria-label="Launch plan" data-humagent-intent="revise_plan">
   <label>Approach
     <select name="approach">
       <option value="pilot">Pilot first</option>
@@ -18,12 +18,17 @@ Humagent injects its SDK into supported local HTML and HTTP localhost apps. Gene
 
 | Attribute | Purpose |
 | --- | --- |
-| `data-humagent-intent` | Stage a request with named form values |
+| `data-humagent-intent` | Make the form one draft with named values |
 | `data-humagent-message` | Add the item's comment |
-| `data-humagent-persist` | Restore nonsensitive values when the form has a stable ID |
 | `data-humagent-id` | Identify annotation targets |
 
-Marked forms stage decisions and show **Added to review**. They do not send feedback. Unmarked forms behave normally.
+A marked form owns one draft. Its first change adds the draft, and later changes update it. The submit button adds the form unchanged. The form shows **Added to review** while its draft exists. Marked forms do not send feedback. Unmarked forms behave normally.
+
+Send delivers the values that the form shows. A reload refills the form from its draft. Deleting the draft in the bar resets the form to its HTML defaults. After a source revision change, the next form change replaces the stale draft.
+
+The form `id` identifies its draft. Without an `id`, the intent identifies it. Give each marked form a stable `id` when several forms share an intent.
+
+The bar shows readable text. The title comes from `aria-label` or `aria-labelledby`, otherwise from the intent. Each field shows its label or fieldset legend and the visible text of its answer. The agent receives only field names and values.
 
 | Control | Value |
 | --- | --- |
@@ -35,7 +40,7 @@ Marked forms stage decisions and show **Added to review**. They do not send feed
 
 The SDK excludes disabled controls and file, password, hidden, submit, reset, and button inputs. It rejects unsafe field names.
 
-The server stores opted-in values separately from staged decisions. Restoration emits an input event. Later form changes never alter staged decisions. A pending save can block browser reload.
+Restoration and reset emit an input event for page scripts. A pending save can block browser reload.
 
 ## JavaScript
 
@@ -90,8 +95,8 @@ An event can contain only a message. An empty review is invalid. The server reje
 | Events per session | 2,000 |
 | Intent / comment / overall instruction | 200 / 4,000 / 4,000 characters |
 | Each replacement string | 50,000 characters |
-| Form ID | 200 characters |
-| Saved form values per session | 256 KiB |
+| Form key | 200 characters |
+| Bar label text | 500 characters |
 
 JSON values must be finite. The server rejects `__proto__`, `constructor`, and `prototype` keys at every depth.
 
@@ -122,11 +127,10 @@ The workspace uses these routes with the session credential. Each write returns 
 | Route | Body |
 | --- | --- |
 | `GET /api/sessions/:id` | None |
-| `POST /api/sessions/:id/drafts` | `{ item, revision, marker? }` |
+| `POST /api/sessions/:id/drafts` | `{ item, revision, marker?, key?, labels? }`. A known `key` replaces that form's draft. |
 | `PATCH /api/sessions/:id/drafts/:draftId` | `{ revision, comment, after?, marker? }` |
 | `DELETE /api/sessions/:id/drafts/:draftId` | None |
 | `PUT /api/sessions/:id/message` | `{ text }` |
-| `PUT /api/sessions/:id/forms/:formId` | `{ values }` |
 | `POST /api/sessions/:id/send` | `{ revision }` |
 | `POST /api/sessions/:id/surface` | `{ documentId }` |
 | `POST /api/sessions/:id/end` | `{}` |

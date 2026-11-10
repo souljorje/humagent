@@ -41,7 +41,8 @@ That credential permits input, saved state, event access, and session ending. On
 Credentials stay outside page frames.
 
 Each session uses a separate file under `sessions/` in the data directory.
-That file stores drafts, the overall instruction, opted-in form values, and events. Humagent does not encrypt them.
+That file stores drafts, the overall instruction, and events. Humagent does not encrypt them.
+Marked forms save their values as the human types. Keep secrets out of marked forms.
 Where supported, the data directory uses `0700`. Control and atomic session files use `0600`.
 
 ## Agent actions

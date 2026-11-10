@@ -23,7 +23,7 @@ Read `humagent --help`. Use `--json` for command results.
 Keep task-specific interactions in page code.
 
 For structured input, use named controls in a form with `data-humagent-intent`.
-Use a stable form ID and `data-humagent-persist` for nonsensitive values that must survive refresh.
+Give each form a stable `id` and an accessible name, such as `aria-labelledby`. Label each control.
 
 Keep local interactions independent of model calls. Custom mini-apps can stage structured feedback through `window.humagent.submit()`.
 Forms and SDK calls add pending items. The human chooses **Send** to deliver them.
@@ -73,7 +73,7 @@ Run `wait` again to continue. Save important results in the task's source files.
 
 Direct text edits preview confirmed wording locally. They do not change source files or provide rich-text formatting.
 The agent applies authoritative source changes. Matching receipt acknowledgment removes submitted previews.
-The Humagent server stores review drafts and opted-in form values. Other application memory can reset on refresh.
+The Humagent server stores review drafts, including marked form values. Other application memory can reset on refresh.
 
 File access stays within the shared artifact directory. Never replace application source with serialized DOM.
 

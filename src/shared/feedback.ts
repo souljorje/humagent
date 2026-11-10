@@ -10,7 +10,9 @@ export const LIMITS = {
   message: 4000,
   intent: 200,
   text: 50000,
-  formId: 200,
+  formKey: 200,
+  label: 500,
+  labelFields: 100,
   consumer: 100,
   leaseMs: { default: 120000, min: 1000, max: 3600000 },
   waitMs: { default: 50000, min: 1, max: 600000 },
@@ -37,11 +39,19 @@ export interface MarkerPosition {
   y: number;
   textOffset?: number;
 }
+/** Readable text for a form draft in the bar. Agents do not receive it. */
+export interface DraftLabels {
+  title: string;
+  fields: { label: string; value: string }[];
+}
 /** Unsent feedback for the page revision that the human saw. */
 export interface Draft {
   item: ReviewItem;
   revision: string;
   marker?: MarkerPosition;
+  /** A form's identity. A session holds at most one draft per key. */
+  key?: string;
+  labels?: DraftLabels;
 }
 /** One Send action, as the agent receives it. */
 export interface Event {
@@ -63,7 +73,6 @@ export interface SessionView {
   agent: 'working' | 'waiting' | 'idle';
   drafts: Draft[];
   message: string;
-  forms: Record<string, ObjectValue>;
   /** Text replacements that were sent but not completed. Pages keep previewing them. */
   sent: Draft[];
 }

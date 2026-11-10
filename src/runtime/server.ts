@@ -244,11 +244,6 @@ export async function createRuntime(options: RuntimeOptions) {
     store.setMessage(id, (await body(c.req.raw)).text);
     return reply(id);
   });
-  app.put(`${sessionPath}/forms/:form`, async (c) => {
-    const id = c.req.param('id');
-    store.saveForm(id, c.req.param('form'), (await body(c.req.raw)).values);
-    return reply(id);
-  });
   app.post(`${sessionPath}/send`, async (c) => {
     const id = c.req.param('id');
     const value = await body(c.req.raw);

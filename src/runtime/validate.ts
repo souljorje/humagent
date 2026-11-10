@@ -2,6 +2,7 @@ import { cloneJson, type ObjectValue } from '../shared/json.js';
 import {
   LIMITS,
   type DraftItem,
+  type DraftLabels,
   type MarkerPosition,
 } from '../shared/feedback.js';
 
@@ -131,4 +132,23 @@ export function marker(value: unknown): MarkerPosition | undefined {
   return textOffset === undefined
     ? { x, y }
     : { x, y, textOffset: textOffset as number };
+}
+export function labels(value: unknown): DraftLabels | undefined {
+  if (value === undefined) return undefined;
+  object(value, 'Labels');
+  text(value.title, 'Form title', LIMITS.label);
+  const { fields } = value;
+  ensure(
+    Array.isArray(fields) && fields.length <= LIMITS.labelFields,
+    `Labels support at most ${LIMITS.labelFields} fields`,
+  );
+  return {
+    title: value.title,
+    fields: fields.map((field) => {
+      object(field, 'Field label');
+      text(field.label, 'Field label', LIMITS.label);
+      text(field.value, 'Field value', LIMITS.label, true);
+      return { label: field.label, value: field.value };
+    }),
+  };
 }

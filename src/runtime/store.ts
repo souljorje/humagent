@@ -6,6 +6,7 @@ import {
   ensure,
   Failure,
   item,
+  labels,
   localUrl,
   marker,
   object,
@@ -20,10 +21,8 @@ import {
   type SessionView,
   type Target,
 } from '../shared/feedback.js';
-import type { ObjectValue } from '../shared/json.js';
 
 const FORMAT = 2;
-const RESERVED = ['__proto__', 'constructor', 'prototype'];
 
 interface Lease {
   receipt: string;
@@ -42,7 +41,6 @@ export interface Session {
   createdAt: string;
   drafts: Draft[];
   message: string;
-  forms: Record<string, ObjectValue>;
   events: Event[];
   lease?: Lease;
   acknowledged: string[];
@@ -62,7 +60,6 @@ export function sessionView(s: Session, waiting: boolean): SessionView {
     agent: leaseActive(s) ? 'working' : waiting ? 'waiting' : 'idle',
     drafts: s.drafts,
     message: s.message,
-    forms: s.forms,
     sent: s.events
       .filter((event) => event.status !== 'completed')
       .flatMap((event) =>
@@ -86,8 +83,6 @@ function readSession(saved: unknown, id: string): Session {
       typeof s.createdAt === 'string' &&
       typeof s.ended === 'boolean' &&
       typeof s.message === 'string' &&
-      !!s.forms &&
-      typeof s.forms === 'object' &&
       Array.isArray(s.drafts) &&
       Array.isArray(s.events) &&
       Array.isArray(s.acknowledged) &&
@@ -193,7 +188,6 @@ export class Store extends EventEmitter {
       createdAt: new Date().toISOString(),
       drafts: [],
       message: '',
-      forms: {},
       events: [],
       acknowledged: [],
     });
@@ -208,6 +202,7 @@ export class Store extends EventEmitter {
       ? s
       : this.commit({ ...s, revision, surfacePath });
   }
+  /** Add a draft. A draft with a known form key replaces that form's draft in place. */
   addDraft(id: string, value: unknown) {
     const s = this.writable(id);
     object(value);
@@ -218,19 +213,32 @@ export class Store extends EventEmitter {
         fields.target.revision === s.revision,
       'Target revision does not match the page',
     );
+    if (value.key !== undefined) text(value.key, 'Form key', LIMITS.formKey);
+    const key = value.key as string | undefined;
+    const previous =
+      key === undefined ? undefined : s.drafts.find((d) => d.key === key);
     ensure(
-      s.drafts.length < LIMITS.drafts,
+      previous || s.drafts.length < LIMITS.drafts,
       `Send or remove current feedback before adding more than ${LIMITS.drafts} items.`,
       'SESSION_FULL',
       413,
     );
     const position = marker(value.marker);
+    const display = labels(value.labels);
     const draft: Draft = {
-      item: { id: randomUUID(), ...fields },
+      item: { id: previous?.item.id ?? randomUUID(), ...fields },
       revision: s.revision,
       ...(position ? { marker: position } : {}),
+      ...(key !== undefined ? { key } : {}),
+      ...(display ? { labels: display } : {}),
     };
-    this.commit({ ...s, drafts: [...s.drafts, draft] });
+    if (JSON.stringify(previous) !== JSON.stringify(draft))
+      this.commit({
+        ...s,
+        drafts: previous
+          ? s.drafts.map((d) => (d === previous ? draft : d))
+          : [...s.drafts, draft],
+      });
     return draft.item.id;
   }
   /** Edits keep the item ID, target, and original text. */
@@ -251,10 +259,10 @@ export class Store extends EventEmitter {
       text(value.after, 'Replacement', LIMITS.text, true);
       changes.replacement = { ...previous.replacement, after: value.after };
     }
-    const position = marker(value.marker) ?? draft.marker;
+    const position = marker(value.marker);
     const updated: Draft = {
+      ...draft,
       item: { id: draftId, ...item(changes) },
-      revision: draft.revision,
       ...(position ? { marker: position } : {}),
     };
     this.commit({
@@ -274,20 +282,6 @@ export class Store extends EventEmitter {
     const s = this.writable(id);
     text(value, 'Instruction', LIMITS.message, true);
     if (s.message !== value) this.commit({ ...s, message: value });
-  }
-  saveForm(id: string, formId: string, values: unknown) {
-    const s = this.writable(id);
-    text(formId, 'Form ID', LIMITS.formId);
-    ensure(!RESERVED.includes(formId), 'Reserved form ID');
-    object(values, 'Values');
-    const forms = { ...s.forms, [formId]: values };
-    ensure(
-      Buffer.byteLength(JSON.stringify(forms)) <= LIMITS.bodyBytes,
-      'Saved form values exceed 256 KiB',
-      'TOO_LARGE',
-      413,
-    );
-    this.commit({ ...s, forms });
   }
   /** Turn the current drafts and instruction into one event. */
   send(id: string, revision: unknown) {

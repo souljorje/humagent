@@ -1,7 +1,13 @@
-import type { ObjectValue } from '../shared/json.js';
-import type { StageResult, Submission } from '../shared/feedback.js';
+import type { Json, ObjectValue } from '../shared/json.js';
+import {
+  LIMITS,
+  type Draft,
+  type DraftItem,
+  type DraftLabels,
+} from '../shared/feedback.js';
 import { errorMessage } from '../shared/errors.js';
 
+const FORMS = 'form[data-humagent-intent]';
 type FormControl = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 function isElement(target: EventTarget | null): target is Element {
   return !!target && 'nodeType' in target && target.nodeType === 1;
@@ -12,6 +18,8 @@ function hasTag<K extends keyof HTMLElementTagNameMap>(
 ): el is HTMLElementTagNameMap[K] {
   return el.tagName === tag.toUpperCase();
 }
+const isInput = (el: FormControl, type: string): el is HTMLInputElement =>
+  hasTag(el, 'input') && el.type === type;
 function controls(form: HTMLFormElement): FormControl[] {
   return [...form.elements].filter(
     (el): el is FormControl =>
@@ -29,163 +37,221 @@ function controls(form: HTMLFormElement): FormControl[] {
       ].includes(el.type),
   );
 }
-function formValues(form: HTMLFormElement): ObjectValue {
-  const result: ObjectValue = Object.create(null);
+const clip = (value: string) =>
+  value.length > LIMITS.label ? `${value.slice(0, LIMITS.label - 1)}…` : value;
+const text = (node: Node | null | undefined) =>
+  (node?.textContent ?? '').replace(/\s+/g, ' ').trim();
+/** Visible label text, without the text of controls inside the label. */
+function labelText(label: Element | null | undefined) {
+  if (!label) return '';
+  const copy = label.cloneNode(true) as Element;
+  for (const control of copy.querySelectorAll('input,select,textarea,button'))
+    control.remove();
+  return text(copy);
+}
+function accessibleName(el: Element | null | undefined) {
+  const ids = el?.getAttribute('aria-labelledby')?.split(/\s+/) ?? [];
+  return (
+    el?.getAttribute('aria-label')?.trim() ||
+    ids
+      .map((id) => text(document.getElementById(id)))
+      .join(' ')
+      .trim()
+  );
+}
+/** A radio or checkbox group is named by its fieldset. */
+function groupName(el: FormControl) {
+  const fieldset = el.closest('fieldset');
+  return accessibleName(fieldset) || text(fieldset?.querySelector('legend'));
+}
+const ownLabel = (el: FormControl) =>
+  accessibleName(el) || labelText(el.labels?.[0]);
+
+/** Read named values for the agent and readable labels for the bar. */
+function readForm(form: HTMLFormElement) {
+  const values: ObjectValue = Object.create(null);
+  const fields: DraftLabels['fields'] = [];
   const groups = new Map<string, FormControl[]>();
   for (const el of controls(form)) {
     if (['__proto__', 'prototype', 'constructor'].includes(el.name))
       throw new Error('Reserved field name');
-    const group = groups.get(el.name) || [];
-    group.push(el);
-    groups.set(el.name, group);
+    groups.set(el.name, [...(groups.get(el.name) || []), el]);
   }
   for (const [name, group] of groups) {
-    if (
-      group.every(
-        (el): el is HTMLInputElement =>
-          hasTag(el, 'input') && el.type === 'checkbox',
-      )
-    )
-      result[name] =
-        group.length === 1
-          ? group[0]!.checked
-          : group.filter((el) => el.checked).map((el) => el.value);
-    else if (
-      group.every(
-        (el): el is HTMLInputElement =>
-          hasTag(el, 'input') && el.type === 'radio',
-      )
-    )
-      result[name] = group.find((el) => el.checked)?.value ?? null;
-    else {
-      const values = group.flatMap((el) =>
+    const first = group[0]!;
+    let value: Json, shown: string, label: string;
+    if (group.every((el) => isInput(el, 'checkbox'))) {
+      const checked = group.filter((el) => (el as HTMLInputElement).checked);
+      if (group.length === 1) {
+        value = checked.length === 1;
+        shown = value ? 'Yes' : 'No';
+        label = ownLabel(first);
+      } else {
+        value = checked.map((el) => el.value);
+        shown = checked.map((el) => ownLabel(el) || el.value).join(', ');
+        label = groupName(first);
+      }
+    } else if (group.every((el) => isInput(el, 'radio'))) {
+      const checked = group.find((el) => (el as HTMLInputElement).checked);
+      value = checked?.value ?? null;
+      shown = checked ? ownLabel(checked) || checked.value : '';
+      label = groupName(first);
+    } else {
+      const options = (el: FormControl) =>
+        hasTag(el, 'select') ? [...el.selectedOptions] : [];
+      const parts = group.flatMap((el) =>
         hasTag(el, 'select') && el.multiple
-          ? [...el.selectedOptions].map((o) => o.value)
+          ? options(el).map((option) => option.value)
           : [el.value],
       );
-      result[name] =
-        group.length === 1 && !('multiple' in group[0]! && group[0]!.multiple)
-          ? values[0]!
-          : values;
+      value =
+        group.length === 1 && !(hasTag(first, 'select') && first.multiple)
+          ? parts[0]!
+          : parts;
+      shown = group
+        .flatMap((el) =>
+          hasTag(el, 'select') ? options(el).map((o) => text(o)) : [el.value],
+        )
+        .join(', ');
+      label = group.length === 1 ? ownLabel(first) : groupName(first);
     }
+    values[name] = value;
+    fields.push({ label: clip(label || name), value: clip(shown) });
   }
-  return result;
+  const title = accessibleName(form) || form.dataset.humagentIntent!;
+  return {
+    values,
+    labels: { title: clip(title), fields: fields.slice(0, LIMITS.labelFields) },
+  };
+}
+function fill(form: HTMLFormElement, values: ObjectValue) {
+  const seen = new Map<string, number>();
+  for (const el of controls(form)) {
+    const value = values[el.name];
+    if (value === undefined) continue;
+    if (isInput(el, 'checkbox'))
+      el.checked = Array.isArray(value)
+        ? value.includes(el.value)
+        : value === true;
+    else if (isInput(el, 'radio')) el.checked = value === el.value;
+    else if (hasTag(el, 'select') && el.multiple) {
+      for (const option of el.options)
+        option.selected = Array.isArray(value) && value.includes(option.value);
+    } else if (Array.isArray(value)) {
+      const index = seen.get(el.name) || 0;
+      el.value = String(value[index] ?? '');
+      seen.set(el.name, index + 1);
+    } else el.value = String(value ?? '');
+  }
 }
 
-/** Saved form values and staged decisions are separate snapshots. */
 interface FormBridge {
-  saveForm(formId: string, values: ObjectValue): Promise<unknown>;
-  submit(value: Submission): Promise<StageResult>;
+  revision: string;
+  stage(item: DraftItem, key: string, labels: DraftLabels): Promise<unknown>;
   notice(message: string): void;
 }
-export function createForms({ saveForm, submit, notice }: FormBridge) {
-  const timers = new Map<
-    HTMLFormElement,
-    { timer: ReturnType<typeof setTimeout> }
-  >();
-  function restore(saved: Record<string, ObjectValue>) {
-    for (const form of document.querySelectorAll<HTMLFormElement>(
-      'form[data-humagent-intent][data-humagent-persist][id]',
-    )) {
-      const values = Object.hasOwn(saved, form.id) ? saved[form.id] : undefined;
-      if (!values) continue;
-      const seen = new Map();
-      for (const el of controls(form)) {
-        const value = values[el.name];
-        if (value === undefined) continue;
-        if (hasTag(el, 'input') && el.type === 'checkbox')
-          el.checked = Array.isArray(value)
-            ? value.includes(el.value)
-            : value === true;
-        else if (hasTag(el, 'input') && el.type === 'radio')
-          el.checked = value === el.value;
-        else if (hasTag(el, 'select') && el.multiple) {
-          for (const option of el.options)
-            option.selected =
-              Array.isArray(value) && value.includes(option.value);
-        } else if (Array.isArray(value)) {
-          const index = seen.get(el.name) || 0;
-          el.value = String(value[index] ?? '');
-          seen.set(el.name, index + 1);
-        } else el.value = String(value ?? '');
-      }
+/** Each intent form is one live draft. Its first change adds it, and later changes update it. */
+export function createForms({ revision, stage, notice }: FormBridge) {
+  const timers = new Map<HTMLFormElement, ReturnType<typeof setTimeout>>();
+  // A failed save keeps its message until a later save succeeds.
+  const failed = new Set<HTMLFormElement>();
+  const key = (form: HTMLFormElement) =>
+    form.id || form.dataset.humagentIntent!;
+  const forms = () => document.querySelectorAll<HTMLFormElement>(FORMS);
+  // Restoring and resetting dispatch input events for page scripts. Those events must not save.
+  let quiet = false;
+  function silently(form: HTMLFormElement, change: () => void) {
+    clearTimeout(timers.get(form));
+    timers.delete(form);
+    quiet = true;
+    try {
+      change();
       form.dispatchEvent(new Event('input', { bubbles: true }));
+    } finally {
+      quiet = false;
     }
   }
-  function persist(form: HTMLFormElement) {
-    const pending = timers.get(form);
-    clearTimeout(pending?.timer);
-    return saveForm(form.id, formValues(form)).then(() => {
-      if (timers.get(form) === pending) timers.delete(form);
+  function status(form: HTMLFormElement, message: string) {
+    let output = form.querySelector<HTMLElement>('[data-humagent-status]');
+    if (!output && !message) return;
+    if (!output) {
+      output = document.createElement('output');
+      output.dataset.humagentStatus = '';
+      output.dataset.humagentUi = '';
+      output.setAttribute('role', 'status');
+      form.append(output);
+    }
+    output.textContent = message;
+  }
+  function save(form: HTMLFormElement) {
+    clearTimeout(timers.get(form));
+    timers.delete(form);
+    const { values, labels } = readForm(form);
+    const message = form.dataset.humagentMessage;
+    return stage(
+      {
+        intent: form.dataset.humagentIntent!,
+        values,
+        ...(message ? { comment: message } : {}),
+      },
+      key(form),
+      labels,
+    ).then(
+      () => failed.delete(form),
+      (error: unknown) => {
+        failed.add(form);
+        status(form, errorMessage(error));
+        notice(errorMessage(error));
+      },
+    );
+  }
+  for (const type of ['input', 'change'])
+    document.addEventListener(type, (event) => {
+      if (quiet || !isElement(event.target)) return;
+      const form = event.target.closest<HTMLFormElement>(FORMS);
+      if (!form) return;
+      clearTimeout(timers.get(form));
+      timers.set(
+        form,
+        setTimeout(() => void save(form), type === 'input' ? 250 : 50),
+      );
     });
-  }
-  async function flush() {
-    while (timers.size) for (const form of timers.keys()) await persist(form);
-  }
+  document.addEventListener(
+    'submit',
+    (event) => {
+      const form = event.target;
+      if (!isElement(form) || !hasTag(form, 'form') || !form.matches(FORMS))
+        return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      void save(form);
+    },
+    true,
+  );
   window.addEventListener('beforeunload', (event) => {
     if (!timers.size) return;
     event.preventDefault();
     event.returnValue = '';
-    void flush().catch((error: unknown) => notice(errorMessage(error)));
+    for (const form of timers.keys()) void save(form);
   });
-  for (const type of ['input', 'change'])
-    document.addEventListener(type, (event) => {
-      if (!isElement(event.target)) return;
-      const form = event.target.closest<HTMLFormElement>(
-        'form[data-humagent-intent][data-humagent-persist][id]',
-      );
-      if (!form) return;
-      clearTimeout(timers.get(form)?.timer);
-      timers.set(form, {
-        timer: setTimeout(
-          () =>
-            persist(form).catch((error: unknown) =>
-              notice(errorMessage(error)),
-            ),
-          type === 'input' ? 250 : 50,
-        ),
-      });
-    });
-  document.addEventListener(
-    'submit',
-    async (event) => {
-      const form = event.target;
-      if (
-        !isElement(form) ||
-        !hasTag(form, 'form') ||
-        !form.matches('form[data-humagent-intent]')
-      )
-        return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (form.dataset.humagentSending) return;
-      form.dataset.humagentSending = 'true';
-      let output = form.querySelector<HTMLElement>('[data-humagent-status]');
-      if (!output) {
-        output = document.createElement('output');
-        output.dataset.humagentStatus = '';
-        output.dataset.humagentUi = '';
-        output.setAttribute('role', 'status');
-        form.append(output);
-      }
-      try {
-        const captured = {
-          intent: form.dataset.humagentIntent!,
-          message: form.dataset.humagentMessage || '',
-          values: formValues(form),
-        };
-        output.textContent = 'Adding to review…';
-        await flush();
-        await submit(captured);
-        output.textContent = 'Added to review';
-      } catch (error) {
-        output.textContent = errorMessage(error);
-        notice(errorMessage(error));
-      } finally {
-        delete form.dataset.humagentSending;
+  const current = (drafts: Draft[], form: HTMLFormElement) =>
+    drafts.find((d) => d.key === key(form) && d.revision === revision);
+  return {
+    /** Refill forms from their drafts after a reload. Stale drafts stay untouched. */
+    restore(drafts: Draft[]) {
+      for (const form of forms()) {
+        const values = current(drafts, form)?.item.values;
+        if (values) silently(form, () => fill(form, values));
       }
     },
-    true,
-  );
-  return { restore };
+    present(drafts: Draft[]) {
+      for (const form of forms())
+        if (!failed.has(form))
+          status(form, current(drafts, form) ? 'Added to review' : '');
+    },
+    reset(formKey: string) {
+      for (const form of forms())
+        if (key(form) === formKey) silently(form, () => form.reset());
+    },
+  };
 }
