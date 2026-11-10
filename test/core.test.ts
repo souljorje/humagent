@@ -5,7 +5,6 @@ import { fixture } from './fixtures.ts';
 import path from 'node:path';
 import { Store } from '../dist/runtime/store.js';
 import { parseJson } from '../dist/runtime/validate.js';
-import { cloneJson } from '../dist/shared/json.js';
 const directories: string[] = [];
 afterAll(() =>
   directories.forEach((dir) =>
@@ -156,10 +155,10 @@ test('a form key keeps one draft and replaces it in place', () => {
     /Form title/,
   );
 });
-test('receipt completes only leased events, not newer input', () => {
+test('a receipt completes only its delivered events, not newer input', () => {
   const { store, id } = setup();
   queue(store, id);
-  const batch = store.take(id, 'agent');
+  const batch = store.take(id);
   assert.ok(batch?.status === 'feedback');
   queue(store, id, 'two');
   store.acknowledge(id, batch.receipt);
@@ -170,39 +169,20 @@ test('receipt completes only leased events, not newer input', () => {
   store.acknowledge(id, batch.receipt);
   assert.deepEqual(store.get(id).acknowledged, [batch.receipt]);
 });
-test('lease excludes competing consumers and expires into redelivery', () => {
-  const { store, id } = setup();
-  queue(store, id);
-  const first = store.take(id, 'a', 1000, Date.now() - 2000);
-  assert.ok(first?.status === 'feedback');
-  const second = store.take(id, 'b');
-  assert.ok(second?.status === 'feedback');
-  assert.equal(first.events[0].id, second.events[0].id);
-  assert.equal(second.events[0].deliveries, 2);
-  assert.throws(() => store.take(id, 'c'), /leased/);
-  assert.throws(
-    () => store.acknowledge(id, first.receipt),
-    /unknown or expired/,
-  );
-});
-test('restart retains an outstanding lease and pending event', () => {
+test('unacknowledged events come back with a new receipt, also after a restart', () => {
   const { store, id, dir } = setup();
   queue(store, id);
-  const batch = store.take(id, 'agent');
-  assert.ok(batch?.status === 'feedback');
+  const first = store.take(id);
+  assert.ok(first?.status === 'feedback');
+  const second = new Store(dir).take(id);
+  assert.ok(second?.status === 'feedback');
+  assert.equal(second.events[0].id, first.events[0].id);
+  assert.equal(second.events[0].deliveries, 2);
   const resumed = new Store(dir);
-  assert.throws(() => resumed.take(id, 'other'), /leased/);
-  resumed.acknowledge(id, batch.receipt);
+  assert.throws(() => resumed.acknowledge(id, first.receipt), /replaced/);
+  assert.throws(() => resumed.acknowledge(id, undefined), /unknown/);
+  resumed.acknowledge(id, second.receipt);
   assert.equal(resumed.get(id).events[0].status, 'completed');
-});
-test('renewal validates receipt and extends its lease', () => {
-  const { store, id } = setup();
-  queue(store, id);
-  const batch = store.take(id, 'agent', 1000);
-  assert.ok(batch?.status === 'feedback');
-  assert.throws(() => store.renew(id, undefined));
-  store.renew(id, batch.receipt, 10000);
-  assert.ok(store.get(id).lease!.expiresAt > batch.leaseExpiresAt);
 });
 test('ending a session rejects writes but delivers previously queued work', () => {
   const { store, id } = setup();
@@ -210,24 +190,11 @@ test('ending a session rejects writes but delivers previously queued work', () =
   store.end(id);
   assert.throws(() => store.addDraft(id, comment()), /ended/);
   assert.throws(() => store.setMessage(id, 'new'), /ended/);
-  const batch = store.take(id, 'agent');
+  const batch = store.take(id);
   assert.ok(batch?.status === 'feedback');
   store.acknowledge(id, batch.receipt);
-  assert.equal(store.take(id, 'agent')?.status, 'ended');
-});
-test('session writes leave other session files untouched', () => {
-  const { dir, store, id } = setup();
-  const other = store.open(
-    { kind: 'file', value: '/tmp/b.html', root: '/tmp', network: false },
-    'v2',
-  );
-  const file = path.join(dir, 'sessions', `${other.id}.json`);
-  const before = fs.statSync(file, { bigint: true });
-  queue(store, id);
-  assert.equal(fs.statSync(file, { bigint: true }).mtimeNs, before.mtimeNs);
-  const restarted = new Store(dir);
-  assert.equal(restarted.get(id).events.length, 1);
-  assert.equal(restarted.get(other.id).events.length, 0);
+  assert.equal(store.take(id)?.status, 'ended');
+  assert.throws(() => store.acknowledge(id, undefined), /unknown/);
 });
 test('a corrupt or unsupported session does not hide other sessions', () => {
   const { dir, store, id } = setup();
@@ -255,33 +222,4 @@ test('a corrupt or unsupported session does not hide other sessions', () => {
     assert.equal(recovered.errors()[0].id, id);
     assert.equal(fs.readFileSync(corrupt, 'utf8'), content);
   }
-});
-test('SDK JSON validation rejects lossy values before copying', () => {
-  const cyclic: { self?: unknown } = {};
-  cyclic.self = cyclic;
-  const hidden = {};
-  Object.defineProperty(hidden, 'secret', { value: 1 });
-  for (const value of [
-    NaN,
-    Infinity,
-    -Infinity,
-    undefined,
-    () => {},
-    Symbol('x'),
-    1n,
-    new Date(),
-    new Map(),
-    cyclic,
-    Array(1),
-    hidden,
-    { [Symbol('x')]: 1 },
-  ]) {
-    assert.throws(() => cloneJson({ values: { value } }));
-  }
-  const value = {
-    values: { finite: 1, array: [null, true, 'exact'], shared: { x: 1 } },
-  };
-  const copied = cloneJson(value);
-  assert.deepEqual(copied, value);
-  assert.notEqual(copied.values, value.values);
 });

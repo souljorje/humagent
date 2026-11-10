@@ -148,14 +148,7 @@ try {
   const surface = await fetch(snapshot.surface.frameUrl);
   assert.equal(surface.status, 200);
   assert.match(await surface.text(), /data-humagent-intent/);
-  const waiting = run(
-    'wait',
-    opened.session,
-    '--timeout',
-    '10',
-    '--lease',
-    '60',
-  );
+  const waiting = run('wait', opened.session);
   for (
     let attempt = 0;
     (await run('status', opened.session)).agent !== 'waiting';
@@ -202,10 +195,7 @@ try {
     /Installed package proxy/,
   );
   await run('end', opened.session);
-  assert.equal(
-    (await run('wait', opened.session, '--timeout', '1')).status,
-    'ended',
-  );
+  assert.equal((await run('wait', opened.session)).status, 'ended');
   console.log(
     'PASS npm install from tarball and npm exec: demo, server, source, structured input, acknowledgment, skill, local proxy',
   );
@@ -252,17 +242,17 @@ try {
     prefix,
     process.platform === 'win32' ? 'humagent.cmd' : 'bin/humagent',
   );
-  const globalResult = await execute(executable, ['doctor', '--json'], {
+  const globalResult = await execute(executable, ['status', '--json'], {
     cwd: temporary,
     env,
     encoding: 'utf8',
     timeout: 20000,
     shell: process.platform === 'win32',
   });
-  const doctor = JSON.parse(globalResult.stdout);
-  assert.equal(doctor.version, pkg.version);
-  assert.equal(doctor.runtime, 'node');
-  assert.equal(doctor.filesPresent, true);
+  const status = JSON.parse(globalResult.stdout);
+  assert.equal(status.version, pkg.version);
+  assert.equal(status.runtime, 'node');
+  assert.equal(status.filesPresent, true);
   console.log('PASS global npm installation provides the humagent command');
 } finally {
   try {

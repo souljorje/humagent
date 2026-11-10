@@ -13,7 +13,7 @@ Open an existing local page or an agent-generated interface. See the [quick star
 
 Expand the floating bar and copy its `humagent wait SESSION` command to your active agent chat.
 
-**Agent listening** means the agent is waiting for input. **Agent working** means it holds a review receipt. **No agent waiting** means neither is true.
+**Agent listening** means a `wait` command is running. **Agent working** means the agent has events that it did not acknowledge yet. **No agent waiting** means neither is true.
 
 New sends require an agent that is listening or working. Accepted feedback remains stored if the agent disconnects.
 
@@ -46,7 +46,7 @@ Expand the bar to inspect drafts, connection status, and errors. Hover a draft t
 | Draft | Saved on the server, not sent |
 | Sending | The server turns all drafts and the overall instruction into one event |
 | Queued | The server stored the event |
-| Working | The agent holds the event's receipt |
+| Working | The agent received the event and did not acknowledge it yet |
 | Completed | The agent acknowledged the receipt |
 
 A failed send keeps the drafts. The workspace then reads the current server state again.

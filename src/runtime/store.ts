@@ -24,10 +24,9 @@ import {
 
 const FORMAT = 2;
 
-interface Lease {
+/** The events that the last `wait` returned. They stay unfinished until the agent acknowledges this receipt. */
+interface Delivery {
   receipt: string;
-  consumer: string;
-  expiresAt: number;
   eventIds: string[];
 }
 export interface Session {
@@ -42,12 +41,9 @@ export interface Session {
   drafts: Draft[];
   message: string;
   events: Event[];
-  lease?: Lease;
+  delivery?: Delivery;
   acknowledged: string[];
 }
-
-const leaseActive = (s: Session, now = Date.now()) =>
-  !!s.lease && s.lease.expiresAt > now;
 
 export function sessionView(s: Session, waiting: boolean): SessionView {
   return {
@@ -57,7 +53,7 @@ export function sessionView(s: Session, waiting: boolean): SessionView {
     revision: s.revision,
     ended: s.ended,
     createdAt: s.createdAt,
-    agent: leaseActive(s) ? 'working' : waiting ? 'waiting' : 'idle',
+    agent: s.delivery ? 'working' : waiting ? 'waiting' : 'idle',
     drafts: s.drafts,
     message: s.message,
     sent: s.events
@@ -259,11 +255,9 @@ export class Store extends EventEmitter {
       text(value.after, 'Replacement', LIMITS.text, true);
       changes.replacement = { ...previous.replacement, after: value.after };
     }
-    const position = marker(value.marker);
     const updated: Draft = {
       ...draft,
       item: { id: draftId, ...item(changes) },
-      ...(position ? { marker: position } : {}),
     };
     this.commit({
       ...s,
@@ -321,35 +315,21 @@ export class Store extends EventEmitter {
     });
     return event;
   }
-  take(
-    id: string,
-    consumer: string,
-    leaseMs: number = LIMITS.leaseMs.default,
-    now = Date.now(),
-  ) {
+  /** Deliver every unfinished event. Unacknowledged events come back with the next delivery. */
+  take(id: string) {
     const s = this.get(id);
-    text(consumer, 'Consumer', LIMITS.consumer);
-    leaseDuration(leaseMs);
-    if (leaseActive(s, now))
-      throw new Failure(
-        409,
-        'LEASE_ACTIVE',
-        `Events are leased to ${s.lease!.consumer}; acknowledge or wait for expiry`,
-      );
     const pending = s.events
       .filter((e) => e.status !== 'completed')
       .slice(0, LIMITS.eventsPerReceipt);
     if (!pending.length) return s.ended ? { status: 'ended' as const } : null;
-    const lease = {
+    const delivery = {
       receipt: randomUUID(),
-      consumer,
-      expiresAt: now + leaseMs,
       eventIds: pending.map((e) => e.id),
     };
-    const ids = new Set(lease.eventIds);
+    const ids = new Set(delivery.eventIds);
     const updated = this.commit({
       ...s,
-      lease,
+      delivery,
       events: s.events.map((e) =>
         ids.has(e.id)
           ? { ...e, status: 'delivered', deliveries: e.deliveries + 1 }
@@ -360,8 +340,7 @@ export class Store extends EventEmitter {
       status: 'feedback' as const,
       session: id,
       target: s.target,
-      receipt: lease.receipt,
-      leaseExpiresAt: lease.expiresAt,
+      receipt: delivery.receipt,
       events: updated.events.filter((e) => ids.has(e.id)),
     };
   }
@@ -370,48 +349,22 @@ export class Store extends EventEmitter {
     if (typeof receipt === 'string' && s.acknowledged.includes(receipt))
       return s;
     ensure(
-      s.lease?.receipt === receipt && leaseActive(s),
-      'Receipt is unknown or expired; do not acknowledge newer work',
+      typeof receipt === 'string' && s.delivery?.receipt === receipt,
+      'Receipt is unknown or replaced by a newer wait; do not acknowledge newer work',
       'STALE_RECEIPT',
       409,
     );
-    const ids = new Set(s.lease!.eventIds);
+    const ids = new Set(s.delivery!.eventIds);
     return this.commit({
       ...s,
-      lease: undefined,
+      delivery: undefined,
       acknowledged: [...s.acknowledged, receipt as string],
       events: s.events.map((e) =>
         ids.has(e.id) ? { ...e, status: 'completed' } : e,
       ),
     });
   }
-  renew(
-    id: string,
-    receipt: unknown,
-    leaseMs: number = LIMITS.leaseMs.default,
-  ) {
-    const s = this.get(id);
-    ensure(
-      s.lease?.receipt === receipt && leaseActive(s),
-      'Receipt expired or unknown',
-      'STALE_RECEIPT',
-      409,
-    );
-    leaseDuration(leaseMs);
-    return this.commit({
-      ...s,
-      lease: { ...s.lease!, expiresAt: Date.now() + leaseMs },
-    });
-  }
   end(id: string) {
     return this.commit({ ...this.get(id), ended: true });
   }
-}
-function leaseDuration(ms: number) {
-  ensure(
-    Number.isInteger(ms) &&
-      ms >= LIMITS.leaseMs.min &&
-      ms <= LIMITS.leaseMs.max,
-    `Lease must be ${LIMITS.leaseMs.min}–${LIMITS.leaseMs.max} ms`,
-  );
 }

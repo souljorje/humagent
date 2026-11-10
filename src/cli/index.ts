@@ -6,7 +6,6 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRuntime } from '../runtime/server.js';
 import { ensure } from '../runtime/validate.js';
-import { LIMITS } from '../shared/feedback.js';
 import { version, runtimeName, runtimeVersion } from '../runtime/version.js';
 
 const HELP = `Humagent ${version}
@@ -19,15 +18,13 @@ Start here:
   humagent setup                        Install the agent skill for this project
 
 Agent commands:
-  humagent wait <session> [--consumer name] [--timeout seconds] [--lease seconds]
-  humagent ack <session> --receipt id
-  humagent renew <session> --receipt id [--lease seconds]
+  humagent wait <session>                Wait until the user sends feedback
+  humagent ack <session> --receipt id    Complete the events of a receipt
 
 Session commands:
-  humagent status [session]              Show sessions or one session
+  humagent status [session]              Show the runtime, sessions, or one session
   humagent end <session>                 End a session
   humagent stop                          Stop the server and retain saved data
-  humagent doctor                        Check the runtime and server
 
 Options:
   --no-open                             Print the browser URL without opening it
@@ -175,6 +172,7 @@ async function request(
   route: string,
   method = 'GET',
   data?: unknown,
+  /** Zero waits without a limit. */
   timeout = 65000,
 ) {
   const response = await fetch(r.origin + route, {
@@ -184,13 +182,15 @@ async function request(
       'content-type': 'application/json',
     },
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
-    signal: AbortSignal.timeout(timeout),
+    ...(timeout ? { signal: AbortSignal.timeout(timeout) } : {}),
   });
   const result = (await response.json()) as {
     message?: string;
     error?: string;
   };
-  if (!response.ok) throw new Error(`${result.error}: ${result.message}`);
+  // A wait reports late errors in its body, after a 200 status.
+  if (!response.ok || result.error)
+    throw new Error(`${result.error}: ${result.message}`);
   return result;
 }
 async function output(value: unknown) {
@@ -199,20 +199,6 @@ async function output(value: unknown) {
       resolve(),
     ),
   );
-}
-/** Read a duration flag in seconds and return milliseconds. */
-function duration(name: 'timeout' | 'lease') {
-  const {
-    default: fallback,
-    min,
-    max,
-  } = name === 'lease' ? LIMITS.leaseMs : LIMITS.waitMs;
-  const value = Math.round(Number(flags.get(name) ?? fallback / 1000) * 1000);
-  ensure(
-    Number.isFinite(value) && value >= min && value <= max,
-    `--${name} must be between ${min / 1000} and ${max / 1000} seconds.`,
-  );
-  return value;
 }
 function openBrowser(url: string) {
   const [exe, parameters] =
@@ -291,25 +277,15 @@ const commands: Record<string, Command> = {
     },
   },
   wait: {
-    flags: ['consumer', 'timeout', 'lease'],
+    flags: [],
     argument: true,
     async run(argument) {
       const route = sessionRoute(argument);
-      const timeoutMs = duration('timeout'),
-        leaseMs = duration('lease');
       const r = await service();
       process.stderr.write(
-        'Waiting for input. Keep this command attached to the active agent turn.\n',
+        'Waiting until the user sends feedback or ends the session.\n',
       );
-      await output(
-        await request(
-          r,
-          `${route}/wait`,
-          'POST',
-          { consumer: flags.get('consumer') ?? 'agent', timeoutMs, leaseMs },
-          timeoutMs + 5000,
-        ),
-      );
+      await output(await request(r, `${route}/wait`, 'POST', {}, 0));
     },
   },
   ack: {
@@ -325,34 +301,34 @@ const commands: Record<string, Command> = {
       );
     },
   },
-  renew: {
-    flags: ['receipt', 'lease'],
-    argument: true,
-    async run(argument) {
-      const route = sessionRoute(argument);
-      ensure(flags.get('receipt'), '--receipt is required.');
-      const leaseMs = duration('lease');
-      await output(
-        await request(await service(), `${route}/renew`, 'POST', {
-          receipt: flags.get('receipt'),
-          leaseMs,
-        }),
-      );
-    },
-  },
   status: {
     flags: [],
     argument: true,
     async run(argument) {
-      if (!(await alive(record()))) {
-        await output({
-          serverRunning: false,
-          note: 'The server is stopped. Use open to resume a saved target.',
-        });
+      const r = record();
+      const running = await alive(r);
+      if (running && argument) {
+        await output(await request(r!, sessionRoute(argument)));
         return;
       }
-      const route = argument ? sessionRoute(argument) : '/api/sessions';
-      await output(await request(await service(), route));
+      await output({
+        version,
+        runtime: runtimeName,
+        runtimeVersion,
+        dataDirectory: directory,
+        filesPresent: [
+          '../ui/index.html',
+          '../sdk/sdk.js',
+          '../../skills/humagent/SKILL.md',
+        ].every((p) => fs.existsSync(new URL(p, import.meta.url))),
+        serverRunning: running,
+        serverVersion: r?.version ?? null,
+        ...(running
+          ? await request(r!, '/api/sessions')
+          : {
+              note: 'The server is stopped. Use open to resume a saved target.',
+            }),
+      });
     },
   },
   end: {
@@ -373,26 +349,6 @@ const commands: Record<string, Command> = {
         return;
       }
       await output(await request(r!, '/api/stop', 'POST', {}));
-    },
-  },
-  doctor: {
-    flags: [],
-    argument: false,
-    async run() {
-      const r = record();
-      await output({
-        version,
-        runtime: runtimeName,
-        runtimeVersion,
-        dataDirectory: directory,
-        serverRunning: await alive(r),
-        serverVersion: r?.version ?? null,
-        filesPresent: [
-          '../ui/index.html',
-          '../sdk/sdk.js',
-          '../../skills/humagent/SKILL.md',
-        ].every((p) => fs.existsSync(new URL(p, import.meta.url))),
-      });
     },
   },
   setup: {

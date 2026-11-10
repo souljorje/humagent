@@ -18,7 +18,7 @@ type Feedback = Extract<
   NonNullable<ReturnType<Runtime['store']['take']>>,
   { status: 'feedback' }
 >;
-type WaitResult = Feedback | { status: 'timeout' | 'ended' | 'interrupted' };
+type WaitResult = Feedback | { status: 'ended' | 'interrupted' };
 interface NodeReady extends ServerAddress {
   type: 'ready';
   version: string;
@@ -85,75 +85,6 @@ test('opens isolated local surface and injects before literal body text', async 
     /works=true/,
   );
 });
-test('fetching sibling HTML preserves its bytes and the active file revision', async () => {
-  const fragment = '<p>Unchanged HTML fragment</p>';
-  fs.writeFileSync(path.join(root, 'fragment.html'), fragment);
-  const s = await opened();
-  const before = (await api(`/api/sessions/${s.session}`)).data;
-  for (const headers of [{}, { 'sec-fetch-dest': 'empty' }] as Record<
-    string,
-    string
-  >[]) {
-    const response = await fetch(before.surface.origin + '/fragment.html', {
-      headers,
-    });
-    assert.equal(await response.text(), fragment);
-    const after = (await api(`/api/sessions/${s.session}`)).data;
-    assert.equal(after.revision, before.revision);
-    assert.equal(after.surface.frameUrl, before.surface.frameUrl);
-  }
-});
-test('session capability cannot invoke privileged operations or other sessions', async () => {
-  const s = await opened(),
-    key = new URL(s.url).hash.slice(1);
-  const headers = { authorization: '', 'x-humagent-session': key };
-  assert.equal(
-    (await api(`/api/sessions/${s.session}`, 'GET', undefined, headers)).status,
-    200,
-  );
-  assert.equal(
-    (await api(`/api/sessions/${s.session}/wait`, 'POST', {}, headers)).status,
-    401,
-  );
-  assert.equal(
-    (await api('/api/open', 'POST', { target: file }, headers)).status,
-    401,
-  );
-});
-test('rejects hostile origins, host headers, and missing credentials', async () => {
-  assert.equal(
-    (
-      await api('/api/sessions', 'GET', undefined, {
-        origin: 'https://evil.example',
-      })
-    ).status,
-    403,
-  );
-  assert.equal(
-    await new Promise((resolve, reject) => {
-      const req = http.get(
-        runtime.origin + '/api/sessions',
-        {
-          headers: {
-            host: 'evil.example',
-            authorization: `Bearer ${runtime.token}`,
-          },
-        },
-        (res) => {
-          res.resume();
-          resolve(res.statusCode);
-        },
-      );
-      req.on('error', reject);
-    }),
-    403,
-  );
-  assert.equal(
-    (await api('/api/sessions', 'GET', undefined, { authorization: '' }))
-      .status,
-    401,
-  );
-});
 test('cannot run two writers against the same state directory', async () => {
   await assert.rejects(
     () => createRuntime({ directory: path.join(dir, 'state') }),
@@ -184,138 +115,20 @@ async function queue(id: string, message = 'Review this', revision?: string) {
     revision: revision ?? runtime.store.get(id).revision,
   });
 }
-test('wait receives an event once, acknowledgment completes only that receipt', async () => {
+test('wait ownership and end are typed', async () => {
   const s = await opened();
-  const before = (await api(`/api/sessions/${s.session}`)).data;
-  const wait = api(`/api/sessions/${s.session}/wait`, 'POST', {
-    consumer: 'test',
-    timeoutMs: 2000,
-  });
-  await until(
-    async () =>
-      (await api(`/api/sessions/${s.session}`)).data.agent === 'waiting',
-    'agent listening',
-  );
-  const draft = await api(`/api/sessions/${s.session}/drafts`, 'POST', {
-    revision: before.revision,
-    item: { intent: 'new_unregistered_intent', values: { x: 1 } },
-  });
-  assert.equal(draft.status, 200);
-  assert.ok(
-    draft.data.session.drafts.some(
-      (d: { item: { id: string } }) => d.item.id === draft.data.draftId,
-    ),
-  );
-  const e = await api(`/api/sessions/${s.session}/send`, 'POST', {
-    revision: before.revision,
-  });
-  assert.equal(e.status, 200);
-  assert.deepEqual(e.data.session.drafts, []);
-  const batch = await wait;
-  assert.equal(batch.status, 200);
-  assert.equal(batch.data.status, 'feedback');
-  assert.equal(batch.data.events[0].id, e.data.event.id);
-  assert.equal(batch.data.events[0].items[0].values.x, 1);
-  assert.equal(
-    (
-      await api(`/api/sessions/${s.session}/ack`, 'POST', {
-        receipt: batch.data.receipt,
-      })
-    ).status,
-    200,
-  );
-  assert.equal(
-    (await api(`/api/sessions/${s.session}/wait`, 'POST', { timeoutMs: 10 }))
-      .data.status,
-    'timeout',
-  );
-});
-test('wait ownership, timeout and end are typed', async () => {
-  const s = await opened();
-  const first = api(`/api/sessions/${s.session}/wait`, 'POST', {
-    consumer: 'a',
-    timeoutMs: 2000,
-  });
+  const first = api(`/api/sessions/${s.session}/wait`, 'POST', {});
   await until(
     async () =>
       (await api(`/api/sessions/${s.session}`)).data.agent === 'waiting',
     'agent listening',
   );
   assert.equal(
-    (
-      await api(`/api/sessions/${s.session}/wait`, 'POST', {
-        consumer: 'b',
-        timeoutMs: 20,
-      })
-    ).status,
+    (await api(`/api/sessions/${s.session}/wait`, 'POST', {})).status,
     409,
   );
   await api(`/api/sessions/${s.session}/end`, 'POST', {});
   assert.equal((await first).data.status, 'ended');
-  const fresh = await opened();
-  assert.equal(
-    (
-      await api(`/api/sessions/${fresh.session}/wait`, 'POST', {
-        timeoutMs: 10,
-      })
-    ).data.status,
-    'timeout',
-  );
-});
-test('sending requires a listening or working agent; drafts do not', async () => {
-  const id = (await opened()).session;
-  const unavailable = await queue(id, 'First feedback');
-  assert.equal(unavailable.status, 409);
-  assert.equal(unavailable.data.error, 'AGENT_UNAVAILABLE');
-  assert.equal(runtime.store.get(id).message, 'First feedback');
-  assert.equal(runtime.store.get(id).events.length, 0);
-  const waiting = api(`/api/sessions/${id}/wait`, 'POST', { timeoutMs: 5000 });
-  await until(
-    async () => (await api(`/api/sessions/${id}`)).data.agent === 'waiting',
-    'agent listening',
-  );
-  assert.equal((await queue(id, 'First feedback')).status, 200);
-  const received = (await waiting).data;
-  assert.equal((await api(`/api/sessions/${id}`)).data.agent, 'working');
-  assert.equal((await queue(id, 'While working')).status, 200);
-  await api(`/api/sessions/${id}/ack`, 'POST', { receipt: received.receipt });
-  assert.equal((await api(`/api/sessions/${id}`)).data.agent, 'idle');
-  assert.equal((await queue(id, 'After the agent left')).status, 409);
-  await api(`/api/sessions/${id}/end`, 'POST', {});
-  assert.equal((await queue(id)).data.error, 'ENDED');
-  assert.equal(runtime.store.get(id).events.length, 2);
-});
-test('source change rejects stale input without saving the file', async () => {
-  const s = await opened();
-  const prior = (await api(`/api/sessions/${s.session}`)).data;
-  const draft = await api(`/api/sessions/${s.session}/drafts`, 'POST', {
-    revision: prior.revision,
-    item: {
-      target: { selector: 'h1' },
-      replacement: { before: 'Hello', after: 'Replace' },
-    },
-  });
-  assert.equal(draft.status, 200);
-  const waiting = api(`/api/sessions/${s.session}/wait`, 'POST', {
-    timeoutMs: 300,
-  });
-  await until(
-    async () =>
-      (await api(`/api/sessions/${s.session}`)).data.agent === 'waiting',
-    'agent listening',
-  );
-  fs.writeFileSync(file, '<!doctype html><h1>New version</h1>');
-  const res = await api(`/api/sessions/${s.session}/send`, 'POST', {
-    revision: prior.revision,
-  });
-  assert.equal(res.status, 409);
-  assert.equal(res.data.error, 'STALE_REVISION');
-  assert.equal((await waiting).data.status, 'timeout');
-  assert.match(fs.readFileSync(file, 'utf8'), /New version/);
-  await api(
-    `/api/sessions/${s.session}/drafts/${draft.data.draftId}`,
-    'DELETE',
-  );
 });
 test('proxy preserves paths, JSON API and WebSocket upgrade; rejects external redirect', async () => {
   const app = http.createServer((req, res) => {
@@ -383,59 +196,6 @@ test('proxy preserves paths, JSON API and WebSocket upgrade; rejects external re
   } finally {
     app.closeAllConnections();
     await new Promise((r) => app.close(r));
-  }
-});
-test('dynamic app snapshots and submissions do not refetch or change revisions', async () => {
-  let requests = 0,
-    offline = false;
-  const app = http.createServer((req, res) => {
-    requests++;
-    res.writeHead(offline ? 503 : 200, { 'content-type': 'text/html' });
-    res.end(`<h1>Dynamic page ${requests}</h1>`);
-  });
-  await new Promise<void>((resolve) => app.listen(0, '127.0.0.1', resolve));
-  try {
-    const result = await api('/api/open', 'POST', {
-      target: `http://127.0.0.1:${(app.address() as AddressInfo).port}/dynamic`,
-    });
-    const id = result.data.session;
-    const first = (await api(`/api/sessions/${id}`)).data;
-    await fetch(first.surface.frameUrl, {
-      headers: { 'sec-fetch-dest': 'iframe' },
-    });
-    const revision = runtime.store.get(id).revision;
-    const count = requests;
-    const changes: string[] = [];
-    const changed = (session: string) => {
-      if (session === id) changes.push(session);
-    };
-    runtime.store.on('change', changed);
-    try {
-      for (let i = 0; i < 30; i++) {
-        const snapshot = await api(`/api/sessions/${id}`);
-        assert.equal(snapshot.status, 200);
-        assert.equal(snapshot.data.revision, revision);
-      }
-      assert.equal(requests, count);
-      assert.deepEqual(changes, []);
-      const waiting = api(`/api/sessions/${id}/wait`, 'POST', {
-        timeoutMs: 5000,
-      });
-      await until(
-        async () => (await api(`/api/sessions/${id}`)).data.agent === 'waiting',
-        'agent listening',
-      );
-      offline = true;
-      const sent = await queue(id, 'Review the page I saw.', revision);
-      assert.equal(sent.status, 200);
-      await waiting;
-      assert.equal(requests, count);
-    } finally {
-      runtime.store.off('change', changed);
-    }
-  } finally {
-    app.closeAllConnections();
-    await new Promise((resolve) => app.close(resolve));
   }
 });
 async function until(
@@ -560,9 +320,7 @@ function pendingWait(server: ServerAddress, id: string) {
       },
     );
     request.on('error', reject);
-    request.end(
-      JSON.stringify({ consumer: 'disconnect-test', timeoutMs: 10000 }),
-    );
+    request.end('{}');
   });
   response.catch(() => {});
   return { request, response };

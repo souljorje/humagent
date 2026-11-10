@@ -25,45 +25,40 @@ Setup installs the skill at `.agents/skills/humagent` by default. It preserves c
 
 ```sh
 humagent wait SESSION
-humagent wait SESSION --consumer my-agent --timeout 50 --lease 600
 humagent ack SESSION --receipt RECEIPT
-humagent renew SESSION --receipt RECEIPT --lease 600
 ```
 
-Use the session ID from `open`. `wait` reserves queued events and returns their receipt.
+Use the session ID from `open`. `wait` returns every unfinished event with a new receipt.
 
 Each **Send** action creates one event with an optional `message` and ordered `items`. See the [event format](SDK.md#event-format).
 One receipt can cover several review events. Process each event's `message` and `items` together.
 
-| Option | Seconds | Default |
-| --- | --- | --- |
-| `--timeout` | More than 0, up to 600 | 50 |
-| `--lease` | 1–3600 | 120 |
+`wait` blocks until the user sends feedback or ends the session. It has no time limit.
+The server sends a space every 5 seconds to keep the connection open. The CLI prints only the result.
 
 | Result | Action |
 | --- | --- |
 | `feedback` | Read the events. Apply authorized changes. Acknowledge the receipt. |
-| `timeout` | Repeat `wait` while review remains active. |
 | `ended` | Stop waiting. Reopen only on request. |
-| `interrupted` | Check server status before resuming. |
+| `interrupted` | The server stopped. Check `humagent status` before you run `wait` again. |
 
-`ack --receipt` completes only the events reserved by that receipt.
+`ack --receipt` completes only the events of that receipt. Use the receipt from the latest `wait`.
 
-Renew before the lease expires. Events remain stored and can arrive again after expiry. Check event IDs before repeating consequential actions.
+Events stay unfinished until their receipt is acknowledged. The next `wait` returns them again. Check event IDs before you repeat consequential actions.
 
-Keep `wait` attached to the active agent turn. Humagent cannot resume an ended turn without a supported harness callback.
+Agent harnesses can stop long commands. If `wait` stops before a result, run it again. Unacknowledged events stay queued.
+In Claude Code, run `wait` as a background task. Claude Code wakes the agent when the command exits.
 
 ## Server and storage
 
 ```sh
 humagent status [SESSION]
-humagent doctor
 humagent end SESSION
 humagent stop
 humagent server --port N
 ```
 
-`status` reports sessions. `doctor` checks runtime and package files. Neither starts a stopped server.
+`status` reports the runtime, package files, server, and sessions. `status SESSION` reports one session. It never starts a stopped server.
 
 `end` rejects new input but keeps queued events available. `stop` retains saved sessions.
 
@@ -90,7 +85,7 @@ Use the same data directory across commands. Each session file under `sessions/`
 | Source changed | Follow [refresh and recovery](USAGE.md#refresh-and-recovery) and inspect [revision rules](SDK.md#revisions). |
 | App cannot connect | Check its HTML route and [attachment limits](SECURITY.md#network). |
 | Stored session is unreadable | See [stored sessions](#stored-sessions). |
-| Command fails | Run `humagent doctor`. Read `server.log` in the data directory. |
+| Command fails | Run `humagent status`. Read `server.log` in the data directory. |
 | Port conflict | Free the configured port. Otherwise, unset `HUMAGENT_PORT`. |
 
 ## Stored sessions

@@ -24,15 +24,15 @@ const equal = (a: unknown, b: string) =>
   typeof a === 'string' &&
   Buffer.byteLength(a) === Buffer.byteLength(b) &&
   timingSafeEqual(Buffer.from(a), Buffer.from(b));
+const JSON_HEADERS = {
+  'content-type': 'application/json',
+  'cache-control': 'no-store',
+  'x-content-type-options': 'nosniff',
+};
 const json = (status: number, data: unknown) =>
-  new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      'content-type': 'application/json',
-      'cache-control': 'no-store',
-      'x-content-type-options': 'nosniff',
-    },
-  });
+  new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
+/** A wait can last hours. Regular spaces keep idle-connection and fetch timeouts from ending it. */
+const HEARTBEAT_MS = 5000;
 
 async function body(req: Request) {
   ensure(
@@ -152,7 +152,7 @@ export async function createRuntime(options: RuntimeOptions) {
     const pathname = new URL(c.req.url).pathname;
     if (
       pathname === '/health' ||
-      pathname === '/workspace' ||
+      pathname === '/' ||
       /^\/(ui|shared)\/[a-z][a-z0-9-]*\.(js|css)$/.test(pathname)
     ) {
       await next();
@@ -180,7 +180,7 @@ export async function createRuntime(options: RuntimeOptions) {
         401,
       );
       ensure(
-        !['wait', 'ack', 'renew'].includes(match[2] ?? '') || control,
+        !['wait', 'ack'].includes(match[2] ?? '') || control,
         'This operation requires the agent credential',
         'UNAUTHORIZED',
         401,
@@ -217,7 +217,7 @@ export async function createRuntime(options: RuntimeOptions) {
       });
     });
   }
-  app.all('/workspace', (c) => {
+  app.all('/', (c) => {
     ensure(c.req.method === 'GET', 'Method not allowed', 'METHOD', 405);
     return new Response(fs.readFileSync(path.join(UI, 'index.html')), {
       headers: {
@@ -285,34 +285,41 @@ export async function createRuntime(options: RuntimeOptions) {
     store.acknowledge(id, (await body(c.req.raw)).receipt);
     return json(200, view(id));
   });
-  app.post(`${sessionPath}/renew`, async (c) => {
-    const value = await body(c.req.raw);
-    store.renew(
-      c.req.param('id'),
-      value.receipt,
-      value.leaseMs as number | undefined,
-    );
-    return json(200, { ok: true });
-  });
   app.post(`${sessionPath}/wait`, async (c) => {
-    const value = await body(c.req.raw);
+    await body(c.req.raw);
     const id = c.req.param('id');
-    const { min, max } = LIMITS.waitMs;
-    const timeout = Number(value.timeoutMs ?? LIMITS.waitMs.default),
-      leaseMs = Number(value.leaseMs ?? LIMITS.leaseMs.default);
-    ensure(
-      Number.isInteger(timeout) && timeout >= min && timeout <= max,
-      `timeoutMs must be ${min}–${max}`,
-    );
-    const consumer = String(value.consumer ?? 'agent');
-    return json(
-      200,
-      await waiters.wait(
-        id,
-        () => store.take(id, consumer, leaseMs),
-        timeout,
-        c.req.raw.signal,
-      ),
+    const stop = new AbortController();
+    c.req.raw.signal.addEventListener('abort', () => stop.abort(), {
+      once: true,
+    });
+    // Ownership and session errors throw here, before the response starts.
+    const result = waiters
+      .wait(id, () => store.take(id), stop.signal)
+      .catch(failure);
+    let beat: ReturnType<typeof setInterval> | undefined;
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          beat = setInterval(
+            () => controller.enqueue(new Uint8Array([32])),
+            HEARTBEAT_MS,
+          );
+          void result.then((value) => {
+            clearInterval(beat);
+            try {
+              controller.enqueue(Buffer.from(JSON.stringify(value)));
+              controller.close();
+            } catch {
+              // The agent disconnected. Unacknowledged events return on its next wait.
+            }
+          });
+        },
+        cancel() {
+          clearInterval(beat);
+          stop.abort();
+        },
+      }),
+      { headers: JSON_HEADERS },
     );
   });
 
@@ -334,7 +341,7 @@ export async function createRuntime(options: RuntimeOptions) {
     await surface(s.id);
     return json(200, {
       session: s.id,
-      url: `${origin}/workspace?session=${s.id}#${s.viewKey}`,
+      url: `${origin}/?session=${s.id}#${s.viewKey}`,
       target: s.target,
       note:
         target.kind === 'file'
@@ -417,10 +424,12 @@ export async function createRuntime(options: RuntimeOptions) {
   };
   return { origin, token, store, app, close };
 }
-function fail(error: unknown) {
-  const status = error instanceof Failure ? error.status : 400;
-  return json(status, {
+function failure(error: unknown) {
+  return {
     error: error instanceof Failure ? error.code : 'ERROR',
     message: error instanceof Error ? error.message : 'Request failed',
-  });
+  };
+}
+function fail(error: unknown) {
+  return json(error instanceof Failure ? error.status : 400, failure(error));
 }

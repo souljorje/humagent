@@ -13,9 +13,6 @@ export const LIMITS = {
   formKey: 200,
   label: 500,
   labelFields: 100,
-  consumer: 100,
-  leaseMs: { default: 120000, min: 1000, max: 3600000 },
-  waitMs: { default: 50000, min: 1, max: 600000 },
 } as const;
 
 export interface Target {
@@ -34,10 +31,10 @@ export interface ReviewItem {
   values?: ObjectValue;
 }
 export type DraftItem = Omit<ReviewItem, 'id'>;
+/** Where the human clicked, relative to the target's top-left corner. */
 export interface MarkerPosition {
   x: number;
   y: number;
-  textOffset?: number;
 }
 /** Readable text for a form draft in the bar. Agents do not receive it. */
 export interface DraftLabels {

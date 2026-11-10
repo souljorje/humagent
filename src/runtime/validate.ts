@@ -117,21 +117,15 @@ export function item(value: unknown): DraftItem {
 export function marker(value: unknown): MarkerPosition | undefined {
   if (value === undefined) return undefined;
   object(value, 'Marker');
-  const { x, y, textOffset } = value;
+  const { x, y } = value;
   ensure(
     typeof x === 'number' &&
       typeof y === 'number' &&
       Number.isFinite(x) &&
-      Number.isFinite(y) &&
-      (textOffset === undefined ||
-        (Number.isInteger(textOffset) &&
-          (textOffset as number) >= 0 &&
-          (textOffset as number) <= LIMITS.text)),
+      Number.isFinite(y),
     'Invalid marker position',
   );
-  return textOffset === undefined
-    ? { x, y }
-    : { x, y, textOffset: textOffset as number };
+  return { x, y };
 }
 export function labels(value: unknown): DraftLabels | undefined {
   if (value === undefined) return undefined;

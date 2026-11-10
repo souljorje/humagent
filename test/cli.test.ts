@@ -61,16 +61,7 @@ test('Bun CLI preserves runtime and sessions through an agent loop and restart',
     assert.equal(started.runtime, 'bun');
     assert.equal(started.runtimeVersion, process.versions.bun);
     const snapshot = await run('status', opened.session);
-    const pending = run(
-      'wait',
-      opened.session,
-      '--consumer',
-      'bun-test',
-      '--timeout',
-      '2',
-      '--lease',
-      '600',
-    );
+    const pending = run('wait', opened.session);
     for (
       let attempt = 0;
       (await run('status', opened.session)).agent !== 'waiting';
@@ -96,23 +87,12 @@ test('Bun CLI preserves runtime and sessions through an agent loop and restart',
     const batch = await pending;
     assert.equal(batch.status, 'feedback');
     assert.equal(batch.events[0].message, 'Check this interface.');
-    await run(
-      'renew',
-      opened.session,
-      '--receipt',
-      batch.receipt,
-      '--lease',
-      '600',
-    );
     await run('ack', opened.session, '--receipt', batch.receipt);
     assert.equal((await run('status', opened.session)).agent, 'idle');
     await stop();
     const resumed = await run('open', source, '--no-open');
     assert.equal(resumed.session, opened.session);
-    assert.equal(
-      (await run('wait', opened.session, '--timeout', '0.05')).status,
-      'timeout',
-    );
+    assert.equal((await run('status', opened.session)).agent, 'idle');
     const skills = path.join(root, 'skills', 'humagent');
     await run('setup', '--directory', skills);
     assert.match(
@@ -120,10 +100,7 @@ test('Bun CLI preserves runtime and sessions through an agent loop and restart',
       /Humagent/,
     );
     await run('end', opened.session);
-    assert.equal(
-      (await run('wait', opened.session, '--timeout', '1')).status,
-      'ended',
-    );
+    assert.equal((await run('wait', opened.session)).status, 'ended');
   } finally {
     await stop();
     assert.equal((await run('stop')).alreadyStopped, true);
@@ -148,7 +125,8 @@ test('CLI provides help and version without starting a server', () => {
       ['toString'],
       ['open', '--bad'],
       ['ack', 'id', '--receipt'],
-      ['wait', 'id', '--timeout', '0'],
+      ['wait', 'id', '--timeout', '1'],
+      ['renew', 'id'],
       ['demo', 'plan'],
       ['demo', 'calculator'],
       ['demo', 'existing'],

@@ -31,13 +31,13 @@ Absolute URLs, CSP, and WebSocket settings can prevent attachment. Test the inte
 
 The proxy can reach the app's normal APIs. Do not attach privileged internal services or expose Humagent's ports publicly.
 
-v0.1 excludes remote sites, Markdown rendering, rich-text edits, and MCP Apps. Browser policies do not provide operating-system isolation.
+v0.1 excludes remote sites, Markdown rendering, rich-text edits, and MCP Apps. Content inside web components (shadow roots) is reviewed as one element. Browser policies do not provide operating-system isolation.
 
 ## Credentials and storage
 
 Keep session URLs private. Their fragments carry a session credential. The workspace moves it to session storage and removes the fragment.
 
-That credential permits input, saved state, event access, and session ending. Only the separate control token permits opening targets, waits, acknowledgments, and lease renewal.
+That credential permits input, saved state, event access, and session ending. Only the separate control token permits opening targets, waits, and acknowledgments.
 Credentials stay outside page frames.
 
 Each session uses a separate file under `sessions/` in the data directory.
@@ -49,4 +49,4 @@ Where supported, the data directory uses `0700`. Control and atomic session file
 
 Page scripts can submit requests without a human gesture. Treat page content as untrusted input. Keep the agent's existing permissions.
 
-Acknowledgment marks the receipt's events complete. It does not grant permission for external actions. Check event IDs before repeating actions after lease expiry.
+Acknowledgment marks the receipt's events complete. It does not grant permission for external actions. Unacknowledged events return on the next `wait`. Check event IDs before you repeat actions.

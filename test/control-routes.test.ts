@@ -164,9 +164,9 @@ test('control routes enforce host, origin, and credential boundaries', async () 
   assert.equal(snapshot.target.value, first.targetPath);
   assert.equal(typeof snapshot.revision, 'string');
   assert.equal('viewKey' in snapshot, false);
-  assert.equal('lease' in snapshot, false);
+  assert.equal('delivery' in snapshot, false);
   assert.equal('acknowledged' in snapshot, false);
-  for (const action of ['wait', 'ack', 'renew'] as const)
+  for (const action of ['wait', 'ack'] as const)
     await json(
       await jsonRequest(
         `/api/sessions/${first.session}/${action}`,
@@ -251,7 +251,7 @@ test('control routes return the expected content and method errors', async () =>
   const health = await json(await request('/health'), 200);
   assert.equal(health.app, 'humagent');
   for (const [route, type] of [
-    ['/workspace', /^text\/html/],
+    ['/', /^text\/html/],
     ['/ui/app.js', /^text\/javascript/],
     ['/ui/app.css', /^text\/css/],
   ] as const) {
@@ -261,7 +261,7 @@ test('control routes return the expected content and method errors', async () =>
     assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
     assert.ok((await response.text()).length > 0);
   }
-  await json(await request('/workspace', { method: 'POST' }), 405, 'METHOD');
+  await json(await request('/', { method: 'POST' }), 405, 'METHOD');
   const session = await open();
   for (const [route, method] of [
     ['/unknown', 'GET'],
@@ -291,7 +291,7 @@ test('HEAD retains route-specific methods after authentication', async () => {
   };
   for (const [route, status, headers] of [
     ['/health', 200, {}],
-    ['/workspace', 405, {}],
+    ['/', 405, {}],
     ['/api/sessions', 404, {}],
     [`/api/sessions/${session.session}`, 404, {}],
     [`/api/sessions/${session.session}/send`, 404, {}],
@@ -334,7 +334,12 @@ test('JSON requests enforce content type, syntax, object shape, and streamed byt
     );
   const session = await open();
   const route = `/api/sessions/${session.session}/wait`;
-  const prefix = '{"timeoutMs":1,"padding":"';
+  // An ended session answers a wait at once.
+  await json(
+    await jsonRequest(`/api/sessions/${session.session}/end`, 'POST', {}),
+    200,
+  );
+  const prefix = '{"padding":"';
   const suffix = '"}';
   const atLimit =
     prefix +
@@ -346,7 +351,7 @@ test('JSON requests enforce content type, syntax, object shape, and streamed byt
     await request(route, { method: 'POST', headers, body: chunks(atLimit) }),
     200,
   );
-  assert.equal(accepted.status, 'timeout');
+  assert.equal(accepted.status, 'ended');
   const tooLarge = prefix + '🧪'.repeat(LIMITS.bodyBytes / 4) + suffix;
   assert.ok(Buffer.byteLength(tooLarge) > LIMITS.bodyBytes);
   await json(
@@ -385,10 +390,7 @@ test('route receipts preserve target, revision, and individual event ownership',
     ).event;
   }
   async function listen(path: string) {
-    const pending = jsonRequest(`${path}/wait`, 'POST', {
-      consumer: 'agent',
-      timeoutMs: 5000,
-    });
+    const pending = jsonRequest(`${path}/wait`, 'POST', {});
     for (
       let attempt = 0;
       (await json(await request(path), 200)).agent !== 'waiting';
@@ -417,26 +419,18 @@ test('route receipts preserve target, revision, and individual event ownership',
   assert.equal(batch.target.value, first.targetPath);
   assert.equal(batch.events[0].id, sent.id);
   assert.equal(batch.events[0].revision, view.revision);
-  await json(
-    await jsonRequest(`${base}/wait`, 'POST', {
-      consumer: 'other',
-      timeoutMs: 100,
-    }),
-    409,
-    'LEASE_ACTIVE',
+  const again = await json(await jsonRequest(`${base}/wait`, 'POST', {}), 200);
+  assert.deepEqual(
+    again.events.map((event: { id: string }) => event.id),
+    [sent.id],
   );
-  await json(
-    await jsonRequest(`${other}/ack`, 'POST', { receipt: batch.receipt }),
-    409,
-    'STALE_RECEIPT',
-  );
-  await json(
-    await jsonRequest(`${base}/renew`, 'POST', {
-      receipt: batch.receipt,
-      leaseMs: 10000,
-    }),
-    200,
-  );
+  assert.notEqual(again.receipt, batch.receipt);
+  for (const path of [base, other])
+    await json(
+      await jsonRequest(`${path}/ack`, 'POST', { receipt: batch.receipt }),
+      409,
+      'STALE_RECEIPT',
+    );
   fs.writeFileSync(first.targetPath, '<!doctype html><h1>Changed</h1>');
   await json(
     await jsonRequest(`${base}/message`, 'PUT', { text: 'Seen before?' }),
@@ -451,15 +445,12 @@ test('route receipts preserve target, revision, and individual event ownership',
   assert.notEqual(changed.revision, view.revision);
   const newer = await queue(base, changed.revision);
   assert.equal(newer.message, 'Seen before?');
-  const acknowledgment = { receipt: batch.receipt };
+  const acknowledgment = { receipt: again.receipt };
   await json(await jsonRequest(`${base}/ack`, 'POST', acknowledgment), 200);
   await json(await jsonRequest(`${base}/ack`, 'POST', acknowledgment), 200);
   assert.equal((await json(await request(other), 200)).agent, 'working');
   await json(await jsonRequest(`${base}/end`, 'POST', {}), 200);
-  const last = await json(
-    await jsonRequest(`${base}/wait`, 'POST', { timeoutMs: 100 }),
-    200,
-  );
+  const last = await json(await jsonRequest(`${base}/wait`, 'POST', {}), 200);
   assert.deepEqual(
     last.events.map((event: { id: string }) => event.id),
     [newer.id],
@@ -469,12 +460,7 @@ test('route receipts preserve target, revision, and individual event ownership',
     200,
   );
   assert.equal(
-    (
-      await json(
-        await jsonRequest(`${base}/wait`, 'POST', { timeoutMs: 100 }),
-        200,
-      )
-    ).status,
+    (await json(await jsonRequest(`${base}/wait`, 'POST', {}), 200)).status,
     'ended',
   );
   await json(
