@@ -3,13 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Plan a review · Humagent</title>
+    <title>Humagent demo</title>
+    <meta
+      name="description"
+      content="Interactive guide to reviewing pages with your AI agent."
+    />
     <link rel="stylesheet" href="plan.css" />
   </head>
   <body>
     <header class="site-header">
       <span class="brand">Humagent</span>
-      <span class="demo-label">Interactive plan</span>
+      <span class="demo-label">Interactive demo</span>
     </header>
     <main>
       <section class="intro" aria-labelledby="headline">
@@ -17,60 +21,140 @@
           Show your agent what you mean.
         </h1>
         <p>
-          Comment on a page, edit its wording, or work through a decision.
-          Collect your feedback, then send it to your agent as one review.
+          Point at any part of a page, rewrite its text, and answer its
+          questions. Humagent collects all of it into one review for your agent.
+          Everything on this page is a live target. Try it now with the bar at
+          the bottom.
         </p>
+        <ol class="loop" aria-label="How a review works">
+          <li>
+            <h3>Connect</h3>
+            <p>
+              Expand the bar at the bottom. Paste its wait command into your
+              agent chat.
+            </p>
+          </li>
+          <li>
+            <h3>Review</h3>
+            <p>
+              Turn on commenting with the bar's comment button. Then try each
+              section below.
+            </p>
+          </li>
+          <li>
+            <h3>Send</h3>
+            <p>
+              Add an overall instruction if you want. Choose Send to deliver
+              everything as one review.
+            </p>
+          </li>
+        </ol>
       </section>
 
-      <section class="plan" aria-labelledby="plan-title">
+      <section class="feature own" aria-labelledby="own-title">
+        <h2 id="own-title">Review your own pages and apps.</h2>
+        <div class="own-grid">
+          <ul class="commands">
+            <li>
+              <code>humagent open ./page.html</code>
+              <span>An HTML file and its local assets</span>
+            </li>
+            <li>
+              <code>humagent open http://localhost:3000</code>
+              <span>A running local app</span>
+            </li>
+            <li>
+              <code>humagent setup</code>
+              <span>The agent skill for your project</span>
+            </li>
+          </ul>
+          <dl class="keys" aria-label="Keyboard shortcuts">
+            <dt><kbd>Enter</kbd></dt>
+            <dd>Confirm a comment or edit</dd>
+            <dt><kbd>Shift</kbd> <kbd>Enter</kbd></dt>
+            <dd>Add a new line</dd>
+            <dt><kbd>Escape</kbd></dt>
+            <dd>Cancel</dd>
+            <dt><kbd>Arrow keys</kbd></dt>
+            <dd>Move between elements while commenting</dd>
+            <dt><kbd>⌘</kbd> or <kbd>Ctrl</kbd> <kbd>Enter</kbd></dt>
+            <dd>Send from the bar</dd>
+          </dl>
+        </div>
+      </section>
+
+      <section class="feature" aria-labelledby="edit-title">
+        <div class="edit-copy">
+          <h2 id="edit-title">Point at it instead of describing it.</h2>
+          <p class="feature-text">
+            Click an element to attach a comment. Click a sentence to rewrite it
+            in place, or select a few words to change only those. The page shows
+            your edit, and the bar shows the exact difference.
+          </p>
+          <div
+            class="mark-preview"
+            data-ui
+            aria-label="Comment attached to a word"
+          >
+            <p class="mark-line">
+              Reviews that <span class="marked">point</span
+              ><span class="mark-pin">1</span>, not describe.
+            </p>
+            <p class="mark-bubble">
+              <span class="marker">1</span>Make this shorter.
+            </p>
+            <p class="mark-bubble diff">
+              <span class="marker">2</span>
+              <span>
+                <s>Reviews that point, not describe.</s>
+                <ins>Point. Don’t describe.</ins>
+              </span>
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="feature plan" aria-labelledby="plan-title">
         <div class="plan-heading">
           <h2 id="plan-title">Plan your next change.</h2>
           <p>
-            Try the review tools on this plan. You can edit this heading or
-            leave a comment on any element.
+            Agents can ask for structured choices. Your answers join the review
+            as you change them, and the bar lists them with their labels.
           </p>
         </div>
         <form
           id="review-plan"
+          aria-labelledby="plan-title"
           data-humagent-intent="plan_review"
-          data-humagent-message="Use these preferences to propose the next change. Do not execute or publish anything."
-          data-humagent-persist
+          data-humagent-message="Use these preferences to propose the next change to this page. Do not execute or publish anything."
         >
           <div class="plan-fields">
             <fieldset>
-              <legend>What are you working on?</legend>
+              <legend>What should the agent change first?</legend>
               <label class="choice">
-                <input
-                  type="radio"
-                  name="workflow"
-                  value="existing-page"
-                  checked
-                />
+                <input type="radio" name="workflow" value="copy" checked />
                 <span>
-                  <span class="choice-title">Review an existing page</span>
+                  <span class="choice-title">The wording</span>
                   <span class="choice-description"
-                    >Point out changes in local HTML or a running local
-                    app.</span
+                    >Rewrite weak headlines, labels, and instructions.</span
                   >
                 </span>
               </label>
               <label class="choice">
-                <input type="radio" name="workflow" value="generated-page" />
+                <input type="radio" name="workflow" value="layout" />
                 <span>
-                  <span class="choice-title">Work through a plan</span>
+                  <span class="choice-title">The layout</span>
                   <span class="choice-description"
-                    >Ask your agent for an interactive page. Compare options and
-                    give it your choices.</span
+                    >Fix spacing, hierarchy, and narrow-screen problems.</span
                   >
                 </span>
               </label>
               <label class="choice">
-                <input type="radio" name="workflow" value="prototype" />
+                <input type="radio" name="workflow" value="behavior" />
                 <span>
-                  <span class="choice-title">Explore a prototype</span>
+                  <span class="choice-title">The interactions</span>
                   <span class="choice-description"
-                    >Try local interactions. Send the decisions and refinements
-                    that matter.</span
+                    >Adjust commenting, drafts, and sending on this page.</span
                   >
                 </span>
               </label>
@@ -81,19 +165,19 @@
                 <input
                   type="text"
                   name="outcome"
-                  value="Make the next change clear."
+                  value="Clearer copy and a tighter first screen."
                 />
               </label>
               <label class="field">
-                Where should the agent focus?
+                How much should change per pass?
                 <select name="focus">
-                  <option value="clarity">Wording and clarity</option>
-                  <option value="layout">Layout and visual details</option>
-                  <option value="behavior">Behavior and interactions</option>
+                  <option value="clarity">Small fixes only</option>
+                  <option value="layout">One section at a time</option>
+                  <option value="behavior">A full polish pass</option>
                 </select>
               </label>
               <label class="field">
-                Anything to preserve?
+                Anything to leave alone?
                 <textarea
                   name="notes"
                   rows="2"
@@ -102,56 +186,56 @@
               </label>
               <label class="preserve">
                 <input type="checkbox" name="preserveBehavior" checked />
-                Preserve what already works
+                Keep what already works
               </label>
             </div>
           </div>
-          <div class="plan-actions">
-            <button type="submit">Add plan to feedback</button>
+          <div class="plan-status">
             <p>Choose Send in the floating bar when your review is ready.</p>
+            <output data-humagent-status role="status"></output>
           </div>
         </form>
       </section>
 
-      <section class="guide" aria-labelledby="guide-title">
-        <h2 id="guide-title">Try the whole review loop.</h2>
-        <ol>
+      <section class="feature" aria-labelledby="drafts-title">
+        <h2 id="drafts-title">Your review survives the refresh.</h2>
+        <ul class="checklist">
+          <li>Reload this page. Unsent comments, edits, and answers return.</li>
+          <li>Open the session in another tab. Both tabs share one review.</li>
           <li>
-            <h3>Connect your agent</h3>
-            <p>
-              Expand the floating bar. Copy its connection command into your
-              agent chat. Wait for Agent listening.
-            </p>
+            If a send fails, your drafts stay saved. Send again when ready.
           </li>
-          <li>
-            <h3>Point and comment</h3>
-            <p>
-              Enable commenting in the bar. Click an element to leave feedback.
-              A numbered marker keeps it attached.
-            </p>
-          </li>
-          <li>
-            <h3>Edit the wording</h3>
-            <p>
-              Click plain text while commenting is on. Type your change, then
-              press Enter to confirm its local preview.
-            </p>
-          </li>
-          <li>
-            <h3>Send one review</h3>
-            <p>
-              Add this plan and any comments to your feedback. Choose Send to
-              deliver them together to your agent.
-            </p>
-          </li>
-        </ol>
+        </ul>
       </section>
-      <footer class="page-footer">
-        <p>
-          Text edits preview locally. Your agent applies source changes and
-          acknowledges the review when finished.
+
+      <section class="feature receive" aria-labelledby="receive-title">
+        <h2 id="receive-title">Your agent gets one structured review.</h2>
+        <p class="feature-text">
+          Each Send becomes one event. Your agent reads every comment, edit, and
+          answer in order. It applies the changes to the source, then
+          acknowledges the review. Text previews clear when it does.
         </p>
-      </footer>
+        <pre aria-label="Simplified example event"><code>{
+  "message": "Keep the tone friendly.",
+  "items": [
+    {
+      "target": { "id": "headline" },
+      "comment": "Make this shorter."
+    },
+    {
+      "target": { "id": "plan-title" },
+      "replacement": {
+        "before": "Plan your next change.",
+        "after": "Tell the agent what matters."
+      }
+    },
+    {
+      "intent": "plan_review",
+      "values": { "workflow": "copy", "focus": "clarity" }
+    }
+  ]
+}</code></pre>
+      </section>
     </main>
   </body>
 </html>

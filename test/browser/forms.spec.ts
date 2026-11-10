@@ -1,13 +1,13 @@
 import { test, expect, type Feedback } from './fixtures.ts';
 
-test('form persistence survives a lost HTTP response', async ({
+test('a form draft survives a lost HTTP response and refills the form', async ({
   page,
   plan,
   review,
   workspace,
 }) => {
   let dropped = false;
-  await page.route(`**/api/sessions/${plan.session}/forms/*`, async (route) => {
+  await page.route(`**/api/sessions/${plan.session}/drafts`, async (route) => {
     if (!dropped) {
       dropped = true;
       await route.fetch();
@@ -18,7 +18,7 @@ test('form persistence survives a lost HTTP response', async ({
     .locator('input[name="outcome"]')
     .fill('Survive the lost response');
   await expect
-    .poll(() => workspace.forms(plan.session).launch?.outcome)
+    .poll(() => workspace.form(plan.session, 'launch')?.outcome)
     .toBe('Survive the lost response');
   const documentId = await review.evaluate(
     () => window.__HUMAGENT__!.documentId,
@@ -42,38 +42,42 @@ test('form persistence survives a lost HTTP response', async ({
   );
   await review.frame.locator('input[name="outcome"]').fill('A later edit');
   await expect
-    .poll(() => workspace.forms(plan.session).launch?.outcome)
+    .poll(() => workspace.form(plan.session, 'launch')?.outcome)
     .toBe('A later edit');
+  expect((await review.state()).drafts).toHaveLength(1);
 });
 
-test('form submission captures values before delayed persistence', async ({
+test('a form keeps one draft that follows its current values', async ({
   page,
   plan,
   review,
+  workspace,
 }) => {
-  let release!: () => void;
-  const delayed = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  let requests = 0;
-  await page.route(`**/api/sessions/${plan.session}/forms/*`, async (route) => {
-    if (++requests === 1) await delayed;
-    await route.continue();
-  });
-  await review.frame.locator('input[name="outcome"]').fill('Submitted value');
-  await review.frame
-    .locator('form[data-humagent-intent] button[type="submit"]')
-    .click();
-  await expect.poll(() => requests).toBe(1);
-  await review.frame.locator('input[name="outcome"]').fill('Later value');
-  release();
+  const submit = review.frame.locator(
+    'form[data-humagent-intent] button[type="submit"]',
+  );
+  await submit.click();
+  await submit.click();
+  await expect(review.frame.locator('[data-humagent-status]')).toHaveText(
+    'Added to review',
+  );
   await expect(page.locator('.draft')).toHaveCount(1);
-  expect((await review.state()).drafts[0].item.values!.outcome).toBe(
-    'Submitted value',
+  await review.frame
+    .locator('input[name="outcome"]')
+    .fill('A later form value.');
+  await expect
+    .poll(() => workspace.form(plan.session, 'launch')?.outcome)
+    .toBe('A later form value.');
+  await expect(page.locator('.draft')).toHaveCount(1);
+  await expect(page.locator('.draft dt').first()).toHaveText('approach');
+  await expect(page.locator('.draft')).toContainText('Working outcome');
+  await expect(page.locator('.draft')).toContainText('A later form value.');
+  await expect(page.locator('.draft')).toContainText(
+    'Keep a human confirmation step',
   );
 });
 
-test('form values survive reload and staged values remain a separate snapshot', async ({
+test('form values survive reload and Send delivers the current values', async ({
   page,
   plan,
   review,
@@ -85,30 +89,19 @@ test('form values survive reload and staged values remain a separate snapshot', 
     .fill('A preserved outcome.');
   await review.frame.locator('textarea[name="notes"]').fill('Exact note.');
   await review.frame.locator('input[name="confirmBeforeAction"]').uncheck();
-  await review.frame
-    .locator('form[data-humagent-intent] button[type="submit"]')
-    .click();
-  await expect(review.frame.locator('[data-humagent-status]')).toHaveText(
-    'Added to review',
-  );
-  expect(workspace.store.get(plan.session).events).toHaveLength(0);
-  await review.frame
-    .locator('input[name="outcome"]')
-    .fill('A later form value.');
   await expect
-    .poll(() => workspace.forms(plan.session).launch?.outcome)
-    .toBe('A later form value.');
+    .poll(() => workspace.form(plan.session, 'launch')?.confirmBeforeAction)
+    .toBe(false);
+  expect(workspace.store.get(plan.session).events).toHaveLength(0);
   await page.reload();
   await review.ready();
   await expect(review.frame.locator('input[name="outcome"]')).toHaveValue(
-    'A later form value.',
+    'A preserved outcome.',
   );
   await expect(
     review.frame.locator('input[value="platform-first"]'),
   ).toBeChecked();
-  expect((await review.state()).drafts[0].item.values!.outcome).toBe(
-    'A preserved outcome.',
-  );
+  expect((await review.state()).drafts).toHaveLength(1);
   await review.connect();
   await page.locator('#send').click();
   await expect
@@ -118,9 +111,30 @@ test('form values survive reload and staged values remain a separate snapshot', 
     workspace.store.get(plan.session).events[0].items[0].values,
   ).toMatchObject({
     approach: 'platform-first',
+    outcome: 'A preserved outcome.',
     notes: 'Exact note.',
     confirmBeforeAction: false,
   });
+  await expect(review.frame.locator('[data-humagent-status]')).toHaveText('');
+});
+
+test('deleting a form draft resets the form without adding it again', async ({
+  page,
+  plan: _plan,
+  review,
+}) => {
+  const outcome = review.frame.locator('input[name="outcome"]');
+  const original = await outcome.inputValue();
+  await outcome.fill('Discard this value.');
+  await expect(page.locator('.draft')).toHaveCount(1);
+  await review.expand();
+  await page.getByRole('button', { name: 'Delete feedback 1' }).click();
+  await expect(page.locator('.draft')).toHaveCount(0);
+  await expect(outcome).toHaveValue(original);
+  await expect(review.frame.locator('[data-humagent-status]')).toHaveText('');
+  // A reset must not schedule a save that recreates the draft.
+  await page.waitForTimeout(500);
+  expect((await review.state()).drafts).toHaveLength(0);
 });
 
 test('SDK and forms stage beside annotations and one batch reaches the waiting agent', async ({
@@ -269,17 +283,16 @@ test('generated mini-app stays local until Send', async ({
   workspace,
 }) => {
   const opened = await review.open(workspace.file('plan.html'));
-  await review.frame.locator('input[value="prototype"]').check();
+  await review.frame.locator('input[value="copy"]').check();
   await review.frame
     .locator('input[name="outcome"]')
     .fill('A focused prototype.');
-  expect(workspace.store.get(opened.session).events).toHaveLength(0);
-  await review.frame
-    .locator('form[data-humagent-intent] button[type="submit"]')
-    .click();
+  await expect
+    .poll(() => workspace.form(opened.session, 'review-plan')?.outcome)
+    .toBe('A focused prototype.');
   await expect(page.locator('.draft')).toHaveCount(1);
   expect((await review.state()).drafts[0].item.values).toMatchObject({
-    workflow: 'prototype',
+    workflow: 'copy',
     outcome: 'A focused prototype.',
   });
   expect(workspace.store.get(opened.session).events).toHaveLength(0);

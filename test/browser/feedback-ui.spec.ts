@@ -6,9 +6,9 @@ test('indented source text stays readable in the inline diff', async ({
   workspace,
 }) => {
   await review.open(workspace.file('plan.html'));
-  const before = (await review.frame.locator('.page-footer p').textContent())!;
+  const before = (await review.frame.locator('.intro p').textContent())!;
   expect(before).toMatch(/\n\s+/);
-  await review.replace('.page-footer p', '');
+  await review.replace('.intro p', '');
   await review.expand();
   const diff = page.locator('.replacement');
   await expect(diff.locator('del')).toHaveText(before);

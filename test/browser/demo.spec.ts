@@ -18,10 +18,10 @@ for (const width of [1440, 390])
       '.choice-title',
       '.field',
       '.preserve',
-      'button[type="submit"]',
-      '.guide li h3',
-      '.guide li p',
-      '.page-footer p',
+      '.plan-status p',
+      '.loop h3',
+      '.loop p',
+      '.checklist li',
     ]) {
       const target = review.frame.locator(selector).first();
       await target.evaluate((el) => el.scrollIntoView({ block: 'center' }));
@@ -59,9 +59,9 @@ for (const width of [1440, 390])
       const after = await glyph();
       expect(after.x, selector).toBeCloseTo(before.x, 1);
       expect(after.y, selector).toBeCloseTo(before.y, 1);
-      if (selector === '.guide li p')
+      if (selector === '.loop p')
         await page.screenshot({
-          path: test.info().outputPath(`guide-edit-${width}.png`),
+          path: test.info().outputPath(`loop-edit-${width}.png`),
           animations: 'disabled',
         });
       await editor.press('Escape');
@@ -86,30 +86,31 @@ test('the plan demo combines text edits, comments, and choices without changing 
     'aria-pressed',
     'false',
   );
-  await review.frame
-    .getByRole('radio', { name: /Explore a prototype/ })
-    .check();
+  await review.frame.getByRole('radio', { name: /The interactions/ }).check();
   await review.frame
     .getByLabel('What would a good result look like?')
     .fill('An easier first review.');
   await review.frame
-    .getByLabel('Where should the agent focus?')
+    .getByLabel('How much should change per pass?')
     .selectOption('behavior');
   await review.frame
-    .getByLabel('Anything to preserve?')
+    .getByLabel('Anything to leave alone?')
     .fill('Keep existing interactions.');
-  await review.frame
-    .getByRole('button', { name: 'Add plan to feedback' })
-    .click();
-  await expect.poll(async () => (await review.state()).drafts.length).toBe(3);
+  await expect
+    .poll(() => workspace.form(opened.session, 'review-plan')?.notes)
+    .toBe('Keep existing interactions.');
+  await expect(review.frame.locator('[data-humagent-status]')).toHaveText(
+    'Added to review',
+  );
+  expect((await review.state()).drafts).toHaveLength(3);
   expect(workspace.store.get(opened.session).events).toHaveLength(0);
   expect(fs.readFileSync(file, 'utf8')).toBe(source);
   await page.reload();
   await review.ready();
   await expect(
-    review.frame.getByRole('radio', { name: /Explore a prototype/ }),
+    review.frame.getByRole('radio', { name: /The interactions/ }),
   ).toBeChecked();
-  await expect(review.frame.getByLabel('Anything to preserve?')).toHaveValue(
+  await expect(review.frame.getByLabel('Anything to leave alone?')).toHaveValue(
     'Keep existing interactions.',
   );
   await review.connect();
@@ -120,7 +121,7 @@ test('the plan demo combines text edits, comments, and choices without changing 
   expect(feedback.events[0].items[2]).toMatchObject({
     intent: 'plan_review',
     values: {
-      workflow: 'prototype',
+      workflow: 'behavior',
       outcome: 'An easier first review.',
       focus: 'behavior',
       notes: 'Keep existing interactions.',
@@ -138,7 +139,7 @@ test('the plan demo combines text edits, comments, and choices without changing 
 });
 
 for (const width of [1440, 390])
-  test(`the plan guide fits ${width}px and retains keyboard focus`, async ({
+  test(`the plan page fits ${width}px and retains keyboard focus`, async ({
     page,
     review,
     workspace,
@@ -165,9 +166,9 @@ for (const width of [1440, 390])
       fullPage: true,
       animations: 'disabled',
     });
-    await review.frame.locator('.page-footer').scrollIntoViewIfNeeded();
+    await review.frame.locator('.receive pre').scrollIntoViewIfNeeded();
     await page.screenshot({
-      path: test.info().outputPath(`plan-${width}-guide.png`),
+      path: test.info().outputPath(`plan-${width}-bottom.png`),
       animations: 'disabled',
     });
     const outcome = review.frame.getByLabel(
@@ -179,8 +180,8 @@ for (const width of [1440, 390])
       await outcome.evaluate((el) => getComputedStyle(el).outlineStyle),
     ).toBe('solid');
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    const submit = review.frame.getByRole('button', {
-      name: 'Add plan to feedback',
-    });
-    await expect(submit).toHaveCSS('transition-duration', '0s');
+    await expect(review.frame.locator('.choice').first()).toHaveCSS(
+      'transition-duration',
+      '0s',
+    );
   });
