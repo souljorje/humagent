@@ -185,7 +185,7 @@ test('tooltips explain disabled buttons with pointer and keyboard', async ({
   await review.expand(false);
   const tip = page.getByRole('tooltip');
   await page.locator('#send').hover();
-  await expect(tip).toHaveText('Connect an agent to send feedback');
+  await expect(tip).toHaveText('Connect an agent to send the review');
   await page.locator('#send').locator('..').focus();
   await expect(tip).toBeVisible();
   await page.keyboard.press('Escape');
@@ -228,9 +228,7 @@ test('pending counts and the decorative agent dot stay inside expanded details',
   expect(statusBox.x - dotBox.x - dotBox.width).toBe(6);
   await expect(page.locator('#pending-count')).toBeHidden();
   await review.addComment('h1', 'Pending feedback');
-  await expect(page.locator('#pending-count')).toHaveText(
-    'Pending feedback (1)',
-  );
+  await expect(page.locator('#pending-count')).toHaveText('Drafts (1)');
   await expect(page.locator('#toggle-review')).toHaveText('');
   await expect(page.locator('#toggle-review')).toHaveAttribute(
     'data-tooltip',

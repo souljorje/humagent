@@ -189,7 +189,7 @@ function render() {
   $('update').hidden = !page || page.revision === view.revision;
   const count = view.drafts.length;
   $('pending-count').hidden = !count;
-  $('pending-count').textContent = count ? `Pending feedback (${count})` : '';
+  $('pending-count').textContent = count ? `Drafts (${count})` : '';
   renderChanged(
     $('drafts'),
     [
@@ -324,8 +324,8 @@ function render() {
     (!view.drafts.length && !$('message').value.trim()) ||
     view.drafts.some((d) => d.revision !== view.revision);
   $('send').dataset.tooltip = agentAvailable()
-    ? 'Send feedback to your agent'
-    : 'Connect an agent to send feedback';
+    ? 'Send the review to your agent'
+    : 'Connect an agent to send the review';
   const params = presentation(view);
   const signature = JSON.stringify(params);
   if (page && lastPresentation !== signature) {

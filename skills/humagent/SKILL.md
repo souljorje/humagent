@@ -1,6 +1,6 @@
 ---
 name: humagent
-description: Work with a human through local or generated pages and localhost apps. Receive feedback, revise source, and acknowledge its receipt.
+description: Open a local or generated page, or a localhost app, for the human to review. Receive one structured review, revise source, and acknowledge it.
 ---
 
 # Humagent

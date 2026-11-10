@@ -3,18 +3,17 @@
 [![Check](https://github.com/souljorje/humagent/actions/workflows/check.yml/badge.svg)](https://github.com/souljorje/humagent/actions/workflows/check.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Collaborate with your AI agent in HTML: make edits, leave comments, and generate interactive plans.**
+**Show your agent what you mean.** Comment on, rewrite, and answer any local page or app. Humagent sends it all to your AI agent as one structured review.
 
-Works with any harness. Runs on your computer. Needs no account or API key.
+Works with any agent that can run shell commands. Runs on your computer. Needs no account or API key.
 
-```mermaid
-flowchart LR
-  I["HTML / Web App"]
-  A["AI agent"]
-  H["Human"]
-  I <-->|"feedback"| A
-  H -->|"interact, edit, annotate"| I
-```
+## How it works
+
+1. **Open.** Your agent opens a page or local app with `humagent open`. It can also generate the page first.
+2. **Review.** You comment on elements, rewrite text in place, and answer forms. Drafts collect in the floating bar.
+3. **Send.** Your agent receives one review through `humagent wait`. It changes the source, then acknowledges the review.
+
+The agent waits for your review during its turn. Its harness must allow a long-running shell command.
 
 [![humagent.png](./docs/humagent.png)](./docs/humagent.png)
 
@@ -25,6 +24,7 @@ flowchart LR
 - Drafts save on the server, so they survive reloads, restarts, and other tabs.
 - Marked forms turn agent questions into choices. The [SDK](docs/SDK.md) adds programmatic input.
 - Sandboxed frames and loopback-only serving. Read [Security and limits](docs/SECURITY.md).
+- Opens local HTML files and HTTP localhost apps. Version 0.1 does not support remote sites or cookie-authenticated apps.
 
 ## Install
 

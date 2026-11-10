@@ -1,7 +1,7 @@
 {
   "name": "humagent",
   "version": "0.1.0",
-  "description": "Work with your AI agent through pages, prototypes, and local apps.",
+  "description": "Comment on, rewrite, and answer local pages and apps, then send your AI agent one structured review.",
   "type": "module",
   "license": "MIT",
   "packageManager": "bun@1.4.4",

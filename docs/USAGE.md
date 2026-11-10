@@ -2,6 +2,13 @@
 
 Open an existing local page or an agent-generated interface. See the [quick start](../README.md#quick-start).
 
+## Terms
+
+- **Draft:** one unsent comment, text edit, or form answer.
+- **Review:** all drafts and the overall instruction that one **Send** delivers.
+- **Event:** the agent's copy of one review.
+- **Receipt:** the agent's hold on events until it acknowledges them.
+
 ## Connect an agent
 
 Expand the floating bar and copy its `humagent wait SESSION` command to your active agent chat.
