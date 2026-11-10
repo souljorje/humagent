@@ -3,7 +3,6 @@ import { createForms } from './forms.js';
 import { createPageReview } from './review.js';
 import type {
   Bootstrap,
-  PageEvents,
   Requests,
   WorkspaceEvents,
   WorkspaceMessage,
@@ -38,9 +37,6 @@ if (window.parent === window.top) {
       boot.parentOrigin,
     );
   }
-  function emit<M extends keyof PageEvents>(method: M, params: PageEvents[M]) {
-    post(method, params);
-  }
   /** Same-window messages are not lost, so each request is sent once and answered once. */
   async function request<M extends keyof Requests>(
     method: M,
@@ -67,43 +63,29 @@ if (window.parent === window.top) {
     });
   }
   window.humagent = Object.freeze({ submit });
-  const notice = (message: string) => emit('notice', { message });
+  const notice = (message: string) => post('notice', { message });
   const forms = createForms({
     revision: boot.revision,
     stage: (item, key, labels) =>
       request('stage', { item: cloneJson(item), key, labels }),
     notice,
   });
-  const review = createPageReview({
-    boot,
-    stage: (item, marker) =>
-      request('stage', {
-        item: cloneJson(item),
-        ...(marker ? { marker } : {}),
-      }),
-    edit: (params) => request('edit', params),
-    remove: (draftId) => request('remove', { draftId }),
-    notice,
-    availability: (items) => emit('availability', { items }),
-    mode: (enabled) => emit('mode', { enabled }),
-    editing: (dirty) => emit('editing', { dirty }),
-  });
+  const review = createPageReview({ boot, request, notice, post });
   const handlers: {
     [M in keyof WorkspaceEvents]: (params: WorkspaceEvents[M]) => void;
   } = {
     init(params) {
-      ended = params.ended;
       if (!initialized) {
         initialized = true;
         clearInterval(hello);
         forms.restore(params.drafts);
         resolveReady();
       }
-      forms.present(params.drafts);
-      review.present(params);
+      handlers.update(params);
       review.setMode(params.annotating);
     },
     update(params) {
+      ended = !params.writable;
       forms.present(params.drafts);
       review.present(params);
     },
@@ -119,10 +101,6 @@ if (window.parent === window.top) {
       request('remove', { draftId: params.draftId }).catch((error: unknown) =>
         notice(errorMessage(error)),
       );
-    },
-    ended() {
-      ended = true;
-      review.end();
     },
   };
   window.addEventListener('message', (event) => {
@@ -142,6 +120,6 @@ if (window.parent === window.top) {
     } else if (Object.hasOwn(handlers, data.method))
       (handlers[data.method] as (params: unknown) => void)(data.params);
   });
-  const hello = setInterval(() => emit('hello', {}), 1000);
-  emit('hello', {});
+  const hello = setInterval(() => post('hello', {}), 1000);
+  post('hello', {});
 }

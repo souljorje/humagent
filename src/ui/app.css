@@ -115,6 +115,12 @@ textarea::placeholder {
   overflow: clip;
   border-radius: 24px;
   z-index: 2;
+  display: grid;
+  grid-template-rows: 0fr auto;
+  transition: grid-template-rows 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+#review-bar:has(#tray[data-expanded='true']) {
+  grid-template-rows: 1fr auto;
 }
 .bar-controls {
   display: flex;
@@ -138,12 +144,10 @@ textarea::placeholder {
   transform: rotate(180deg);
 }
 #tray {
-  height: 0;
+  min-height: 0;
   overflow: clip;
   opacity: 0;
-  transition:
-    height 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    opacity 180ms;
+  transition: opacity 180ms;
 }
 #tray[data-expanded='true'] {
   opacity: 1;
@@ -226,9 +230,6 @@ textarea::placeholder {
   font-size: 13px;
   font-weight: 550;
   font-variant-numeric: tabular-nums;
-}
-#expand-icon {
-  display: flex;
 }
 #drafts {
   list-style: none;
@@ -380,9 +381,6 @@ dd {
   }
   .bar-controls #message {
     margin-inline: 3px;
-  }
-  .bar-controls #send {
-    padding: 8px 12px;
   }
   .icon {
     width: 36px;

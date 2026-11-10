@@ -6,27 +6,30 @@ import {
   isEditableText,
 } from './text-editing.js';
 import { hitTestText } from './text-hit.js';
-import { inView, markerPoint, panelPoint } from './layout.js';
-import type { Bootstrap, Presentation, Requests } from '../shared/bridge.js';
+import { inView, markerPoint, panelPoint, type Point } from './layout.js';
 import type {
-  Availability,
-  Draft,
-  DraftItem,
-  MarkerPosition,
-  ReviewTarget,
-  StageResult,
+  Bootstrap,
+  PageEvents,
+  Presentation,
+  Requests,
+} from '../shared/bridge.js';
+import {
+  LIMITS,
+  type Availability,
+  type Draft,
+  type ReviewTarget,
 } from '../shared/feedback.js';
 import { errorMessage } from '../shared/errors.js';
+import { cloneJson } from '../shared/json.js';
 
 interface ReviewBridge {
   boot: Bootstrap;
-  stage(item: DraftItem, marker?: MarkerPosition): Promise<StageResult>;
-  edit(params: Requests['edit']['params']): Promise<unknown>;
-  remove(draftId: string): Promise<unknown>;
+  request<M extends keyof Requests>(
+    method: M,
+    params: Requests[M]['params'],
+  ): Promise<Requests[M]['result']>;
   notice(message: string): void;
-  availability(items: Availability[]): void;
-  mode(enabled: boolean): void;
-  editing(dirty: boolean): void;
+  post<M extends keyof PageEvents>(method: M, params: PageEvents[M]): void;
 }
 interface Capture {
   target: ReviewTarget;
@@ -35,16 +38,12 @@ interface Capture {
   draft?: Draft;
   point: Point;
   /** The editor proposes a text replacement, not only a comment. */
-  text: boolean;
-}
-interface Point {
-  x: number;
-  y: number;
+  text?: boolean;
 }
 
 /** The page owns geometry and temporary editors. The parent owns saved feedback. */
 export function createPageReview(bridge: ReviewBridge) {
-  const { boot, stage, notice, availability } = bridge;
+  const { boot, request, notice, post } = bridge;
   const { $ } = createReviewView();
   const markers = new Map<string, HTMLButtonElement>();
   let drafts: Draft[] = [],
@@ -53,9 +52,10 @@ export function createPageReview(bridge: ReviewBridge) {
   let captured: Capture | null = null,
     hovered: Element | undefined;
   let highlightedDraft: string | undefined;
-  let enabled = false,
+  let annotating = false,
     saving = false,
     scheduled = false;
+  const enabled = () => annotating && writable;
   let lastAvailability = '',
     lastDirty = false;
   let returnFocus: Element | null = null;
@@ -67,7 +67,7 @@ export function createPageReview(bridge: ReviewBridge) {
     resolve,
     input,
     confirm: () => void save(),
-    cancel,
+    cancel: () => close(),
   });
   function canEditText(node: Node | null): node is Text {
     if (!writable || !isEditableText(node)) return false;
@@ -91,12 +91,8 @@ export function createPageReview(bridge: ReviewBridge) {
         (item) => item instanceof Element && item.matches('[data-humagent-ui]'),
       );
   const exactText = text.canonicalText;
-  function targetContext(el: Element) {
-    return context(el, exactText(el));
-  }
-  const isEditor = () => !$('panel').hidden || !!text.element;
   function changed() {
-    if (!captured || !isEditor()) return false;
+    if (!captured || ($('panel').hidden && !text.element)) return false;
     const commentChanged = captured.draft
       ? $('note').value !== (captured.draft.item.comment || '')
       : !!$('note').value;
@@ -104,7 +100,7 @@ export function createPageReview(bridge: ReviewBridge) {
   }
   function validInput() {
     return captured?.text
-      ? text.value.length <= 50000 &&
+      ? text.value.length <= LIMITS.text &&
           (!!captured?.draft ||
             text.value !== captured?.before ||
             !!$('note').value.trim())
@@ -118,7 +114,7 @@ export function createPageReview(bridge: ReviewBridge) {
     const dirty = saving || changed();
     if (lastDirty !== dirty) {
       lastDirty = dirty;
-      bridge.editing(dirty);
+      post('editing', { dirty });
     }
     const valid = validInput();
     $('confirm').disabled = saving || !writable || !valid;
@@ -129,10 +125,8 @@ export function createPageReview(bridge: ReviewBridge) {
     text.setReadOnly(saving || !writable);
     $('editor-status').hidden = writable;
     $('editor-status').textContent = 'Read only';
-    for (const textarea of [$('note')]) {
-      textarea.style.height = 'auto';
-      textarea.style.height = `${Math.min(136, textarea.scrollHeight)}px`;
-    }
+    $('note').style.height = 'auto';
+    $('note').style.height = `${Math.min(136, $('note').scrollHeight)}px`;
     schedule();
   }
   function outside() {
@@ -180,20 +174,25 @@ export function createPageReview(bridge: ReviewBridge) {
       returnFocus.focus({ preventScroll: true });
     updateEditor();
   }
-  function cancel() {
+  /** Close the editor and keep the element that gets focus back later. */
+  function reopen(focus?: Element) {
     close();
+    returnFocus = focus || document.activeElement;
+  }
+  function capture(next: Omit<Capture, 'point'>, point?: Point) {
+    captured = { ...next, point: anchor(next.el, point) };
   }
   function setMode(value: boolean, keyboard = false) {
     if (outside()) {
-      bridge.mode(enabled);
+      post('mode', { enabled: enabled() });
       return;
     }
     close();
-    enabled = value && writable;
+    annotating = value;
     syncSelection();
-    bridge.mode(enabled);
-    $('keyboard-hint').hidden = !enabled || !keyboard;
-    if (enabled && keyboard) {
+    post('mode', { enabled: enabled() });
+    $('keyboard-hint').hidden = !enabled() || !keyboard;
+    if (enabled() && keyboard) {
       candidates = [
         ...document.querySelectorAll(
           'h1,h2,h3,h4,p,li,td,th,img,a,button,input,select,textarea,label,[data-humagent-id],[role]',
@@ -247,14 +246,13 @@ export function createPageReview(bridge: ReviewBridge) {
     if (!(el instanceof Element) || ignored(el) || !writable || outside())
       return;
     const before = range ? range.toString() : exactText(el);
-    if (before.length > 50000) {
+    if (before.length > LIMITS.text) {
       notice('Select a smaller section (maximum 50,000 characters).');
       return;
     }
-    close();
-    returnFocus = document.activeElement;
+    reopen();
     const target: ReviewTarget = {
-      ...targetContext(el),
+      ...context(el, exactText(el)),
       url: boot.sourceUrl,
       revision: boot.revision,
       anchorId: crypto.randomUUID(),
@@ -272,13 +270,7 @@ export function createPageReview(bridge: ReviewBridge) {
         suffix: suffix.toString().slice(0, 32),
       };
     }
-    captured = {
-      target,
-      before,
-      el,
-      point: anchor(el, point),
-      text: false,
-    };
+    capture({ target, before, el }, point);
     showEditor();
   }
   function showText(
@@ -297,28 +289,18 @@ export function createPageReview(bridge: ReviewBridge) {
     )
       return;
     if (!writable || outside()) return;
-    close();
-    returnFocus = existing
-      ? markers.get(existing.item.id) || document.activeElement
-      : document.activeElement;
+    reopen(existing && markers.get(existing.item.id));
     const before = existing?.item.replacement?.before ?? node.data;
-    if (!before.trim() || before.length > 50000) return;
+    if (!before.trim() || before.length > LIMITS.text) return;
     const target: ReviewTarget = existing?.item.target || {
-      ...targetContext(el),
+      ...context(el, exactText(el)),
       url: boot.sourceUrl,
       revision: boot.revision,
       anchorId: crypto.randomUUID(),
       textNode: [...el.childNodes].indexOf(node),
       anchor: { quote: before },
     };
-    captured = {
-      target,
-      before,
-      el,
-      draft: existing,
-      point: anchor(el, point),
-      text: true,
-    };
+    capture({ target, before, el, draft: existing, text: true }, point);
     text.open(
       node,
       start,
@@ -356,17 +338,12 @@ export function createPageReview(bridge: ReviewBridge) {
         return;
       }
     }
-    close();
-    returnFocus = markers.get(draftId) || document.activeElement;
+    reopen(markers.get(draftId));
     el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    captured = {
-      target: draft.item.target!,
-      before: exactText(el),
-      el,
-      draft,
-      point: anchor(el, point || center(markers.get(draftId))),
-      text: false,
-    };
+    capture(
+      { target: draft.item.target!, before: exactText(el), el, draft },
+      point || center(markers.get(draftId)),
+    );
     showEditor();
   }
   function selectedText(point?: Point) {
@@ -395,7 +372,7 @@ export function createPageReview(bridge: ReviewBridge) {
     } else show(el, range, point);
     return true;
   }
-  $('cancel').onclick = cancel;
+  $('cancel').onclick = () => close();
   $('note').oninput = input;
   $('note').onkeydown = (event) => {
     if (event.isComposing || event.keyCode === 229) return;
@@ -422,9 +399,10 @@ export function createPageReview(bridge: ReviewBridge) {
     saving = true;
     updateEditor();
     try {
-      if (remove && current.draft) await bridge.remove(current.draft.item.id);
+      if (remove && current.draft)
+        await request('remove', { draftId: current.draft.item.id });
       else if (current.draft)
-        await bridge.edit({
+        await request('edit', {
           draftId: current.draft.item.id,
           comment: $('note').value,
           ...(current.text ? { after: text.value } : {}),
@@ -436,21 +414,16 @@ export function createPageReview(bridge: ReviewBridge) {
           y: Math.round(targetRect.top + current.point.y + scrollY),
           space: 'document',
         };
-        await stage(
-          {
+        await request('stage', {
+          item: cloneJson({
             target: { ...current.target, coordinates },
             ...($('note').value.trim() ? { comment: $('note').value } : {}),
             ...(current.text && text.value !== current.before
-              ? {
-                  replacement: {
-                    before: current.before,
-                    after: text.value,
-                  },
-                }
+              ? { replacement: { before: current.before, after: text.value } }
               : {}),
-          },
-          current.point,
-        );
+          }),
+          marker: current.point,
+        });
       }
       saving = false;
       close();
@@ -465,14 +438,13 @@ export function createPageReview(bridge: ReviewBridge) {
   }
   $('editor').onsubmit = (event) => {
     event.preventDefault();
-    if (!($('confirm').hidden ? $('save').disabled : $('confirm').disabled))
-      void save();
+    void save();
   };
   $('remove').onclick = () => void save(true);
   document.addEventListener(
     'pointermove',
     (event) => {
-      if (!enabled) return;
+      if (!enabled()) return;
       if (ownEvent(event)) return;
       if (captured || ignored(event.target)) return;
       hovered = event
@@ -514,7 +486,7 @@ export function createPageReview(bridge: ReviewBridge) {
       case 'mousedown':
         if (changed()) stop(event, true);
         // A press on a control's plain label may start a text edit, so only that keeps its default.
-        else if (enabled && from === 'control')
+        else if (enabled() && from === 'control')
           stop(
             event,
             !hitTestText({ x: event.clientX, y: event.clientY }, canEditText),
@@ -522,7 +494,7 @@ export function createPageReview(bridge: ReviewBridge) {
         return;
       case 'click': {
         if (captured && outside()) return stop(event, true);
-        if (ignored(event.target) || !enabled) return;
+        if (ignored(event.target) || !enabled()) return;
         stop(event, true);
         if (document.getSelection()?.toString().trim()) return;
         const hit = point ? hitTestText(point, canEditText) : undefined;
@@ -531,10 +503,10 @@ export function createPageReview(bridge: ReviewBridge) {
         return;
       }
       case 'pointerup':
-        if (enabled && from === 'control') stop(event);
+        if (enabled() && from === 'control') stop(event);
         return;
       case 'mouseup':
-        if (!enabled) return;
+        if (!enabled()) return;
         // The selection settles only after the default mouseup action.
         if (!captured && !ignored(event.target))
           setTimeout(() => selectedText(point), 0);
@@ -554,7 +526,7 @@ export function createPageReview(bridge: ReviewBridge) {
     (event) => {
       const from = source(event);
       if (from === 'editor') return stop(event);
-      if (enabled && !captured && event.shiftKey && from !== 'own')
+      if (enabled() && !captured && event.shiftKey && from !== 'own')
         selectedText();
     },
     true,
@@ -575,14 +547,14 @@ export function createPageReview(bridge: ReviewBridge) {
       if (event.key === 'Escape') {
         if (captured) {
           event.preventDefault();
-          cancel();
-        } else if (enabled) {
+          close();
+        } else if (enabled()) {
           event.preventDefault();
           setMode(false);
         }
         return;
       }
-      if (!enabled || captured || ignored(event.target)) return;
+      if (!enabled() || captured || ignored(event.target)) return;
       if (
         ['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft'].includes(event.key)
       ) {
@@ -697,15 +669,8 @@ export function createPageReview(bridge: ReviewBridge) {
       );
       const number = String(index + 1);
       if (marker.textContent !== number) marker.textContent = number;
-      for (const [name, value] of [
-        [
-          'aria-label',
-          `Comment ${number}: ${draft.item.comment || 'Text edit'}`,
-        ],
-        ['aria-expanded', String(captured?.draft?.item.id === draft.item.id)],
-      ])
-        if (marker.getAttribute(name!) !== value)
-          marker.setAttribute(name!, value!);
+      marker.ariaLabel = `Comment ${number}: ${draft.item.comment || 'Text edit'}`;
+      marker.ariaExpanded = String(captured?.draft?.item.id === draft.item.id);
       const point = markerPoint(rect, draft.marker);
       place(marker, point.x, point.y);
     }
@@ -733,7 +698,7 @@ export function createPageReview(bridge: ReviewBridge) {
     const signature = JSON.stringify(available);
     if (signature !== lastAvailability) {
       lastAvailability = signature;
-      availability(available);
+      post('availability', { items: available });
     }
   }
   function schedule() {
@@ -791,7 +756,7 @@ export function createPageReview(bridge: ReviewBridge) {
     const sheets = document.adoptedStyleSheets.filter(
       (sheet) => sheet !== selectionStyle,
     );
-    document.adoptedStyleSheets = enabled
+    document.adoptedStyleSheets = enabled()
       ? [...sheets, selectionStyle]
       : sheets;
   }
@@ -803,14 +768,6 @@ export function createPageReview(bridge: ReviewBridge) {
       schedule();
     },
     setMode,
-    end() {
-      enabled = false;
-      syncSelection();
-      writable = false;
-      bridge.mode(false);
-      updateEditor();
-      schedule();
-    },
     present(presentation: Presentation) {
       drafts = presentation.drafts;
       previews = presentation.previews;
@@ -825,8 +782,8 @@ export function createPageReview(bridge: ReviewBridge) {
         }
       if (captured?.draft && !ids.has(captured.draft.item.id)) close(true);
       if (!writable) {
-        enabled = false;
         syncSelection();
+        post('mode', { enabled: false });
       }
       text.reconcile(previews);
       updateEditor();

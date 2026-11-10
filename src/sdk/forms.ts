@@ -79,41 +79,33 @@ function readForm(form: HTMLFormElement) {
   }
   for (const [name, group] of groups) {
     const first = group[0]!;
-    let value: Json, shown: string, label: string;
-    if (group.every((el) => isInput(el, 'checkbox'))) {
+    const single = group.length === 1;
+    const radio = group.every((el) => isInput(el, 'radio'));
+    const label = single && !radio ? ownLabel(first) : groupName(first);
+    let value: Json, shown: string;
+    if (radio || group.every((el) => isInput(el, 'checkbox'))) {
       const checked = group.filter((el) => (el as HTMLInputElement).checked);
-      if (group.length === 1) {
+      value = radio
+        ? (checked[0]?.value ?? null)
+        : checked.map((el) => el.value);
+      shown = checked.map((el) => ownLabel(el) || el.value).join(', ');
+      if (!radio && single) {
         value = checked.length === 1;
         shown = value ? 'Yes' : 'No';
-        label = ownLabel(first);
-      } else {
-        value = checked.map((el) => el.value);
-        shown = checked.map((el) => ownLabel(el) || el.value).join(', ');
-        label = groupName(first);
       }
-    } else if (group.every((el) => isInput(el, 'radio'))) {
-      const checked = group.find((el) => (el as HTMLInputElement).checked);
-      value = checked?.value ?? null;
-      shown = checked ? ownLabel(checked) || checked.value : '';
-      label = groupName(first);
     } else {
+      const multiple = (el: FormControl) => hasTag(el, 'select') && el.multiple;
       const options = (el: FormControl) =>
         hasTag(el, 'select') ? [...el.selectedOptions] : [];
       const parts = group.flatMap((el) =>
-        hasTag(el, 'select') && el.multiple
-          ? options(el).map((option) => option.value)
-          : [el.value],
+        multiple(el) ? options(el).map((option) => option.value) : [el.value],
       );
-      value =
-        group.length === 1 && !(hasTag(first, 'select') && first.multiple)
-          ? parts[0]!
-          : parts;
+      value = single && !multiple(first) ? parts[0]! : parts;
       shown = group
         .flatMap((el) =>
           hasTag(el, 'select') ? options(el).map((o) => text(o)) : [el.value],
         )
         .join(', ');
-      label = group.length === 1 ? ownLabel(first) : groupName(first);
     }
     values[name] = value;
     fields.push({ label: clip(label || name), value: clip(shown) });

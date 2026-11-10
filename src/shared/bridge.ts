@@ -60,7 +60,7 @@ export type PageMessage = {
 } & (Messages<RequestParams, { id: string }> | Messages<PageEvents>);
 
 export interface WorkspaceEvents {
-  init: Presentation & { ended: boolean; annotating: boolean };
+  init: Presentation & { annotating: boolean };
   update: Presentation;
   annotate: { enabled: boolean; keyboard?: boolean };
   open: { draftId: string };
@@ -68,7 +68,6 @@ export interface WorkspaceEvents {
   outside: Record<string, never>;
   /** The human deletes a form's draft. The page resets the form, then removes the draft. */
   reset: { key: string; draftId: string };
-  ended: Record<string, never>;
 }
 export type WorkspaceMessage = { channel: string } & (
   | { method: 'result'; id: string; result?: unknown; error?: string }

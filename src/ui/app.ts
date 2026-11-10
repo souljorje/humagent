@@ -38,7 +38,7 @@ const available = new Map<string, boolean>();
 
 $('annotate').innerHTML = icon('comment');
 $('end').innerHTML = icon('power');
-$('expand-icon').innerHTML = icon('chevron');
+$('toggle-review').innerHTML = icon('chevron');
 $('copy-command').innerHTML = icon('copy');
 $('agent-command').textContent = `humagent wait ${id}`;
 installTooltips(document);
@@ -46,17 +46,9 @@ const inputStyle = new CSSStyleSheet();
 inputStyle.replaceSync(materialStyles + inputStyles);
 document.adoptedStyleSheets = [...document.adoptedStyleSheets, inputStyle];
 
-let expanded = false;
-function resizeTray() {
-  $('tray').style.height =
-    `${expanded ? $('tray-content').getBoundingClientRect().height : 0}px`;
-}
-new ResizeObserver(resizeTray).observe($('tray-content'));
 function openTray(open = true) {
-  expanded = open;
   $('tray').inert = !open;
   $('tray').dataset.expanded = String(open);
-  resizeTray();
   $('toggle-review').setAttribute('aria-expanded', String(open));
   if (!open) bridge.post('highlight', {});
 }
@@ -89,7 +81,6 @@ async function sync() {
 function update(view: WorkspaceView) {
   const first = !session;
   const restarted = !!session && session.surface.origin !== view.surface.origin;
-  const ended = view.ended && !session?.ended;
   session = view;
   connected = true;
   if (first) {
@@ -101,18 +92,17 @@ function update(view: WorkspaceView) {
     page = attaching = undefined;
     error('The service restarted. Refresh the page to reconnect.');
   }
-  if (ended) bridge.post('ended', {});
   render();
 }
 
+/** Whether a revision matches both the server and the attached page. */
+const fresh = (revision?: string) =>
+  revision === session?.revision && revision === page?.revision;
 function presentation(view: WorkspaceView): Presentation {
   return {
     drafts: view.drafts,
     previews: [...view.drafts, ...view.sent].filter(
-      (draft) =>
-        draft.item.replacement &&
-        draft.revision === view.revision &&
-        draft.revision === page?.revision,
+      (draft) => draft.item.replacement && fresh(draft.revision),
     ),
     writable: !view.ended,
   };
@@ -169,21 +159,23 @@ function resizeMessage() {
   $('message').style.height = 'auto';
   $('message').style.height = `${Math.min(136, $('message').scrollHeight)}px`;
 }
-function agentAvailable() {
-  return (
-    connected &&
-    !session?.ended &&
-    (session?.agent === 'waiting' || session?.agent === 'working')
-  );
-}
 function render() {
-  renderConnection();
+  const agent = connected && !session?.ended && session?.agent !== 'idle';
+  $('agent-state').textContent = session?.ended
+    ? 'Session ended'
+    : !connected
+      ? 'Connection unavailable'
+      : session?.agent === 'waiting'
+        ? 'Agent listening'
+        : session?.agent === 'working'
+          ? 'Agent working'
+          : 'No agent waiting';
+  $('agent-indicator').dataset.active = String(agent);
   if (!session) return;
   const view = session;
   const mutable = !view.ended;
   $('end').disabled = view.ended;
   $('annotate').disabled = view.ended || !page;
-  $('annotate').setAttribute('aria-pressed', String(annotating));
   $('update').hidden = !page || page.revision === view.revision;
   const count = view.drafts.length;
   $('pending-count').hidden = !count;
@@ -200,8 +192,7 @@ function render() {
     () => {
       for (const [index, draft] of view.drafts.entries()) {
         const item = draft.item;
-        const stale =
-          draft.revision !== page?.revision || draft.revision !== view.revision;
+        const stale = !fresh(draft.revision);
         const li = element('li', '', 'draft');
         li.dataset.draftId = item.id;
         li.dataset.stale = String(stale);
@@ -314,14 +305,13 @@ function render() {
   $('send').setAttribute('aria-busy', String(sending));
   $('send').disabled =
     sending ||
-    !agentAvailable() ||
+    !agent ||
     editorDirty ||
     !mutable ||
-    !page ||
-    page.revision !== view.revision ||
+    !fresh(page?.revision) ||
     (!view.drafts.length && !$('message').value.trim()) ||
-    view.drafts.some((d) => d.revision !== view.revision);
-  $('send').dataset.tooltip = agentAvailable()
+    view.drafts.some((d) => !fresh(d.revision));
+  $('send').dataset.tooltip = agent
     ? 'Send the review to your agent'
     : 'Connect an agent to send the review';
   const params = presentation(view);
@@ -330,21 +320,6 @@ function render() {
     lastPresentation = signature;
     bridge.post('update', params);
   }
-}
-function renderConnection() {
-  const state = session?.ended
-    ? 'Session ended'
-    : !connected
-      ? 'Connection unavailable'
-      : session?.agent === 'waiting'
-        ? 'Agent listening'
-        : session?.agent === 'working'
-          ? 'Agent working'
-          : 'No agent waiting';
-  $('agent-state').textContent = state;
-  $('agent-indicator').dataset.active = String(
-    connected && !session?.ended && session?.agent !== 'idle',
-  );
 }
 
 function saveMessage() {
@@ -507,7 +482,7 @@ async function attach(msg: PageMessage) {
   $('bridge-status').textContent = 'Interface connected';
   const params = presentation(session);
   lastPresentation = JSON.stringify(params);
-  bridge.post('init', { ...params, ended: session.ended, annotating });
+  bridge.post('init', { ...params, annotating });
   render();
 }
 const bridge = connectPage({
