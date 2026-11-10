@@ -3,6 +3,7 @@ import {
   expect,
   type Frame,
   type FrameLocator,
+  type Locator,
 } from '@playwright/test';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -18,7 +19,7 @@ import type { WorkspaceView } from '../../src/shared/feedback.js';
 import type { ObjectValue } from '../../src/shared/json.js';
 
 type Runtime = Awaited<ReturnType<typeof createRuntime>>;
-export type Feedback = Extract<
+type Feedback = Extract<
   NonNullable<ReturnType<Runtime['store']['take']>>,
   { status: 'feedback' }
 >;
@@ -43,16 +44,32 @@ interface Workspace {
 }
 interface Review {
   frame: FrameLocator;
+  /** The "Edit text" box of the open feedback popover. */
+  editor: Locator;
+  /** The "Comment" field of the open feedback popover. */
+  note: Locator;
   evaluate: Frame['evaluate'];
   ready(): Promise<void>;
   expand(open?: boolean): Promise<void>;
   /** Start an agent wait. `stopAfterMs` drops it, like an agent that stops. */
   connect(stopAfterMs?: number): Promise<void>;
   receive(): Promise<Feedback>;
+  /** Receive the next feedback and acknowledge its receipt. */
+  deliver(): Promise<Feedback>;
+  /** Turn commenting on. */
+  annotate(): Promise<void>;
+  /** Select the first text node of an element, from `start` to `end`, and release the mouse. */
+  selectText(selector: string, start?: number, end?: number): Promise<void>;
   addComment(selector: string, comment: string): Promise<void>;
   replace(selector: string, replacement: string): Promise<void>;
   /** The server's saved feedback for the open session. */
   state(): Promise<Session>;
+  /** The item of the saved draft at `index`. */
+  draft(index?: number): Promise<Session['drafts'][number]['item']>;
+  /** Wait until the open session holds `count` events, then return them. */
+  events(count: number): Promise<Session['events']>;
+  /** Let the server handle the next request to a session route, then drop its response. */
+  loseResponse(route: string): Promise<void>;
   open(target?: string): Promise<Opened>;
 }
 interface Fixtures {
@@ -144,6 +161,14 @@ export const test = base.extend<Fixtures>({
 
   review: async ({ page, workspace }, use) => {
     const receipts: Promise<Feedback | { status: string }>[] = [];
+    const frame = page.frameLocator('#frame');
+    const editor = frame.getByRole('textbox', {
+      name: 'Edit text',
+      exact: true,
+    });
+    const note = frame.getByLabel('Comment', { exact: true });
+    const annotateButton = page.locator('#annotate');
+    const session = () => new URL(page.url()).searchParams.get('session')!;
     const attachedFrame = () => {
       const frame = page
         .frames()
@@ -157,17 +182,53 @@ export const test = base.extend<Fixtures>({
       );
       await attachedFrame().waitForFunction(() => !!window.humagent);
     };
+    const receive = async () => {
+      const received = receipts.length
+        ? await receipts.shift()!
+        : workspace.store.take(session());
+      if (received?.status !== 'feedback' || !('receipt' in received))
+        throw new Error('Expected agent feedback');
+      return received as Feedback;
+    };
+    const annotate = async () => {
+      if ((await annotateButton.getAttribute('aria-pressed')) !== 'true')
+        await annotateButton.click();
+      await expect(annotateButton).toHaveAttribute('aria-pressed', 'true');
+    };
+    const selectText = (selector: string, start?: number, end?: number) =>
+      attachedFrame().evaluate(
+        ({ selector, start, end }) => {
+          const element = document.querySelector(selector)!,
+            node = element.firstChild!,
+            range = document.createRange();
+          range.setStart(node, start ?? 0);
+          range.setEnd(node, end ?? node.textContent!.length);
+          getSelection()!.removeAllRanges();
+          getSelection()!.addRange(range);
+          element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        },
+        { selector, start, end },
+      );
+    const confirm = async (name: RegExp) => {
+      await frame.getByRole('button', { name }).click();
+      await expect(
+        frame.getByRole('dialog', { name: 'Feedback' }),
+      ).toBeHidden();
+    };
+    const state = async () => workspace.store.get(session());
     await use({
-      frame: page.frameLocator('#frame'),
+      frame,
+      editor,
+      note,
       get evaluate() {
         const frame = attachedFrame();
         return frame.evaluate.bind(frame);
       },
       ready,
       async connect(stopAfterMs) {
-        const id = new URL(page.url()).searchParams.get('session')!;
-        const session = await workspace.api(`/api/sessions/${id}`);
-        if (session.agent === 'idle') {
+        const id = session();
+        const view = await workspace.api(`/api/sessions/${id}`);
+        if (view.agent === 'idle') {
           const wait = workspace.api<Feedback | { status: string }>(
             `/api/sessions/${id}/wait`,
             'POST',
@@ -182,14 +243,11 @@ export const test = base.extend<Fixtures>({
           /Agent (listening|working)/,
         );
       },
-      async receive() {
-        const id = new URL(page.url()).searchParams.get('session')!;
-        const received = receipts.length
-          ? await receipts.shift()!
-          : workspace.store.take(id);
-        if (received?.status !== 'feedback' || !('receipt' in received))
-          throw new Error('Expected agent feedback');
-        return received as Feedback;
+      receive,
+      async deliver() {
+        const received = await receive();
+        workspace.store.acknowledge(session(), received.receipt);
+        return received;
       },
       async expand(open = true) {
         const toggle = page.locator('#toggle-review');
@@ -197,59 +255,40 @@ export const test = base.extend<Fixtures>({
           await toggle.click();
         await expect(toggle).toHaveAttribute('aria-expanded', String(open));
       },
+      annotate,
+      selectText,
       async addComment(selector, comment) {
-        if (
-          (await page.locator('#annotate').getAttribute('aria-pressed')) !==
-          'true'
-        )
-          await page.locator('#annotate').click();
-        await page.frameLocator('#frame').locator(selector).click();
-        await page
-          .frameLocator('#frame')
-          .getByLabel('Comment', { exact: true })
-          .fill(comment);
-        await page
-          .frameLocator('#frame')
-          .getByRole('button', { name: /^(Add comment|Confirm text edit)$/ })
-          .click();
-        await expect(
-          page.frameLocator('#frame').getByRole('dialog', { name: 'Feedback' }),
-        ).toBeHidden();
+        await annotate();
+        await frame.locator(selector).click();
+        await note.fill(comment);
+        await confirm(/^(Add comment|Confirm text edit)$/);
       },
       async replace(selector, replacement) {
-        if (
-          (await page.locator('#annotate').getAttribute('aria-pressed')) !==
-          'true'
-        )
-          await page.locator('#annotate').click();
-        await expect(page.locator('#annotate')).toHaveAttribute(
-          'aria-pressed',
-          'true',
-        );
-        await attachedFrame().evaluate((selector) => {
-          const element = document.querySelector(selector)!,
-            range = document.createRange();
-          range.selectNodeContents(element.firstChild!);
-          const selection = document.getSelection()!;
-          selection.removeAllRanges();
-          selection.addRange(range);
-          element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-        }, selector);
-        await page
-          .frameLocator('#frame')
-          .getByRole('textbox', { name: 'Edit text', exact: true })
-          .fill(replacement);
-        await page
-          .frameLocator('#frame')
-          .getByRole('button', { name: /^(Confirm text edit|Save)$/ })
-          .click();
-        await expect(
-          page.frameLocator('#frame').getByRole('dialog', { name: 'Feedback' }),
-        ).toBeHidden();
+        await annotate();
+        await selectText(selector);
+        await editor.fill(replacement);
+        await confirm(/^(Confirm text edit|Save)$/);
       },
-      async state() {
-        return workspace.store.get(
-          new URL(page.url()).searchParams.get('session')!,
+      state,
+      async draft(index = 0) {
+        return (await state()).drafts[index]!.item;
+      },
+      async events(count) {
+        await expect
+          .poll(() => workspace.store.get(session()).events.length)
+          .toBe(count);
+        return workspace.store.get(session()).events;
+      },
+      async loseResponse(route) {
+        let lost = false;
+        await page.route(
+          `**/api/sessions/${session()}/${route}`,
+          async (request) => {
+            if (lost) return request.continue();
+            lost = true;
+            await request.fetch();
+            await request.abort();
+          },
         );
       },
       async open(target = workspace.file()) {
@@ -284,7 +323,7 @@ export const test = base.extend<Fixtures>({
         res.end(
           `<h1>Dynamic ${dynamicRequests}</h1><form id="dynamic" data-humagent-intent="review"><input name="choice" value="keep"><button type="submit">Send</button></form>`,
         );
-      } else if (['/a', '/b', '/c'].includes(req.url || '')) {
+      } else if (['/a', '/b'].includes(req.url || '')) {
         res.end(
           `<h1>Page ${req.url!.slice(1)}</h1><a href="/b">Next page</a><form id="route" data-humagent-intent="review"><input name="note"></form>`,
         );

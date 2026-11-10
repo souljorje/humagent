@@ -35,9 +35,7 @@ test('new document can stage before an older snapshot response returns', async (
     await review.connect();
     await expect(page.locator('#send')).toBeEnabled();
     await page.locator('#send').click();
-    await expect
-      .poll(() => workspace.store.get(opened.session).events.length)
-      .toBe(1);
+    await review.events(1);
     expect(workspace.store.get(opened.session).surfacePath).toBe('/b');
   } finally {
     release();
@@ -76,12 +74,7 @@ test('a slow attach of an older page cannot replace the newer page', async ({
   expect(workspace.store.get(opened.session).surfacePath).toBe('/b');
   await review.connect();
   await page.locator('#send').click();
-  await expect
-    .poll(() => workspace.store.get(opened.session).events.length)
-    .toBe(1);
-  expect(workspace.store.get(opened.session).events[0].items[0].values).toEqual(
-    { page: 'b' },
-  );
+  expect((await review.events(1))[0].items[0].values).toEqual({ page: 'b' });
 });
 
 test('existing apps keep native clicks, API requests, nested frames, and annotations', async ({
@@ -117,10 +110,7 @@ test('existing apps keep native clicks, API requests, nested frames, and annotat
   await review.addComment('#headline', 'Review an existing app.');
   await review.connect();
   await page.locator('#send').click();
-  await expect
-    .poll(() => workspace.store.get(opened.session).events.length)
-    .toBe(1);
-  const [event] = workspace.store.get(opened.session).events;
+  const [event] = await review.events(1);
   expect(event.items[0].target!.id).toBe('headline');
   expect(event.revision).toBe(before.revision);
 });
@@ -170,11 +160,7 @@ test('browser reload retains saved form state and the displayed route', async ({
   await review.ready();
   // Typed text that never lost focus is saved when the page unloads.
   await review.frame.locator('input[name="note"]').fill('Save before reload.');
-  if (
-    (await page.locator('#toggle-review').getAttribute('aria-expanded')) !==
-    'true'
-  )
-    await page.locator('#toggle-review').click();
+  await review.expand();
   await Promise.all([
     page.waitForEvent(
       'framenavigated',
@@ -224,9 +210,7 @@ test('HTML fragment fetches preserve the displayed app and allow submissions', a
   expect(workspace.store.get(opened.session).events).toHaveLength(0);
   await review.connect();
   await page.locator('#send').click();
-  await expect
-    .poll(() => workspace.store.get(opened.session).events.length)
-    .toBe(1);
+  await review.events(1);
   await expect(page.locator('#error')).toBeHidden();
 });
 
@@ -244,9 +228,7 @@ test('dynamic HTML accepts submissions without a refresh loop', async ({
   await expect(page.locator('.draft')).toHaveCount(1);
   await review.connect();
   await page.locator('#send').click();
-  await expect
-    .poll(() => workspace.store.get(session.session).events.length)
-    .toBe(1);
+  await review.events(1);
   const deadline = Date.now() + 600;
   await expect
     .poll(() => {

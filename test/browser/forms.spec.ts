@@ -6,14 +6,7 @@ test('a form draft survives a lost HTTP response and refills the form', async ({
   review,
   workspace,
 }) => {
-  let dropped = false;
-  await page.route(`**/api/sessions/${plan.session}/drafts`, async (route) => {
-    if (!dropped) {
-      dropped = true;
-      await route.fetch();
-      await route.abort();
-    } else await route.continue();
-  });
+  await review.loseResponse('drafts');
   const outcome = review.frame.locator('input[name="outcome"]');
   const saved = () => workspace.form(plan.session, 'launch')?.outcome;
   await outcome.fill('Survive the lost response');
@@ -77,7 +70,6 @@ test('form values survive reload and Send delivers the current values', async ({
   const outcome = review.frame.locator('input[name="outcome"]');
   const notes = review.frame.locator('textarea[name="notes"]');
   const approach = review.frame.locator('input[value="platform-first"]');
-  const events = () => workspace.store.get(plan.session).events;
   await approach.check();
   await outcome.fill('A preserved outcome.');
   await outcome.blur();
@@ -87,7 +79,7 @@ test('form values survive reload and Send delivers the current values', async ({
   await expect
     .poll(() => workspace.form(plan.session, 'launch')?.confirmBeforeAction)
     .toBe(false);
-  expect(events()).toHaveLength(0);
+  expect(workspace.store.get(plan.session).events).toHaveLength(0);
   await page.reload();
   await review.ready();
   await expect(outcome).toHaveValue('A preserved outcome.');
@@ -95,8 +87,7 @@ test('form values survive reload and Send delivers the current values', async ({
   expect((await review.state()).drafts).toHaveLength(1);
   await review.connect();
   await page.locator('#send').click();
-  await expect.poll(() => events().length).toBe(1);
-  expect(events()[0].items[0].values).toMatchObject({
+  expect((await review.events(1))[0].items[0].values).toMatchObject({
     approach: 'platform-first',
     outcome: 'A preserved outcome.',
     notes: 'Exact note.',
@@ -207,7 +198,7 @@ test('form serialization handles repeated fields and excludes private or disable
   });
   await review.frame.getByRole('button', { name: 'Stage controls' }).click();
   await expect(page.locator('.draft')).toHaveCount(1);
-  expect((await review.state()).drafts[0].item.values).toEqual({
+  expect((await review.draft()).values).toEqual({
     repeated: ['one', 'two'],
     checks: ['a'],
     radio: 'yes',

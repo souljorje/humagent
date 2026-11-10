@@ -36,12 +36,11 @@ test('feedback rows highlight targets, open editors, and delete independently', 
     .poll(async () => (await highlight.boundingBox())!.y)
     .toBeCloseTo(firstTarget.y, 0);
   await rows.nth(0).click({ position: { x: 8, y: 40 } });
-  const note = review.frame.getByLabel('Comment', { exact: true });
   const cancel = review.frame.getByRole('button', {
     name: 'Cancel',
     exact: true,
   });
-  await expect(note).toHaveValue('First comment');
+  await expect(review.note).toHaveValue('First comment');
   await expect(markers.nth(0)).toHaveCSS('background-color', active);
   const panel = (await review.frame.locator('#panel').boundingBox())!;
   const secondTarget = (await review.frame
@@ -57,12 +56,12 @@ test('feedback rows highlight targets, open editors, and delete independently', 
     panel.y,
     0,
   );
-  await expect(note).toHaveValue('First comment');
+  await expect(review.note).toHaveValue('First comment');
   await page.locator('#message').hover();
   await expect(review.frame.locator('.marker.highlighted')).toHaveCount(0);
   await expect(markers.nth(1)).toHaveCSS('background-color', resting);
   await rows.nth(1).click({ position: { x: 8, y: 40 } });
-  await expect(note).toHaveValue('Second comment');
+  await expect(review.note).toHaveValue('Second comment');
   await cancel.click();
   const first = page.getByRole('button', {
     name: 'Edit feedback 1',
@@ -71,9 +70,9 @@ test('feedback rows highlight targets, open editors, and delete independently', 
   await first.focus();
   await expect(markers.nth(0)).toHaveCSS('background-color', active);
   await first.press('Enter');
-  await expect(note).toHaveValue('First comment');
+  await expect(review.note).toHaveValue('First comment');
   await cancel.click();
-  const id = (await review.state()).drafts[0].item.id;
+  const id = (await review.draft()).id;
   const trash = page.getByRole('button', {
     name: 'Delete feedback 2',
     exact: true,
@@ -84,5 +83,5 @@ test('feedback rows highlight targets, open editors, and delete independently', 
   await trash.click();
   await expect(rows).toHaveCount(1);
   await expect(review.frame.locator('#panel')).toBeHidden();
-  expect((await review.state()).drafts[0].item.id).toBe(id);
+  expect((await review.draft()).id).toBe(id);
 });

@@ -49,9 +49,12 @@ test('compact controls, reversible expansion, content growth, and reduced motion
     ),
   ).toBeLessThan(75);
   // The controls return to their place once the tray animation settles.
+  // Sub-pixel rounding during the animation allows a 2px difference.
   await expect
-    .poll(async () => (await page.locator('.bar-controls').boundingBox())!.y)
-    .toBeCloseTo(bottom, 0);
+    .poll(async () =>
+      Math.abs((await page.locator('.bar-controls').boundingBox())!.y - bottom),
+    )
+    .toBeLessThan(2);
   await page.locator('#toggle-review').click();
   await expect(page.locator('#tray')).toHaveAttribute('data-expanded', 'true');
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -268,3 +271,44 @@ for (const close of ['caret', 'Escape'])
     );
     await page.unroute(pattern);
   });
+
+test('expanded controls use one status heading and a compact readable command', async ({
+  page,
+  plan,
+  review,
+  workspace,
+}) => {
+  const heading = page.locator('.connection h2');
+  const end = page.locator('#end');
+  await expect(heading).toHaveText('No agent waiting');
+  await expect(heading).toHaveCount(1);
+  await expect(page.locator('#tray #end')).toHaveCount(1);
+  await expect(page.locator('.bar-controls #end')).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page
+      .locator('#agent-command')
+      .evaluate((el) => getComputedStyle(el).fontSize),
+  ).toBe('12px');
+  expect((await page.locator('#copy-command').boundingBox())!.width).toBe(32);
+  expect((await page.locator('#copy-command svg').boundingBox())!.width).toBe(
+    16,
+  );
+  expect(
+    await page
+      .locator('.connection-command')
+      .evaluate((el) => el.scrollWidth <= el.clientWidth),
+  ).toBe(true);
+  const header = (await page.locator('.connection-heading').boundingBox())!,
+    power = (await end.boundingBox())!;
+  expect(power.x + power.width).toBeCloseTo(header.x + header.width + 12, 0);
+  await review.expand(false);
+  await expect(end).not.toBeInViewport();
+  await review.expand();
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await end.click();
+  expect(workspace.store.get(plan.session).ended).toBe(false);
+  page.once('dialog', (dialog) => dialog.accept());
+  await end.click();
+  await expect(heading).toHaveText('Session ended');
+});

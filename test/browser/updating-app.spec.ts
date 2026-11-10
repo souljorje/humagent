@@ -89,19 +89,13 @@ test('frequent updates preserve annotations without global rescans in mini-apps'
   expect(result).toEqual({ globalScans: 0, buttonScans: 0, markerWrites: 0 });
   await expect(markers).toHaveCount(1);
   await markers.click();
-  await expect(review.frame.getByLabel('Comment', { exact: true })).toHaveValue(
-    'Keep this attached',
-  );
+  await expect(review.note).toHaveValue('Keep this attached');
   await review.frame
     .getByRole('button', { name: 'Cancel', exact: true })
     .click();
   await review.frame.locator('#busy-words').click();
-  const editor = review.frame.getByRole('textbox', {
-    name: 'Edit text',
-    exact: true,
-  });
-  await expect(editor).toBeFocused();
-  await editor.press('Escape');
+  await expect(review.editor).toBeFocused();
+  await review.editor.press('Escape');
   await review.evaluate(() => {
     document.body.dataset.presentations = '0';
     addEventListener('message', (event) => {

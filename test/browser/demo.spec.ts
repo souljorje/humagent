@@ -9,11 +9,7 @@ test('editing demo text preserves its layout at 390px', async ({
   await page.setViewportSize({ width: 390, height: 1000 });
   await review.open(workspace.file('plan.html'));
   await review.expand(false);
-  await page.locator('#annotate').click();
-  const editor = review.frame.getByRole('textbox', {
-    name: 'Edit text',
-    exact: true,
-  });
+  await review.annotate();
   for (const selector of [
     'h1',
     '.lede',
@@ -49,11 +45,11 @@ test('editing demo text preserves its layout at 390px', async ({
       });
     const before = await glyph();
     await target.click({ position: { x: before.clickX, y: before.clickY } });
-    await expect(editor).toBeFocused();
+    await expect(review.editor).toBeFocused();
     const after = await glyph();
     expect(after.x, selector).toBeCloseTo(before.x, 1);
     expect(after.y, selector).toBeCloseTo(before.y, 1);
-    await editor.press('Escape');
+    await review.editor.press('Escape');
     expect(await target.textContent()).toBe(original);
   }
 });

@@ -1,7 +1,5 @@
 :root {
   font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  color: #24362e;
-  background: #fcfdf9;
 }
 * {
   box-sizing: border-box;
@@ -10,14 +8,6 @@ body {
   max-width: 1040px;
   margin: 0 auto;
   padding: 48px 48px 64px;
-}
-small,
-.eyebrow {
-  font-size: 10px;
-  letter-spacing: 1.6px;
-  font-weight: 650;
-  color: #68806d;
-  text-transform: uppercase;
 }
 h1 {
   font-family: Georgia, serif;
@@ -53,32 +43,6 @@ header {
   border-radius: 12px;
   background: white;
 }
-.card:has(input:checked) {
-  border-color: #46866a;
-  box-shadow: 0 0 0 1px #46866a;
-  background: #f5faf2;
-}
-.card label {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-.card h2 {
-  margin: 0;
-}
-.card p {
-  font-size: 12px;
-  margin-bottom: 0;
-}
-.tag {
-  display: inline-block;
-  margin-bottom: 16px;
-  border-radius: 30px;
-  background: #edf3e8;
-  padding: 5px 9px;
-  font-size: 10px;
-  color: #55724c;
-}
 .fields {
   margin-top: 30px;
   padding-top: 24px;
@@ -104,14 +68,6 @@ textarea {
   font: inherit;
   font-weight: 400;
 }
-input[type='radio'],
-input[type='checkbox'] {
-  accent-color: #256c4b;
-}
-textarea {
-  min-height: 76px;
-  resize: vertical;
-}
 button {
   border: 0;
   border-radius: 8px;
@@ -130,11 +86,6 @@ input:focus-visible,
 textarea:focus-visible {
   outline: 3px solid #91bca0;
   outline-offset: 3px;
-}
-.muted {
-  font-size: 11px;
-  line-height: 1.8;
-  color: #7e8a7c;
 }
 output[data-humagent-status] {
   display: block;

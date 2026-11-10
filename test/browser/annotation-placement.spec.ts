@@ -8,7 +8,7 @@ test('markers retain the click position across editing, reload, and scrolling', 
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await review.expand(false);
-  await page.locator('#annotate').click();
+  await review.annotate();
   const target = review.frame.locator('h1');
   const bounds = (await target.boundingBox())!;
   const coordinates = {
@@ -17,9 +17,7 @@ test('markers retain the click position across editing, reload, and scrolling', 
     space: 'document',
   };
   await target.click({ position: { x: 30, y: 20 } });
-  await review.frame
-    .getByLabel('Comment', { exact: true })
-    .fill('Keep the marker here');
+  await review.note.fill('Keep the marker here');
   await review.frame.getByRole('button', { name: 'Confirm text edit' }).click();
   const marker = review.frame.locator('.marker');
   await expect(marker).toBeVisible();
@@ -29,9 +27,7 @@ test('markers retain the click position across editing, reload, and scrolling', 
   const draft = (await review.state()).drafts[0];
   expect(draft.marker).toBeDefined();
   await marker.click();
-  await review.frame
-    .getByLabel('Comment', { exact: true })
-    .fill('Updated comment');
+  await review.note.fill('Updated comment');
   await review.frame.getByRole('button', { name: 'Save', exact: true }).click();
   expect((await review.state()).drafts[0].marker).toEqual(draft.marker);
   expect((await marker.boundingBox())!.x).toBeCloseTo(first.x, 0);
@@ -95,22 +91,18 @@ test('button labels edit without activation', async ({
     label = review.frame.locator('#button-label');
   const cursor = (locator: typeof button) =>
     locator.evaluate((el) => getComputedStyle(el).cursor);
-  await annotate.click();
+  await review.annotate();
   await button.hover({ position: { x: 5, y: 5 } });
   await expect.poll(() => cursor(button)).toBe('pointer');
   await label.hover();
   await expect.poll(() => cursor(label)).toBe('pointer');
   await label.click();
-  const editor = review.frame.getByRole('textbox', {
-    name: 'Edit text',
-    exact: true,
-  });
-  await expect(editor).toBeFocused();
-  await editor.fill('New label');
-  await editor.click({ position: { x: 5, y: 5 } });
+  await expect(review.editor).toBeFocused();
+  await review.editor.fill('New label');
+  await review.editor.click({ position: { x: 5, y: 5 } });
   await page.keyboard.press('Space');
   expect(await activations()).toBe('0');
-  await editor.press('Escape');
+  await review.editor.press('Escape');
   await expect(label).toHaveText('Alpha beta gamma');
   const bounds = (await label.boundingBox())!;
   const y = bounds.y + bounds.height / 2;
@@ -118,14 +110,12 @@ test('button labels edit without activation', async ({
   await page.mouse.down();
   await page.mouse.move(bounds.x + 65, y, { steps: 10 });
   await page.mouse.up();
-  await expect(editor).toBeFocused();
+  await expect(review.editor).toBeFocused();
   await page.keyboard.type('Changed');
-  await review.frame
-    .getByLabel('Comment', { exact: true })
-    .fill('Clearer label');
+  await review.note.fill('Clearer label');
   await review.frame.getByRole('button', { name: 'Confirm text edit' }).click();
   await expect(review.frame.locator('#panel')).toBeHidden();
-  expect((await review.state()).drafts[0].item).toMatchObject({
+  expect(await review.draft()).toMatchObject({
     comment: 'Clearer label',
     replacement: { before: 'Alpha beta gamma' },
   });

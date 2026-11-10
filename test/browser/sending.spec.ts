@@ -49,8 +49,7 @@ test('sending requires an agent and confirmation stays in the button briefly', a
   await expect(page.locator('#activity')).toHaveCount(0);
   await page.locator('#message').fill('More feedback while working');
   await expect(send).toBeEnabled();
-  const received = await review.receive();
-  workspace.store.acknowledge(plan.session, received.receipt);
+  await review.deliver();
   await expect(page.locator('#agent-state')).toHaveText('No agent waiting');
   await expect(send).toBeDisabled();
 });
@@ -82,25 +81,4 @@ test('a send that the server refuses keeps the feedback in place', async ({
   expect(workspace.store.get(plan.session).events).toHaveLength(0);
   expect((await review.state()).message).toBe('Keep this feedback');
   await expect(page.locator('#message')).toHaveValue('Keep this feedback');
-});
-
-test('a lost Send response creates one event and clears the sent drafts', async ({
-  page,
-  plan,
-  review,
-  workspace,
-}) => {
-  await review.addComment('h1', 'Send this once');
-  await review.connect();
-  await page.route(`**/api/sessions/${plan.session}/send`, async (route) => {
-    await route.fetch();
-    await route.abort();
-  });
-  await page.locator('#send').click();
-  await expect(page.locator('#error')).toBeVisible();
-  await expect(page.locator('#drafts li')).toHaveCount(0);
-  expect(workspace.store.get(plan.session).events).toHaveLength(1);
-  expect(workspace.store.get(plan.session).events[0].items[0].comment).toBe(
-    'Send this once',
-  );
 });

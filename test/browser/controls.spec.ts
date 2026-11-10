@@ -6,23 +6,18 @@ test('one popover confirms text and comments together and cancels either field',
   review,
 }) => {
   await review.replace('h1', 'Saved wording');
-  const original = (await review.state()).drafts[0].item;
+  const original = await review.draft();
   await review.frame.locator('.marker').click();
-  const text = review.frame.getByRole('textbox', {
-    name: 'Edit text',
-    exact: true,
-  });
-  const note = review.frame.getByLabel('Comment', { exact: true });
   const save = review.frame.getByRole('button', { name: 'Save', exact: true });
-  await expect(text).toBeFocused();
+  await expect(review.editor).toBeFocused();
   await expect(review.frame.getByRole('dialog')).toHaveCount(1);
   await expect(save).toBeDisabled();
-  await note.fill('Explain this change');
+  await review.note.fill('Explain this change');
   await expect(save).toBeEnabled();
-  await text.fill('Better wording');
+  await review.editor.fill('Better wording');
   await save.click();
-  await expect(text).toHaveCount(0);
-  expect((await review.state()).drafts[0].item).toMatchObject({
+  await expect(review.editor).toHaveCount(0);
+  expect(await review.draft()).toMatchObject({
     id: original.id,
     comment: 'Explain this change',
     replacement: {
@@ -32,10 +27,10 @@ test('one popover confirms text and comments together and cancels either field',
   });
   await review.frame.locator('.marker').click();
   await expect(save).toBeDisabled();
-  await note.fill('Unconfirmed reason');
+  await review.note.fill('Unconfirmed reason');
   await expect(page.locator('#send')).toBeDisabled();
   await page.mouse.click(2, 2);
-  await expect(note).toBeFocused();
+  await expect(review.note).toBeFocused();
   expect(
     await review.frame
       .locator('#panel')
@@ -43,29 +38,25 @@ test('one popover confirms text and comments together and cancels either field',
         el.getAnimations().some((a) => a.effect?.getTiming().duration === 180),
       ),
   ).toBe(true);
-  await note.press('Escape');
-  expect((await review.state()).drafts[0].item.comment).toBe(
-    'Explain this change',
-  );
+  await review.note.press('Escape');
+  expect((await review.draft()).comment).toBe('Explain this change');
   await review.frame.locator('.marker').click();
-  await note.fill('Remove this wording');
-  await text.fill('');
+  await review.note.fill('Remove this wording');
+  await review.editor.fill('');
   await save.click();
-  await expect(text).toHaveCount(0);
-  expect((await review.state()).drafts[0].item).toMatchObject({
+  await expect(review.editor).toHaveCount(0);
+  expect(await review.draft()).toMatchObject({
     comment: 'Remove this wording',
     replacement: { after: '' },
   });
   await review.frame.locator('.marker').click();
-  await note.fill('Discard this');
-  await text.fill('Discard this too');
+  await review.note.fill('Discard this');
+  await review.editor.fill('Discard this too');
   await review.frame
     .getByRole('button', { name: 'Cancel', exact: true })
     .click();
   await expect(review.frame.locator('h1')).toHaveText('');
-  expect((await review.state()).drafts[0].item.comment).toBe(
-    'Remove this wording',
-  );
+  expect((await review.draft()).comment).toBe('Remove this wording');
 });
 
 test('a selected text comment omits a no-op replacement and shares bar input styles', async ({
@@ -73,27 +64,9 @@ test('a selected text comment omits a no-op replacement and shares bar input sty
   plan: _plan,
   review,
 }) => {
-  await page.locator('#annotate').click();
-  await expect(page.locator('#annotate')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  await review.evaluate(() => {
-    const node = document.querySelector('h1')!.firstChild!;
-    const range = document.createRange();
-    range.selectNodeContents(node);
-    getSelection()!.removeAllRanges();
-    getSelection()!.addRange(range);
-    node.parentElement!.dispatchEvent(
-      new MouseEvent('mouseup', { bubbles: true }),
-    );
-  });
-  const text = review.frame.getByRole('textbox', {
-    name: 'Edit text',
-    exact: true,
-  });
-  const note = review.frame.getByLabel('Comment', { exact: true });
-  await expect(text).toBeFocused();
+  await review.annotate();
+  await review.selectText('h1');
+  await expect(review.editor).toBeFocused();
   await expect(
     review.frame.getByRole('button', { name: 'Confirm text edit' }),
   ).toBeDisabled();
@@ -103,13 +76,13 @@ test('a selected text comment omits a no-op replacement and shares bar input sty
       p = getComputedStyle(el, '::placeholder');
     return [s.backgroundColor, s.borderRadius, s.font, s.padding, p.color];
   };
-  expect(await note.evaluate(styles)).toEqual(
+  expect(await review.note.evaluate(styles)).toEqual(
     await page.locator('#message').evaluate(styles),
   );
-  await note.fill('Keep the wording; change its emphasis.');
+  await review.note.fill('Keep the wording; change its emphasis.');
   await review.frame.getByRole('button', { name: 'Confirm text edit' }).click();
-  await expect(text).toHaveCount(0);
-  const item = (await review.state()).drafts[0].item;
+  await expect(review.editor).toHaveCount(0);
+  const item = await review.draft();
   expect(item.comment).toBe('Keep the wording; change its emphasis.');
   expect(item.replacement).toBeUndefined();
 });
@@ -140,11 +113,7 @@ test('ARIA controls retain their native cursors while commenting', async ({
     toggle.textContent = 'Unstyled switch';
     document.body.prepend(host, checkbox, toggle);
   });
-  await page.locator('#annotate').click();
-  await expect(page.locator('#annotate')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await review.annotate();
   const cursor = (selector: string) =>
     review.frame
       .locator(selector)

@@ -6,7 +6,7 @@ test('old document messages cannot edit or remove current feedback', async ({
   review,
 }) => {
   await review.addComment('h1', 'Keep this');
-  const id = (await review.state()).drafts[0].item.id;
+  const id = (await review.draft()).id;
   await review.evaluate((draftId) => {
     const boot = window.__HUMAGENT__!;
     for (const method of ['edit', 'remove'])
@@ -22,7 +22,7 @@ test('old document messages cannot edit or remove current feedback', async ({
       );
   }, id);
   await expect(review.frame.locator('.marker')).toHaveCount(1);
-  expect((await review.state()).drafts[0].item.comment).toBe('Keep this');
+  expect((await review.draft()).comment).toBe('Keep this');
 });
 
 test('commenting stays enabled, hover highlights, and confirmation creates a clickable marker', async ({
@@ -31,20 +31,14 @@ test('commenting stays enabled, hover highlights, and confirmation creates a cli
   review,
 }) => {
   await review.expand(false);
-  await expect(page.locator('#toggle-review')).toHaveAttribute(
-    'aria-expanded',
-    'false',
-  );
-  await page.locator('#annotate').click();
+  await review.annotate();
   await review.frame.locator('h1').hover();
   await expect(review.frame.locator('#highlight')).toBeVisible();
   await review.frame.locator('h1').click();
   await expect(
     review.frame.getByRole('button', { name: 'Confirm text edit' }),
   ).toBeDisabled();
-  await review.frame
-    .getByLabel('Comment', { exact: true })
-    .fill('Shorter heading');
+  await review.note.fill('Shorter heading');
   await review.frame.getByRole('button', { name: 'Confirm text edit' }).click();
   await expect(page.locator('#annotate')).toHaveAttribute(
     'aria-pressed',
@@ -58,9 +52,7 @@ test('commenting stays enabled, hover highlights, and confirmation creates a cli
   await page.locator('#annotate').click();
   await review.frame.locator('input[name="outcome"]').fill('Native input');
   await review.frame.locator('.marker').click();
-  await expect(review.frame.getByLabel('Comment', { exact: true })).toHaveValue(
-    'Shorter heading',
-  );
+  await expect(review.note).toHaveValue('Shorter heading');
   await expect(
     review.frame.getByRole('button', { name: 'Save', exact: true }),
   ).toBeDisabled();
@@ -72,11 +64,9 @@ test('unfinished feedback survives reselection and blocks refresh and send', asy
   review,
 }) => {
   await page.locator('#message').fill('Overall instruction');
-  await page.locator('#annotate').click();
+  await review.annotate();
   await review.frame.locator('h1').click();
-  await review.frame
-    .getByLabel('Comment', { exact: true })
-    .fill('Keep this unfinished note');
+  await review.note.fill('Keep this unfinished note');
   await review.evaluate(() =>
     document
       .querySelector('[data-humagent-id="brief"]')!
@@ -84,9 +74,7 @@ test('unfinished feedback survives reselection and blocks refresh and send', asy
         new MouseEvent('click', { bubbles: true, cancelable: true }),
       ),
   );
-  await expect(review.frame.getByLabel('Comment', { exact: true })).toHaveValue(
-    'Keep this unfinished note',
-  );
+  await expect(review.note).toHaveValue('Keep this unfinished note');
   await expect(page.locator('#send')).toBeDisabled();
   const documentId = await review.evaluate(
     () => window.__HUMAGENT__!.documentId,
@@ -165,37 +153,28 @@ for (const trigger of ['button', 'Control+Enter'])
   }) => {
     await review.addComment('h1', 'Original comment');
     await review.frame.locator('.marker').click();
-    await review.frame
-      .getByLabel('Comment', { exact: true })
-      .fill('Updated comment');
+    await review.note.fill('Updated comment');
     await expect(page.locator('#send')).toBeDisabled();
     if (trigger === 'button')
       await page.locator('#send').dispatchEvent('click');
     else await page.locator('#message').press(trigger);
     expect(workspace.store.get(plan.session).events).toHaveLength(0);
-    await expect(
-      review.frame.getByLabel('Comment', { exact: true }),
-    ).toHaveValue('Updated comment');
-    expect((await review.state()).drafts[0].item.comment).toBe(
-      'Original comment',
-    );
+    await expect(review.note).toHaveValue('Updated comment');
+    expect((await review.draft()).comment).toBe('Original comment');
     const cancelled = trigger === 'button';
     await review.frame
       .getByRole('button', { name: cancelled ? 'Cancel' : 'Save', exact: true })
       .click();
     await review.connect();
     await page.locator('#send').click();
-    await expect
-      .poll(() => workspace.store.get(plan.session).events.length)
-      .toBe(1);
-    expect(workspace.store.get(plan.session).events[0].items[0].comment).toBe(
+    expect((await review.events(1))[0].items[0].comment).toBe(
       cancelled ? 'Original comment' : 'Updated comment',
     );
   });
 
 test('comments and exact deletion send in creation order without changing source', async ({
   page,
-  plan,
+  plan: _plan,
   review,
   workspace,
 }) => {
@@ -211,12 +190,9 @@ test('comments and exact deletion send in creation order without changing source
   await page.locator('#message').fill('Apply these together.');
   await review.connect();
   await page.locator('#send').click();
-  await expect
-    .poll(() => workspace.store.get(plan.session).events.length)
-    .toBe(1);
+  const [event] = await review.events(1);
   await expect(review.frame.locator('.marker:visible')).toHaveCount(0);
   await expect(page.locator('#send')).toHaveText('Sent');
-  const event = workspace.store.get(plan.session).events[0];
   expect(
     event.items.map((item) => item.comment || item.replacement!.after),
   ).toEqual(['A shorter heading.', 'Keep these boundaries.', '']);
@@ -229,9 +205,7 @@ test('comments and exact deletion send in creation order without changing source
     revision: event.revision,
   });
   expect(await review.frame.locator('h1').textContent()).toBe('');
-  const receipt = await review.receive();
-  if (receipt?.status !== 'feedback') throw new Error('Expected feedback');
-  workspace.store.acknowledge(plan.session, receipt.receipt);
+  await review.deliver();
   await expect(review.frame.locator('h1')).toHaveText(original!);
   expect(fs.readFileSync(workspace.file(), 'utf8')).toBe(source);
 });
@@ -248,7 +222,7 @@ test('reused targets become unavailable when data-humagent-id changes', async ({
   });
   await review.addComment('h1', 'Keep my original target');
   await expect(review.frame.locator('.marker')).toHaveCount(1);
-  const target = (await review.state()).drafts[0].item.target;
+  const target = (await review.draft()).target;
   await review.evaluate(() => {
     document
       .querySelector('h1')!
@@ -258,7 +232,56 @@ test('reused targets become unavailable when data-humagent-id changes', async ({
     'Target unavailable',
   );
   await expect(review.frame.locator('.marker:visible')).toHaveCount(0);
-  expect((await review.state()).drafts[0].item.target).toEqual(target);
+  expect((await review.draft()).target).toEqual(target);
+});
+
+test('comments follow selectors through text changes and rerenders in a mini-app', async ({
+  page,
+  plan: _plan,
+  review,
+}) => {
+  await review.expand(false);
+  await review.evaluate(() => {
+    const host = document.createElement('div');
+    host.id = 'comment-host';
+    host.style.cssText = 'position:fixed;left:40px;top:40px;width:400px';
+    host.innerHTML =
+      '<section style="height:180px;padding:20px"><p>Live section</p><button>Count: 0</button></section>';
+    document.body.prepend(host);
+  });
+  await review.annotate();
+  const target = review.frame.locator('#comment-host section');
+  await target.click({ position: { x: 350, y: 160 } });
+  const status = page.locator('.draft-status');
+  await review.note.fill('Keep this comment attached');
+  await review.note.press('Enter');
+  await expect(review.frame.locator('#panel')).toBeHidden();
+  const original = (await review.state()).drafts[0];
+  await target
+    .locator('button')
+    .evaluate((el) => (el.textContent = 'Count: 3'));
+  await review.frame.locator('.marker').click();
+  await expect(review.note).toHaveValue('Keep this comment attached');
+  await review.note.fill('Updated comment');
+  await target.evaluate((el) => el.replaceWith(el.cloneNode(true)));
+  await review.note.press('Enter');
+  await expect(review.frame.locator('#panel')).toBeHidden();
+  await expect(status).toHaveCount(0);
+  const updated = (await review.state()).drafts[0];
+  expect(updated.item.id).toBe(original.item.id);
+  expect(updated.item.target).toEqual(original.item.target);
+  expect(updated.item.comment).toBe('Updated comment');
+  await target.evaluate((el) => el.remove());
+  await expect(status).toContainText('Target unavailable');
+  await review.evaluate(() => {
+    document.querySelector('#comment-host')!.innerHTML =
+      '<section style="height:180px;padding:20px">Replacement content</section>';
+  });
+  await expect(status).toHaveCount(0);
+  await review.frame.locator('.marker').click();
+  await expect(review.note).toHaveValue('Updated comment');
+  await target.evaluate((el) => el.after(el.cloneNode(true)));
+  await expect(status).toContainText('Target unavailable');
 });
 
 test('stale feedback remains visible and blocks sending after explicit refresh', async ({
@@ -308,6 +331,12 @@ test('frame credentials stay isolated and foreign bridge messages cannot stage f
   expect(
     await review.evaluate(() => JSON.stringify(window.__HUMAGENT__)),
   ).not.toContain(new URL(plan.url).hash.slice(1));
+  const sandbox = await page.locator('#frame').getAttribute('sandbox');
+  for (const token of ['allow-scripts', 'allow-forms', 'allow-same-origin'])
+    expect(sandbox).toContain(token);
+  for (const token of ['allow-top-navigation', 'allow-popups'])
+    expect(sandbox).not.toContain(token);
+  await expect(review.frame.locator('h1')).toBeVisible();
 });
 
 test('two tabs edit one session and see each other’s feedback', async ({
