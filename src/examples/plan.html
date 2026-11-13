@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Humagent demo</title>
+    <link rel="stylesheet" href="plan.css" />
+  </head>
+  <body>
+    <header>
+      <span class="brand">Humagent</span>
+      <span class="label">Interactive demo</span>
+    </header>
+    <main>
+      <section class="intro" aria-labelledby="headline">
+        <h1 id="headline" data-humagent-id="headline">
+          Show your agent what you mean.
+        </h1>
+        <p class="lede">
+          Point at any part of a page, rewrite its text, and answer its
+          questions. Humagent collects all of it into one review for your agent.
+        </p>
+      </section>
+
+      <ol class="steps" aria-label="How a review works">
+        <li>
+          <h3>Connect</h3>
+          <p>
+            Expand the bar at the bottom. Paste its wait command into your agent
+            chat.
+          </p>
+        </li>
+        <li>
+          <h3>Review</h3>
+          <p>
+            Turn on commenting in the bar. Click any element on this page to
+            comment on it, or click its text to rewrite it.
+          </p>
+        </li>
+        <li>
+          <h3>Send</h3>
+          <p>
+            Add an overall instruction if you want. Choose Send to deliver
+            everything as one review.
+          </p>
+        </li>
+      </ol>
+
+      <section class="plan" aria-labelledby="plan-title">
+        <h2 id="plan-title">Plan your next change.</h2>
+        <p class="note">
+          Agents can ask for structured choices. Your answers join the review as
+          you change them.
+        </p>
+        <form
+          id="review-plan"
+          aria-labelledby="plan-title"
+          data-humagent-intent="plan_review"
+          data-humagent-message="Use these preferences to propose the next change to this page. Do not execute or publish anything."
+        >
+          <fieldset>
+            <legend>What should the agent change first?</legend>
+            <label class="choice">
+              <input type="radio" name="workflow" value="copy" checked />
+              The wording
+            </label>
+            <label class="choice">
+              <input type="radio" name="workflow" value="layout" />
+              The layout
+            </label>
+            <label class="choice">
+              <input type="radio" name="workflow" value="behavior" />
+              The interactions
+            </label>
+          </fieldset>
+          <label class="field">
+            What would a good result look like?
+            <input
+              type="text"
+              name="outcome"
+              value="Clearer copy and a tighter first screen."
+            />
+          </label>
+          <label class="field">
+            How much should change per pass?
+            <select name="focus">
+              <option value="clarity">Small fixes only</option>
+              <option value="layout">One section at a time</option>
+              <option value="behavior">A full polish pass</option>
+            </select>
+          </label>
+          <label class="field">
+            Anything to leave alone?
+            <textarea
+              name="notes"
+              rows="2"
+              placeholder="Existing behavior, tone, or constraints…"
+            ></textarea>
+          </label>
+          <label class="choice">
+            <input type="checkbox" name="preserveBehavior" checked />
+            Keep what already works
+          </label>
+          <output data-humagent-status role="status"></output>
+        </form>
+      </section>
+
+      <section class="own" aria-labelledby="own-title">
+        <h2 id="own-title">Use it on your own pages.</h2>
+        <p class="note">
+          Run <code>humagent open ./page.html</code> for an HTML file, or
+          <code>humagent open http://localhost:3000</code> for a running local
+          app.
+        </p>
+        <p class="note">
+          Enter confirms an edit. Shift and Enter add a new line. Escape
+          cancels. Arrow keys move between elements while commenting.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

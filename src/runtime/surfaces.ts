@@ -1,13 +1,14 @@
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { randomBytes, createHash } from 'node:crypto';
 import { gunzipSync, inflateSync, brotliDecompressSync } from 'node:zlib';
-import { ensure, Failure, type Target } from './protocol.js';
+import { ensure, Failure, localUrl } from './validate.js';
+import type { Target } from '../shared/feedback.js';
 import type { Store } from './store.js';
+import { browserAsset } from './assets.js';
+import type { Bootstrap } from '../shared/bridge.js';
 
-const SDK = fileURLToPath(new URL('../sdk/', import.meta.url));
 const LIMIT = 8 * 1024 * 1024;
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -28,7 +29,9 @@ const MIME: Record<string, string> = {
   '.wasm': 'application/wasm',
   '.txt': 'text/plain',
 };
-export const digest = (value: string | Buffer) =>
+/** Browser modules of the page SDK. */
+const SDK_ASSET = /^\/(?:sdk|shared)\/[a-z][a-z0-9-]*\.(?:js|css|html)$/;
+const digest = (value: string | Buffer) =>
   createHash('sha256').update(value).digest('hex');
 export async function targetOf(
   value: string,
@@ -37,10 +40,7 @@ export async function targetOf(
   if (/^https?:/i.test(value)) {
     const url = new URL(value);
     ensure(
-      url.protocol === 'http:' &&
-        ['localhost', '127.0.0.1'].includes(url.hostname) &&
-        !url.username &&
-        !url.password,
+      localUrl(url),
       'Only explicit HTTP localhost/127.0.0.1 targets are supported',
     );
     url.hostname = '127.0.0.1';
@@ -157,16 +157,20 @@ export async function sourceRevision(target: Target) {
       : await fetchDocument(new URL(target.value)),
   );
 }
-function inject(html: string, bootstrap: object) {
+function initializeFrame(bootstrap: Bootstrap) {
+  if (parent === top) window.__HUMAGENT__ = bootstrap;
+}
+function inject(html: string, bootstrap: Bootstrap) {
   // Insert after the initial doctype, not a regex-matched </body> inside a script.
   const prefix = /^\s*<!doctype[^>]*>/i.exec(html)?.[0] ?? '';
   const encoded = JSON.stringify(bootstrap).replaceAll('<', '\\u003c');
-  return `${prefix}<script>window.__HUMAGENT__=${encoded}</script><script type="module" src="/__humagent/sdk.js"></script>${html.slice(prefix.length)}`;
+  return `${prefix}<script>(${initializeFrame.toString()})(${encoded})</script><script type="module" src="/__humagent/sdk/sdk.js"></script>${html.slice(prefix.length)}`;
 }
 export interface Surface {
   origin: string;
   frameUrl: string;
   channel: string;
+  activate: (documentId: unknown) => void;
   checkRevision: () => Promise<string>;
   close: () => Promise<void>;
 }
@@ -185,6 +189,8 @@ export async function startSurface(
       : new URL(target.value).pathname + new URL(target.value).search);
   const upstreamOrigin =
     target.kind === 'url' ? new URL(target.value).origin : '';
+  const documents = new Map<string, { route: string; revision: string }>();
+  let activeDocument: string;
   async function revision() {
     if (target.kind === 'url') return store.get(id).revision;
     const bytes = await fs.readFile(
@@ -195,15 +201,16 @@ export async function startSurface(
     return hash;
   }
   function decorated(bytes: Buffer, route: string) {
-    currentPath = route;
     const hash = digest(bytes);
-    store.setRevision(id, hash, currentPath);
+    const documentId = randomBytes(16).toString('hex');
+    documents.set(documentId, { route, revision: hash });
+    if (documents.size > 256) documents.delete(documents.keys().next().value!);
     return inject(bytes.toString('utf8'), {
-      protocol: 1,
       session: id,
       channel,
       parentOrigin,
       revision: hash,
+      documentId,
       sourceUrl:
         target.kind === 'file'
           ? path.resolve(
@@ -240,18 +247,14 @@ export async function startSurface(
       if (requestOrigin && !['GET', 'HEAD'].includes(req.method ?? 'GET'))
         ensure(requestOrigin === origin, 'Foreign origin', 'FORBIDDEN', 403);
       if (rawPath.startsWith('/__humagent/')) {
-        const name = rawPath.slice('/__humagent/'.length);
-        ensure(
-          ['sdk.js', 'json.js', 'targets.js'].includes(name),
-          'Not found',
-          'NOT_FOUND',
-          404,
-        );
+        const name = rawPath.slice('/__humagent'.length);
+        const asset = SDK_ASSET.test(name) && (await browserAsset(name));
+        ensure(asset, 'Not found', 'NOT_FOUND', 404);
         res.writeHead(200, {
           'content-type': 'text/javascript',
           'cache-control': 'no-store',
         });
-        return res.end(await fs.readFile(path.join(SDK, name)));
+        return res.end(asset);
       }
       if (target.kind === 'file') {
         ensure(
@@ -414,6 +417,20 @@ export async function startSurface(
   return {
     origin,
     channel,
+    activate(documentId) {
+      ensure(typeof documentId === 'string', 'Missing document identity');
+      if (documentId === activeDocument) return;
+      const document = documents.get(documentId);
+      ensure(
+        document,
+        'Document expired. Refresh the page.',
+        'STALE_DOCUMENT',
+        409,
+      );
+      currentPath = document.route;
+      store.setRevision(id, document.revision, currentPath);
+      activeDocument = documentId;
+    },
     get frameUrl() {
       return origin + currentPath;
     },

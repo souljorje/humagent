@@ -1,7 +1,7 @@
 {
   "name": "humagent",
   "version": "0.1.0",
-  "description": "Work with your AI agent through pages, prototypes, and local apps.",
+  "description": "Comment on, rewrite, and answer local pages and apps, then send your AI agent one structured review.",
   "type": "module",
   "license": "MIT",
   "packageManager": "bun@1.4.4",
@@ -16,18 +16,17 @@
       "types": "./dist/runtime/server.d.ts",
       "import": "./dist/runtime/server.js"
     },
-    "./protocol": {
-      "types": "./dist/runtime/protocol.d.ts",
-      "import": "./dist/runtime/protocol.js"
+    "./feedback": {
+      "types": "./dist/shared/feedback.d.ts",
+      "import": "./dist/shared/feedback.js"
     }
   },
   "files": [
     "dist",
-    "skills",
-    "examples",
-    "docs/CLI.md",
-    "docs/SDK.md",
-    "docs/SECURITY.md",
+    "docs",
+    "CONTRIBUTING.md",
+    "AGENTS.md",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE"
   ],
@@ -36,22 +35,27 @@
     "url": "https://github.com/souljorje/humagent.git"
   },
   "scripts": {
-    "build": "bun scripts/build.mjs",
+    "changeset": "changeset",
+    "version:packages": "changeset version && bun install --lockfile-only --ignore-scripts",
+    "build": "bun scripts/build.ts",
     "lint": "bunx --bun --no-install oxlint src scripts test",
-    "format": "bunx --bun --no-install oxfmt src test scripts tsconfig.json package.json",
-    "format:check": "bunx --bun --no-install oxfmt --check src test scripts tsconfig.json package.json",
-    "typecheck": "bun ./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
-    "test": "bun run build && bun test ./test/*.test.mjs --timeout 15000",
+    "format": "bunx --bun --no-install oxfmt src test scripts tsconfig*.json package.json",
+    "format:check": "bunx --bun --no-install oxfmt --check src test scripts tsconfig*.json package.json",
+    "typecheck": "bun ./node_modules/typescript/bin/tsc -p tsconfig.tools.json",
+    "test": "bun run build && bun test ./test/*.test.ts --timeout 15000",
     "test:browser": "bun run build && bun run test:browser:built",
-    "test:browser:built": "playwright test --config test/playwright.config.mjs",
-    "check": "bun run format:check && bun run test",
+    "test:browser:built": "playwright test --config test/playwright.config.ts",
+    "check": "bun run format:check && bun run lint && bun run build && bun run typecheck && bun test ./test/*.test.ts --timeout 15000",
     "prepack": "bun run build",
-    "test:install": "node test/install.mjs",
-    "test:runners": "bun test/runners.mjs",
-    "check:release": "bun run check && bun run test:browser:built && bun pm pack --ignore-scripts && bun run test:install && bun run test:runners"
+    "test:install": "node test/install.ts",
+    "test:runners": "bun test/runners.ts",
+    "check:release": "bun scripts/release.ts",
+    "release": "bun scripts/release.ts --publish"
   },
   "devDependencies": {
+    "@changesets/cli": "3.0.3",
     "@playwright/test": "1.56.1",
+    "@types/bun": "1.4.4",
     "@types/node": "25.1.0",
     "oxfmt": "0.75.0",
     "oxlint": "1.90.0",

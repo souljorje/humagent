@@ -2,21 +2,25 @@
 
 Preserve application behavior. Keep task-specific requests as data, not backend handlers.
 
-## Runtime and checks
+## Runtime
 
 Use Bun 1.4.4 for development, dependencies, builds, and tests. Keep `bun.lock` and frozen installation in CI.
 
-Use TypeScript for the server and CLI. Use browser-native modules for the workspace.
+Use TypeScript for application code, examples, scripts, and tests. Compile browser code to native JavaScript modules.
 
 Published JavaScript must run on Node.js 24+ and Bun 1.4.4+. Keep the Node shebang for npm/npx compatibility.
 Child servers must use the CLI's runtime executable. npm users must not need Bun.
 
-Run `bun run check` after code changes. Run `bun run test:browser` after browser changes.
-
-Run `bun pm pack` before `bun run test:install`.
-Test both an existing app and a generated mini-app. Report checks that cannot run in the change summary.
-
 Keep temporary output in `.local/`.
+
+## Validation
+
+Run `bun run check` after each coding increment.
+For browser or SDK changes, run `bun run test:browser:built` after the main check. CI runs both on pull requests.
+
+Follow [release instructions](CONTRIBUTING.md#changesets-and-release) for versioning, archive verification, and publication.
+
+Report executed checks and limits. Do not claim unexecuted tests passed.
 
 ## Data and permissions
 
@@ -42,6 +46,6 @@ Preserve conditions, numbers, scope, and uncertainty. Do not claim dictionary co
 
 ## Release
 
-Ship compiled JavaScript, browser assets, examples, and the skill. Installation must not run build or download scripts.
+Ship compiled JavaScript, browser assets, and examples. The skill installs separately with `npx skills`. Installation must not run build or download scripts.
 
 Do not publish, merge, deploy, or expose local ports without authorization.

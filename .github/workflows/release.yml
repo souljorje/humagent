@@ -1,52 +1,55 @@
 name: Release
+
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      version:
-        description: Package version from package.json
-        required: true
-        type: string
-      publish:
-        description: Publish to npm and create a GitHub release
-        required: true
-        default: false
-        type: boolean
+
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
+  id-token: write
+  actions: write
+
 concurrency:
-  group: npm-release
+  group: release-main
   cancel-in-progress: false
+
 jobs:
-  verify:
-    uses: ./.github/workflows/check.yml
-  publish:
-    needs: verify
-    if: inputs.publish && github.ref == 'refs/heads/main'
+  release:
+    if: github.repository == 'souljorje/humagent' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    environment: npm
-    permissions:
-      contents: write
-      id-token: write
+    timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - uses: actions/download-artifact@v4
+          registry-url: https://registry.npmjs.org
+      - uses: oven-sh/setup-bun@v2
         with:
-          name: release-candidate
-      - name: Publish the verified archive
-        uses: JS-DevTools/npm-publish@v4
+          bun-version: '1.4.4'
+      - run: bun install --frozen-lockfile
+      # The release script runs browser tests before it publishes.
+      - run: bunx --no-install playwright install --with-deps chromium
+      - id: changesets
+        uses: changesets/action@v2.1.2
         with:
-          token: ${{ secrets.NPM_TOKEN }}
-          package: humagent-${{ inputs.version }}.tgz
-          access: public
-          provenance: true
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: v${{ inputs.version }}
-          target_commitish: ${{ github.sha }}
-          files: humagent-${{ inputs.version }}.tgz
-          fail_on_unmatched_files: true
-          generate_release_notes: true
+          version-script: bun run version:packages
+          publish-script: bun run release
+          commit-message: 'chore(release): version humagent'
+          pr-title: 'chore(release): version humagent'
+        env:
+          NPM_CONFIG_PROVENANCE: 'true'
+      # Version PRs created with the workflow token do not trigger normal PR CI.
+      - name: Check version PR
+        if: steps.changesets.outputs.pr-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.changesets.outputs.pr-number }}
+        run: |
+          branch=$(gh pr view "$PR_NUMBER" --json headRefName --jq .headRefName)
+          gh workflow run check.yml --ref "$branch"

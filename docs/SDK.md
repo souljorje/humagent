@@ -1,94 +1,138 @@
 # Forms and SDK
 
-Humagent adds `window.humagent` to attached pages. Use a marked form to send named values:
+Humagent injects its SDK into supported local HTML and HTTP localhost apps. Generic comments and text previews need no integration.
+
+## Declarative forms
 
 ```html
-<form id="plan" data-humagent-intent="revise_plan" data-humagent-persist>
-  <label>Approach <select name="approach">
-    <option value="pilot">Pilot first</option>
-    <option value="platform">Platform first</option>
-  </select></label>
-  <button type="submit">Revise plan</button>
+<form id="plan" aria-label="Launch plan" data-humagent-intent="revise_plan">
+  <label>Approach
+    <select name="approach">
+      <option value="pilot">Pilot first</option>
+      <option value="platform">Platform first</option>
+    </select>
+  </label>
+  <button type="submit">Add choices to review</button>
 </form>
 ```
 
-`revise_plan` names a request for the agent. It needs no server handler and grants no permission to execute the plan.
+| Attribute | Purpose |
+| --- | --- |
+| `data-humagent-intent` | Make the form one draft with named values |
+| `data-humagent-message` | Add the item's comment |
+| `data-humagent-id` | Identify annotation targets |
 
-Add `data-humagent-message` for context. Use a stable form ID and `data-humagent-persist` to save nonsensitive values across refresh.
+A marked form owns one draft. Each change saves it. Choices save at once. Typed text saves 300 milliseconds after typing stops. The submit button adds the form unchanged. The form shows **Added to review** while its draft exists. Marked forms do not send feedback. Unmarked forms behave normally.
 
-Unmarked forms keep their normal behavior. Marked forms send values on submission.
+Send delivers the values that the form shows. A reload refills the form from its draft. Deleting the draft in the bar resets the form to its HTML defaults. After a source revision change, the next form change replaces the stale draft.
+
+The form `id` identifies its draft. Without an `id`, the intent identifies it. Give each marked form a stable `id` when several forms share an intent.
+
+The bar shows readable text. The title comes from `aria-label` or `aria-labelledby`, otherwise from the intent. Each field shows its label or fieldset legend and the visible text of its answer. The agent receives only field names and values.
 
 | Control | Value |
 | --- | --- |
 | Single checkbox | Boolean |
-| Checkbox group | Array of checked values |
+| Checkbox group or repeated name | Array |
 | Radio group | Selected value or `null` |
-| Multiple selection or repeated name | Array of values |
-| Other controls | String, including numbers and ranges |
+| Multiple selection | Array |
+| Other named controls | String, including number and range inputs |
 
-The SDK collects named, enabled controls. It skips disabled fieldsets and file, password, hidden, submit, reset, and button inputs.
-It rejects names that could change JavaScript prototypes.
+The SDK excludes disabled controls and file, password, hidden, submit, reset, and button inputs. It rejects unsafe field names.
+
+Restoration and reset emit an input event for page scripts. A pending save can block browser reload.
 
 ## JavaScript
 
-Wait for `humagent:ready`. If the SDK already exists, await `window.humagent.ready`.
+The only public method is `window.humagent.submit()`:
 
-| API | Effect |
+```js
+const result = await window.humagent.submit({
+  intent: 'revise_plan',
+  values: { strategy: 'pilot-first' },
+  message: 'Revise the plan. Do not execute it.',
+});
+// { draftId: '...', status: 'draft' }
+```
+
+`intent` is a nonempty request name, not a handler or permission. `values` must be a JSON object. `message` is an optional item comment.
+
+`submit()` waits for the bridge and saves a draft on the server. It does **not** confirm delivery. The human chooses **Send**. Show submission errors so the human can retry.
+
+## Event format
+
+Each **Send** creates one event. `humagent wait` returns events in `events[]`:
+
+```json
+{
+  "id": "event-id",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "revision": "source-revision",
+  "message": "Keep changes small.",
+  "items": [
+    { "id": "comment-1", "target": { "selector": "h1" }, "comment": "Shorten this." },
+    { "id": "edit-1", "target": { "selector": "#intro" }, "replacement": { "before": "Old", "after": "New" } },
+    { "id": "choice-1", "intent": "revise_plan", "values": { "strategy": "pilot-first" } }
+  ],
+  "status": "delivered",
+  "deliveries": 1
+}
+```
+
+`message` is the optional overall instruction. `status` is `queued`, `delivered`, or `completed`. `deliveries` counts reservations.
+
+Each item has a targeted comment, a targeted replacement, or an `intent` with `values`. A replacement needs nonempty `before` text. Empty `after` means deletion.
+
+An event can contain only a message. An empty review is invalid. The server rejects unknown item fields. A target `revision` must match the current page.
+
+### Validation limits
+
+| Field | Limit |
 | --- | --- |
-| `ready` | Resolve after connection and form restoration. |
-| `submit({intent, values, message?})` | Store a request. Return its event or an error. |
-| `getState()` | Return a JSON copy of saved state. |
-| `setState(patch)` | Merge top-level fields against the current state version. |
-| `on('reply', handler)` | Receive replies while the page exists. Return an unsubscribe function. |
+| Request body | 256 KiB |
+| JSON nesting | Fewer than 24 levels |
+| Drafts per session | 100 |
+| Events per session | 2,000 |
+| Intent / comment / overall instruction | 200 / 4,000 / 4,000 characters |
+| Each replacement string | 50,000 characters |
+| Form key | 200 characters |
+| Bar label text | 500 characters |
 
-Show submission errors so users can retry. Success means Humagent stored the request, not that the agent completed it.
+JSON values must be finite. The server rejects `__proto__`, `constructor`, and `prototype` keys at every depth.
 
-Identical unconfirmed submissions reuse their original client ID within the same session and revision, including after reload.
-Changed values or revisions create separate requests. After confirmation, another explicit submission creates a new request.
+### Targets
 
-State writes run in sequence. Stale writes fail instead of replacing newer values. Reserve the `forms` key for saved form values.
+Targets include source URL, viewed revision, selector, tag, and up to 4,000 characters of normalized text. They include stable IDs and quote context when available.
 
-Saving state does not change the application's database. Refresh can reset application memory. Replies stay in the workspace.
+`coordinates: { x, y, space: "document" }` records the click in CSS pixels. Keyboard annotations use the target center. The marker stays at the click point. Its position stays in the draft, not in the event.
 
-## Events
+Targets describe rendered content, not guaranteed source lines. Missing or ambiguous targets remain unavailable.
 
-Protocol version is `1`. The SDK builds the envelope. The server adds identity, timestamps, status, and delivery count.
+### Revisions
 
-| Kind | Payload |
+Source revisions hash served HTML with SHA-256, excluding other assets. An HTTP revision follows the attached document, not nested frames, fragments, or status reads. File changes also trigger revision checks.
+
+Stale feedback cannot be silently rebound. See [refresh and recovery](USAGE.md#refresh-and-recovery).
+
+### Delivery
+
+The server owns drafts and delivery. The SDK owns targeting and temporary editors. It sends each request once.
+
+New events require a listening or working agent. Stored events remain available after disconnection or session ending.
+
+Sent local previews remain until receipt acknowledgment. Cleanup cannot overwrite application changes or save rendered DOM into source.
+
+The workspace uses these routes with the session credential. Each write returns the current session.
+
+| Route | Body |
 | --- | --- |
-| `message` | `text` |
-| `annotation` | `target`, `text` |
-| `edit` | `target`, `before`, `after`, optional `explanation` |
-| `submission` | `intent`, `values`, optional `message` |
+| `GET /api/sessions/:id` | None |
+| `POST /api/sessions/:id/drafts` | `{ item, revision, marker?, key?, labels? }`. A known `key` replaces that form's draft. |
+| `PATCH /api/sessions/:id/drafts/:draftId` | `{ revision, comment, after?, marker? }` |
+| `DELETE /api/sessions/:id/drafts/:draftId` | None |
+| `PUT /api/sessions/:id/message` | `{ text }` |
+| `POST /api/sessions/:id/send` | `{ revision }` |
+| `POST /api/sessions/:id/surface` | `{ documentId }` |
+| `POST /api/sessions/:id/end` | `{}` |
 
-An empty `edit.after` proposes deletion. Targets can include IDs, selectors, tags, text, URLs, and quote context. They describe rendered content, not guaranteed source lines.
-
-Requests must contain JSON and stay within 256 KiB. Nesting must stay below 24 levels, including the envelope.
-
-| Text | Maximum characters |
-| --- | --- |
-| Client ID / revision | 100 / 128 |
-| Intent | 200 |
-| Message / annotation | 4,000 |
-| Each edit string | 50,000 |
-
-See [delivery commands](CLI.md#receive-input) for receipts and retries.
-
-## Revisions
-
-Source revisions hash served HTML with SHA-256. Other assets do not affect the hash.
-
-For HTTP apps, revisions change when Humagent serves HTML for document navigation. HTML fragment fetches remain unchanged and do not change the active revision.
-Status reads and submissions do not fetch another page. Refresh the app to load new output.
-File changes still trigger revision checks.
-
-Stale input returns `STALE_REVISION`. Stale state writes return `STATE_CONFLICT`.
-
-For stale input:
-
-1. Refresh the page.
-2. Check the target.
-3. Discard the old pending submission.
-4. Submit the checked request again.
-
-Keep old feedback associated with its original revision. Failed sends retain drafts. Accepted events stay queued until acknowledgment.
+See [CLI receipts](CLI.md#receive-input) and [security constraints](SECURITY.md).

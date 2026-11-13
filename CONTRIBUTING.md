@@ -6,7 +6,7 @@ Do not report vulnerabilities in public issues. Read [Security and limits](docs/
 
 ## Setup
 
-Install Node.js 24 or later. Install Bun 1.4.4 or later.
+Install Node.js 24 or later. Use Bun 1.4.4 for development.
 
 ```sh
 git clone https://github.com/souljorje/humagent.git
@@ -22,36 +22,45 @@ Source files belong to one package:
 - `src/runtime/` contains the server, sessions, persistence, and surface serving.
 - `src/ui/` contains the browser interface.
 - `src/sdk/` contains the injected bridge, forms, and element targeting.
+- `src/shared/` contains common contracts, validation, and browser-safe helpers.
+- `src/examples/` contains example pages and their TypeScript modules.
 
-The build compiles TypeScript and copies browser assets into `dist/`. Tests are in `test/`.
+All executable source uses TypeScript. The build compiles application and example modules into `dist/`, then copies HTML and CSS.
+Scripts and tests remain in `scripts/` and `test/`. The main check also checks their types.
+
+## Build an archive
+
+Run these commands from the repository root:
+
+```sh
+bun run check
+bun pm pack --ignore-scripts --destination .local
+npx --yes --package ./.local/humagent-0.1.0.tgz humagent --version
+```
+
+The archive includes compiled code, browser assets, examples, the agent skill, and all public guides.
+Use its absolute path when running npx from another directory. npm installation does not build or download application assets.
+
+Version 0.1.0 is not published to npm yet. The README shows the npm install that a first release enables.
+Check `npm view humagent version` before you change installation instructions.
 
 ## Checks
 
-Run lint and the main check after code changes:
-
 ```sh
-bun run lint
 bun run check
 ```
 
-Run browser tests after changes to `src/ui/` or `src/sdk/`:
+This is the fast check: build, formatting, lint, types, and unit tests. Pull requests also run the browser suite.
+
+For browser work, install Chromium once and run Playwright locally:
 
 ```sh
 bunx --no-install playwright install chromium
-bun run test:browser
+bun run test:browser:built
 ```
 
-Set `HUMAGENT_BROWSER_PATH` to use an installed Chromium binary. Test output stays in `.local/`.
+Release verification adds packaging, installation with Node.js, and Bun runner checks. Run `bun run check:release` locally before a release.
 
-Run release checks before a release:
-
-```sh
-bun run check:release
-```
-
-The release check builds, tests, packs, and verifies the package. It also checks an npm install without Bun.
-
-CI tests installation on Linux, macOS, and Windows.
 
 ## Pull requests
 
@@ -59,6 +68,7 @@ CI tests installation on Linux, macOS, and Windows.
 - State the user-visible effect.
 - List the checks that you ran.
 - Note any remaining limits.
+- Require all Check workflow jobs to pass before merging.
 - Do not commit archives, test output, or `.local/`.
 
 ## Documentation
@@ -67,11 +77,25 @@ Follow [AGENTS.md](AGENTS.md) for engineering and documentation rules. Use clear
 
 Keep user guides focused on installation, common use, and troubleshooting. Put maintainer and release steps in this guide.
 
-## Release
+## Changesets and release
 
-Run the GitHub **Release** workflow from `main` with the version in `package.json`.
-Set `publish: true` to publish the verified archive to npm and create a GitHub release.
-Use `publish: false` to run verification only.
+Add a Changeset with `bun run changeset` for publishable API, behavior, type, or dependency changes.
+Tests, documentation, and internal tooling usually do not need one.
 
-Configure [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) for `release.yml` and the `npm` environment.
-Enable `npm publish` in the trusted publisher settings.
+The [Release workflow](.github/workflows/release.yml) creates a version PR when Changesets reach `main`.
+Merging that PR publishes the version automatically if its full checks pass.
+
+The release script checks for an unpublished version before running expensive tests.
+It packs once, verifies the archive under Node.js and Bun, then publishes that **same tarball**.
+Never publish without a verified archive. Use `bun run check:release` for a local dry run.
+
+**First release:** Publish `0.1.0` manually after verification:
+
+```sh
+bunx --no-install playwright install --with-deps chromium
+bun run check:release
+npm publish .local/release/packages/humagent-0.1.0.tgz --access public
+```
+
+Then configure npm trusted publishing for repository `souljorje/humagent` and workflow `release.yml`.
+Do not set a GitHub environment name. The workflow combines version PRs and publication.

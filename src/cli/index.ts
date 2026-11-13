@@ -5,29 +5,25 @@ import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRuntime } from '../runtime/server.js';
-import { ensure } from '../runtime/protocol.js';
+import { ensure } from '../runtime/validate.js';
 import { version, runtimeName, runtimeVersion } from '../runtime/version.js';
 
 const HELP = `Humagent ${version}
 Work with your agent through a page, prototype, or local application.
 
 Start here:
-  humagent demo                         Open an interactive example
+  humagent demo                         Open the interactive plan guide
   humagent open ./page.html              Review an HTML file
   humagent open http://localhost:3000    Review a trusted local app
-  humagent setup                        Install the agent skill for this project
 
 Agent commands:
-  humagent wait <session> [--consumer name] [--timeout seconds] [--lease seconds]
-  humagent reply <session> --message "text" [--receipt id]
-  humagent ack <session> --receipt id
-  humagent renew <session> --receipt id [--lease seconds]
+  humagent wait <session>                Wait until the user sends feedback
+  humagent ack <session> --receipt id    Complete the events of a receipt
 
 Session commands:
-  humagent status [session]              Show sessions or one session
+  humagent status [session]              Show the runtime, sessions, or one session
   humagent end <session>                 End a session
   humagent stop                          Stop the server and retain saved data
-  humagent doctor                        Check the runtime and server
 
 Options:
   --no-open                             Print the browser URL without opening it
@@ -38,37 +34,14 @@ Options:
   -v, --version                         Show the installed version
 
 Also:
-  humagent demo [plan|calculator|existing]
-  humagent setup [--directory path] [--force]
   humagent server [--port number]
 
 Run with Node.js 24+ or Bun 1.4.4+. Bun is not required for npm/npx use.
 Humagent does not run a model or change source files.
 The agent must run wait to receive browser input.
+Install the agent skill separately: npx skills add souljorje/humagent
 `;
-const booleanFlags = new Set([
-  'no-open',
-  'network',
-  'help',
-  'version',
-  'json',
-  'force',
-]);
-const commandFlags: Record<string, string[]> = {
-  open: ['no-open', 'network'],
-  demo: ['no-open', 'network'],
-  wait: ['consumer', 'timeout', 'lease'],
-  reply: ['message', 'receipt'],
-  ack: ['receipt'],
-  renew: ['receipt', 'lease'],
-  server: ['port'],
-  setup: ['directory', 'force'],
-  status: [],
-  end: [],
-  stop: [],
-  doctor: [],
-  help: [],
-};
+const booleanFlags = new Set(['no-open', 'network', 'help', 'version', 'json']);
 const flags = new Map<string, string>();
 const positional: string[] = [];
 let directory = '';
@@ -100,7 +73,9 @@ function parse() {
     } else {
       ensure(
         key === 'home' ||
-          Object.values(commandFlags).some((names) => names.includes(key)),
+          Object.values(commands).some((command) =>
+            command.flags.includes(key),
+          ),
         `Unknown option: --${key}.`,
       );
       const value = inline.length ? inline.join('=') : args[++i];
@@ -119,7 +94,6 @@ function parse() {
   machine ||= flags.has('json');
 }
 interface ServerRecord {
-  protocol: number;
   pid: number;
   origin: string;
   token: string;
@@ -134,26 +108,27 @@ function record(): ServerRecord | null {
     return null;
   }
 }
-async function alive(r: ServerRecord | null) {
-  if (!r || r.protocol !== 1) return false;
+/** Return the server record only when that server answers its health check. */
+async function running(r = record()) {
+  if (!r) return null;
   try {
     const res = await fetch(`${r.origin}/health`, {
       signal: AbortSignal.timeout(1000),
     });
     const info = (await res.json()) as { app?: string; pid?: number };
-    return res.ok && info.app === 'humagent' && info.pid === r.pid;
+    return res.ok && info.app === 'humagent' && info.pid === r.pid ? r : null;
   } catch {
-    return false;
+    return null;
   }
 }
 async function service() {
-  const existing = record();
-  if (await alive(existing)) {
+  const existing = await running();
+  if (existing) {
     ensure(
-      existing!.version === version,
+      existing.version === version,
       'An older server is running. Run humagent stop, then repeat this command. Saved sessions remain available.',
     );
-    return existing!;
+    return existing;
   }
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const log = fs.openSync(path.join(directory, 'server.log'), 'a', 0o600);
@@ -170,26 +145,32 @@ async function service() {
   child.on('error', () => {});
   child.unref();
   fs.closeSync(log);
-  for (let n = 0; n < 80; n++) {
-    await new Promise((r) => setTimeout(r, 100));
-    const current = record();
-    if (await alive(current)) {
-      ensure(
-        current!.version === version,
-        'Another server version started. Run humagent stop, then retry.',
-      );
-      return current!;
-    }
-  }
-  throw new Error(
-    `Could not start the server. Read ${path.join(directory, 'server.log')}. Use HUMAGENT_PORT=0 to select a free port.`,
+  const started = await poll(() => running(), 80);
+  ensure(
+    started,
+    `Could not start the server. Read ${path.join(directory, 'server.log')}.`,
   );
+  ensure(
+    started.version === version,
+    'Another server version started. Run humagent stop, then retry.',
+  );
+  return started;
+}
+/** Check every 100 ms until `check` returns a value, at most `attempts` times. */
+async function poll<T>(check: () => Promise<T | null>, attempts: number) {
+  for (let n = 0; n < attempts; n++) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const value = await check();
+    if (value) return value;
+  }
+  return null;
 }
 async function request(
   r: ServerRecord,
   route: string,
   method = 'GET',
   data?: unknown,
+  /** Zero waits without a limit. */
   timeout = 65000,
 ) {
   const response = await fetch(r.origin + route, {
@@ -199,31 +180,30 @@ async function request(
       'content-type': 'application/json',
     },
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
-    signal: AbortSignal.timeout(timeout),
+    ...(timeout ? { signal: AbortSignal.timeout(timeout) } : {}),
   });
   const result = (await response.json()) as {
     message?: string;
     error?: string;
   };
-  if (!response.ok) throw new Error(`${result.error}: ${result.message}`);
+  // A wait reports late errors in its body, after a 200 status.
+  if (!response.ok || result.error)
+    throw new Error(`${result.error}: ${result.message}`);
   return result;
 }
-async function output(value: unknown) {
+/** Print the value as JSON. With text, print the text unless the output is for machines. */
+async function output(value: unknown, text?: string) {
+  const line =
+    text === undefined || machine ? JSON.stringify(value, null, 2) : text;
   await new Promise<void>((resolve) =>
-    process.stdout.write(JSON.stringify(value, null, 2) + '\n', () =>
-      resolve(),
-    ),
+    process.stdout.write(line + '\n', () => resolve()),
   );
 }
-function numeric(name: string, fallback: number, maximum: number) {
-  const value = Number(flags.get(name) ?? fallback);
-  ensure(
-    Number.isFinite(value) &&
-      value >= (name === 'lease' ? 1 : 0.001) &&
-      value <= maximum,
-    `--${name} must be between ${name === 'lease' ? 1 : 0.001} and ${maximum} seconds.`,
-  );
-  return Math.round(value * 1000);
+/** Copy a shipped file unless the user already has one. */
+function copy(source: URL, destination: string) {
+  if (fs.existsSync(destination)) return;
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  fs.writeFileSync(destination, fs.readFileSync(source));
 }
 function openBrowser(url: string) {
   const [exe, parameters] =
@@ -244,6 +224,161 @@ function openBrowser(url: string) {
   );
   child.unref();
 }
+function sessionRoute(argument: string | undefined) {
+  ensure(
+    argument && /^[\w-]+$/.test(argument),
+    'Specify a session ID from the open command.',
+  );
+  return `/api/sessions/${argument}`;
+}
+async function openTarget(target: string) {
+  const result = (await request(await service(), '/api/open', 'POST', {
+    target,
+    network: flags.has('network'),
+  })) as { url: string; session: string; note: string };
+  if (!flags.has('no-open')) openBrowser(result.url);
+  await output(
+    result,
+    `Open this private URL in your browser:\n${result.url}\n\nSession: ${result.session}\nSource: ${target}\n\nAsk your agent to run:\n  humagent wait ${result.session}\n\n${result.note}\nNo agent is connected until it starts waiting.`,
+  );
+}
+interface Command {
+  flags: string[];
+  /** Whether the command accepts one positional argument. */
+  argument: boolean;
+  run(argument: string | undefined): Promise<void>;
+}
+/** Every command validates its input before it starts the server. */
+const commands: Record<string, Command> = {
+  open: {
+    flags: ['no-open', 'network'],
+    argument: true,
+    async run(argument) {
+      ensure(
+        argument,
+        'Specify an HTML file or localhost URL. Example: humagent open ./page.html',
+      );
+      const target = /^https?:/i.test(argument)
+        ? argument
+        : path.resolve(argument);
+      if (!/^https?:/i.test(target))
+        ensure(fs.existsSync(target), `File not found: ${target}`);
+      await openTarget(target);
+    },
+  },
+  demo: {
+    flags: ['no-open', 'network'],
+    argument: false,
+    async run() {
+      const destination = path.join(directory, 'demos', version, 'plan');
+      for (const file of ['plan.html', 'plan.css'])
+        copy(
+          new URL(`../examples/${file}`, import.meta.url),
+          path.join(destination, file),
+        );
+      await openTarget(path.join(destination, 'plan.html'));
+    },
+  },
+  wait: {
+    flags: [],
+    argument: true,
+    async run(argument) {
+      const route = sessionRoute(argument);
+      const r = await service();
+      process.stderr.write(
+        'Waiting until the user sends feedback or ends the session.\n',
+      );
+      await output(await request(r, `${route}/wait`, 'POST', {}, 0));
+    },
+  },
+  ack: {
+    flags: ['receipt'],
+    argument: true,
+    async run(argument) {
+      const route = sessionRoute(argument);
+      ensure(flags.get('receipt'), '--receipt is required.');
+      await output(
+        await request(await service(), `${route}/ack`, 'POST', {
+          receipt: flags.get('receipt'),
+        }),
+      );
+    },
+  },
+  status: {
+    flags: [],
+    argument: true,
+    async run(argument) {
+      const r = record();
+      const live = await running(r);
+      if (live && argument) {
+        await output(await request(live, sessionRoute(argument)));
+        return;
+      }
+      await output({
+        version,
+        runtime: runtimeName,
+        runtimeVersion,
+        dataDirectory: directory,
+        filesPresent: ['../ui/index.html', '../sdk/sdk.js'].every((p) =>
+          fs.existsSync(new URL(p, import.meta.url)),
+        ),
+        serverRunning: !!live,
+        serverVersion: r?.version ?? null,
+        ...(live
+          ? await request(live, '/api/sessions')
+          : {
+              note: 'The server is stopped. Use open to resume a saved target.',
+            }),
+      });
+    },
+  },
+  end: {
+    flags: [],
+    argument: true,
+    async run(argument) {
+      const route = sessionRoute(argument);
+      await output(await request(await service(), `${route}/end`, 'POST', {}));
+    },
+  },
+  stop: {
+    flags: [],
+    argument: false,
+    async run() {
+      const r = await running();
+      await output(
+        r
+          ? await request(r, '/api/stop', 'POST', {})
+          : { stopped: true, alreadyStopped: true },
+      );
+    },
+  },
+  server: {
+    flags: ['port'],
+    argument: false,
+    async run() {
+      const configuredPort = flags.get('port') ?? process.env.HUMAGENT_PORT;
+      const port =
+        configuredPort === undefined ? undefined : Number(configuredPort);
+      ensure(
+        port === undefined ||
+          (Number.isInteger(port) && port >= 0 && port <= 65535),
+        'The server port must be an integer from 0 to 65535.',
+      );
+      const runtime = await createRuntime({ directory, port });
+      await output({
+        status: 'listening',
+        origin: runtime.origin,
+        runtime: runtimeName,
+        runtimeVersion,
+        version,
+      });
+      for (const signal of ['SIGTERM', 'SIGINT'] as const)
+        process.on(signal, () => {
+          void runtime.close().then(() => process.exit(0));
+        });
+    },
+  },
+};
 async function main() {
   parse();
   if (flags.has('version')) {
@@ -251,224 +386,33 @@ async function main() {
     else console.log(version);
     return;
   }
-  const [command, argument] = positional;
-  if (!command || command === 'help' || flags.has('help')) {
+  const [name, argument] = positional;
+  if (!name || name === 'help' || flags.has('help')) {
     console.log(HELP);
     return;
   }
   ensure(
-    Object.hasOwn(commandFlags, command),
-    `Unknown command: ${command}. Run humagent --help.`,
+    Object.hasOwn(commands, name),
+    `Unknown command: ${name}. Run humagent --help.`,
   );
+  const command = commands[name]!;
   ensure(
     positional.length <= 2,
     'Too many arguments. Quote file paths that contain spaces.',
   );
   for (const key of flags.keys())
     ensure(
-      ['home', 'json'].includes(key) || commandFlags[command]!.includes(key),
-      `--${key} is not valid for ${command}.`,
+      ['home', 'json'].includes(key) || command.flags.includes(key),
+      `--${key} is not valid for ${name}.`,
     );
-  if (['stop', 'setup', 'doctor', 'server'].includes(command))
-    ensure(!argument, `${command} does not accept a positional argument.`);
+  if (!command.argument)
+    ensure(!argument, `${name} does not accept a positional argument.`);
   if (runtimeName === 'node')
     ensure(
       Number(process.versions.node.split('.')[0]) >= 24,
       'Use Node.js 24 or later, or run this command with Bun 1.4.4 or later.',
     );
-  if (command === 'server') {
-    const configuredPort = flags.get('port') ?? process.env.HUMAGENT_PORT;
-    const port =
-      configuredPort === undefined ? undefined : Number(configuredPort);
-    ensure(
-      port === undefined ||
-        (Number.isInteger(port) && port >= 0 && port <= 65535),
-      'The server port must be an integer from 0 to 65535.',
-    );
-    const runtime = await createRuntime({ directory, port });
-    await output({
-      status: 'listening',
-      origin: runtime.origin,
-      runtime: runtimeName,
-      runtimeVersion,
-      version,
-    });
-    for (const signal of ['SIGTERM', 'SIGINT'] as const)
-      process.on(signal, () => {
-        void runtime.close().then(() => process.exit(0));
-      });
-    return;
-  }
-  if (command === 'setup') {
-    const destination = path.resolve(
-      flags.get('directory') ?? '.agents/skills/humagent',
-    );
-    const file = path.join(destination, 'SKILL.md');
-    const skill = fs.readFileSync(
-      new URL('../../skills/humagent/SKILL.md', import.meta.url),
-      'utf8',
-    );
-    if (fs.existsSync(file)) {
-      if (fs.readFileSync(file, 'utf8') === skill) {
-        await output({ installed: file, unchanged: true });
-        return;
-      }
-      ensure(
-        flags.has('force'),
-        'The skill contains different text. Preserve your changes or use --force to replace it.',
-      );
-    }
-    fs.mkdirSync(destination, { recursive: true });
-    fs.writeFileSync(file, skill);
-    if (machine) await output({ installed: file });
-    else
-      console.log(
-        `Installed the agent skill:\n${file}\n\nAsk your agent to read it before starting a session.`,
-      );
-    return;
-  }
-  if (command === 'doctor') {
-    const r = record();
-    await output({
-      version,
-      runtime: runtimeName,
-      runtimeVersion,
-      dataDirectory: directory,
-      serverRunning: await alive(r),
-      serverVersion: r?.version ?? null,
-      filesPresent: [
-        '../ui/index.html',
-        '../sdk/sdk.js',
-        '../../skills/humagent/SKILL.md',
-      ].every((p) => fs.existsSync(new URL(p, import.meta.url))),
-    });
-    return;
-  }
-  if (command === 'stop') {
-    const r = record();
-    if (!(await alive(r))) {
-      await output({ stopped: true, alreadyStopped: true });
-      return;
-    }
-    await output(await request(r!, '/api/stop', 'POST', {}));
-    return;
-  }
-  if (command === 'status' && !(await alive(record()))) {
-    await output({
-      serverRunning: false,
-      note: 'The server is stopped. Use open to resume a saved target.',
-    });
-    return;
-  }
-  let target: string | undefined;
-  if (command === 'open') {
-    ensure(
-      argument,
-      'Specify an HTML file or localhost URL. Example: humagent open ./page.html',
-    );
-    target = /^https?:/i.test(argument) ? argument : path.resolve(argument);
-    if (!/^https?:/i.test(target))
-      ensure(fs.existsSync(target), `File not found: ${target}`);
-  }
-  if (command === 'demo') {
-    const name = argument ?? 'plan';
-    ensure(
-      ['plan', 'calculator', 'existing'].includes(name),
-      'Choose a demo: plan, calculator, or existing.',
-    );
-    const destination = path.join(directory, 'demos', version);
-    fs.mkdirSync(destination, { recursive: true });
-    for (const file of [
-      'plan.html',
-      'calculator.html',
-      'existing.html',
-      'example.css',
-    ]) {
-      const to = path.join(destination, file);
-      if (!fs.existsSync(to))
-        fs.copyFileSync(new URL(`../../examples/${file}`, import.meta.url), to);
-    }
-    target = path.join(destination, `${name}.html`);
-  }
-  if (!target) {
-    if (command !== 'status' || argument)
-      ensure(
-        argument && /^[\w-]+$/.test(argument),
-        'Specify a session ID from the open command.',
-      );
-    if (command === 'reply')
-      ensure(flags.get('message')?.trim(), '--message requires nonempty text.');
-    if (command === 'ack' || command === 'renew')
-      ensure(flags.get('receipt'), '--receipt is required.');
-    if (command === 'wait') numeric('timeout', 50, 600);
-    if (command === 'wait' || command === 'renew') numeric('lease', 120, 3600);
-  }
-  const r = await service();
-  if (target) {
-    const result = (await request(r, '/api/open', 'POST', {
-      target,
-      network: flags.has('network'),
-    })) as { url: string; session: string; note: string };
-    if (!flags.has('no-open')) openBrowser(result.url);
-    if (machine) await output(result);
-    else
-      console.log(
-        `Open this private URL in your browser:\n${result.url}\n\nSession: ${result.session}\nSource: ${target}\n\nAsk your agent to run:\n  humagent wait ${result.session}\n\n${result.note}\nNo agent is connected until it starts waiting.`,
-      );
-    return;
-  }
-  if (command === 'status') {
-    await output(
-      await request(
-        r,
-        argument ? `/api/sessions/${argument}` : '/api/sessions',
-      ),
-    );
-    return;
-  }
-  const base = `/api/sessions/${argument}`;
-  if (command === 'wait') {
-    const timeoutMs = numeric('timeout', 50, 600);
-    process.stderr.write(
-      'Waiting for input. Keep this command attached to the active agent turn.\n',
-    );
-    await output(
-      await request(
-        r,
-        `${base}/wait`,
-        'POST',
-        {
-          consumer: flags.get('consumer') ?? 'agent',
-          timeoutMs,
-          leaseMs: numeric('lease', 120, 3600),
-        },
-        timeoutMs + 5000,
-      ),
-    );
-    return;
-  }
-  if (command === 'reply') {
-    await output(
-      await request(r, `${base}/reply`, 'POST', {
-        message: flags.get('message'),
-        receipt: flags.get('receipt'),
-      }),
-    );
-    return;
-  }
-  if (command === 'ack' || command === 'renew') {
-    await output(
-      await request(r, `${base}/${command}`, 'POST', {
-        receipt: flags.get('receipt'),
-        leaseMs: numeric('lease', 120, 3600),
-      }),
-    );
-    return;
-  }
-  if (command === 'end') {
-    await output(await request(r, `${base}/end`, 'POST', {}));
-    return;
-  }
+  await command.run(argument);
 }
 main().catch(async (error) => {
   const message = error instanceof Error ? error.message : String(error);
