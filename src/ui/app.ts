@@ -40,6 +40,15 @@ $('annotate').innerHTML = icon('comment');
 $('end').innerHTML = icon('power');
 $('toggle-review').innerHTML = icon('chevron');
 $('copy-command').innerHTML = icon('copy');
+/** The Send icon shows the state. Hidden text keeps it readable and announced. */
+function showSendState(label: 'Send' | 'Sending…' | 'Sent') {
+  if ($('send').dataset.state === label) return;
+  $('send').dataset.state = label;
+  const name =
+    label === 'Sending…' ? 'spinner' : label === 'Sent' ? 'check' : 'send';
+  $('send').innerHTML = `${icon(name)}<span class="sr-only">${label}</span>`;
+}
+showSendState('Send');
 $('agent-command').textContent = `humagent wait ${id}`;
 installTooltips(document);
 const inputStyle = new CSSStyleSheet();
@@ -301,7 +310,7 @@ function render() {
     $('message').value = view.message;
   $('message').disabled = !mutable;
   resizeMessage();
-  $('send').textContent = sending ? 'Sending…' : sent ? 'Sent' : 'Send';
+  showSendState(sending ? 'Sending…' : sent ? 'Sent' : 'Send');
   $('send').setAttribute('aria-busy', String(sending));
   $('send').disabled =
     sending ||

@@ -87,6 +87,18 @@ textarea:focus-visible {
 .primary:hover {
   background: #fff;
 }
+/* Sending disables the button, but the loader stays at full strength. */
+#send[aria-busy='true'] {
+  opacity: 1;
+}
+#send[aria-busy='true'] svg {
+  animation: spin 800ms linear infinite;
+}
+@keyframes spin {
+  to {
+    rotate: 360deg;
+  }
+}
 ::selection {
   background: #666;
   color: #fff;

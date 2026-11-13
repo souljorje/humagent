@@ -34,6 +34,10 @@ test('sending requires an agent and confirmation stays in the button briefly', a
     await requested;
     await expect(send).toBeDisabled();
     await expect(send).toHaveText('Sending…');
+    // A spinning loader replaces the Send icon.
+    expect(
+      await send.locator('svg').evaluate((el) => el.getAnimations().length),
+    ).toBeGreaterThan(0);
     await send.dispatchEvent('click');
     expect(requests).toBe(1);
     await page.locator('#message').fill('Added while sending');
