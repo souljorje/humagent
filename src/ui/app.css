@@ -109,9 +109,8 @@ textarea::placeholder {
 #review-bar {
   position: fixed;
   bottom: max(16px, env(safe-area-inset-bottom));
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(460px, calc(100% - 24px));
+  right: max(16px, env(safe-area-inset-right));
+  width: min(460px, calc(100% - 32px));
   overflow: clip;
   border-radius: 24px;
   z-index: 2;
@@ -369,6 +368,7 @@ dd {
 @media (max-width: 480px) {
   #review-bar {
     bottom: max(8px, env(safe-area-inset-bottom));
+    right: max(8px, env(safe-area-inset-right));
     width: calc(100% - 16px);
     border-radius: 20px;
   }
