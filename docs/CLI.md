@@ -47,7 +47,7 @@ The server sends a space every 5 seconds to keep the connection open. The CLI pr
 | --- | --- |
 | `feedback` | Read the events. Apply authorized changes. Acknowledge the receipt. |
 | `ended` | Stop waiting. Reopen only on request. |
-| `interrupted` | The server stopped. Check `humagent status` before you run `wait` again. |
+| `interrupted` | The server stopped. `wait` starts it again, so run `wait` only when the review continues. |
 
 `ack --receipt` completes only the events of that receipt. Use the receipt from the latest `wait`.
 
