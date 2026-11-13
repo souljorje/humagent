@@ -1,6 +1,6 @@
 ---
 name: humagent
-description: Open a local or generated page, or a localhost app, for the human to review. Receive one structured review, revise source, and acknowledge it.
+description: Opens an HTML page or localhost app where the user comments on elements, rewrites text, and answers forms, then returns one structured review. Use for feedback on generated pages, prototypes, UI copy and layout, running localhost apps, and structured questions or plan choices.
 ---
 
 # Humagent
