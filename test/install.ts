@@ -74,7 +74,6 @@ try {
     'dist/sdk/targets.js',
     'dist/examples/plan.html',
     'dist/examples/plan.css',
-    'skills/humagent/SKILL.md',
     'docs/CLI.md',
     'docs/SDK.md',
     'docs/USAGE.md',
@@ -88,6 +87,8 @@ try {
     ).flatMap(Object.values),
   ])
     assert.ok(fs.existsSync(path.join(root, file)), file);
+  // The skill installs separately with npx skills.
+  assert.equal(fs.existsSync(path.join(root, 'skills')), false);
   assert.deepEqual(fs.readdirSync(path.join(root, 'dist/examples')).sort(), [
     'plan.css',
     'plan.html',
@@ -177,8 +178,6 @@ try {
   assert.equal(batch.events[0].items[0].values.approach, 'pilot-first');
   await run('ack', opened.session, '--receipt', batch.receipt);
   assert.equal((await run('status', opened.session)).agent, 'idle');
-  await run('setup');
-  assert.equal((await run('setup')).unchanged, true);
   app = http.createServer((req, res) => {
     res.setHeader('content-type', 'text/html');
     res.end('<h1>Installed package proxy</h1>');
@@ -197,7 +196,7 @@ try {
   await run('end', opened.session);
   assert.equal((await run('wait', opened.session)).status, 'ended');
   console.log(
-    'PASS npm install from tarball and npm exec: demo, server, source, structured input, acknowledgment, skill, local proxy',
+    'PASS npm install from tarball and npm exec: demo, server, source, structured input, acknowledgment, local proxy',
   );
   // npx delegates to npm exec. Exercise its actual binary as well.
   const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';

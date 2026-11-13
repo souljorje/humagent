@@ -15,7 +15,6 @@ Start here:
   humagent demo                         Open the interactive plan guide
   humagent open ./page.html              Review an HTML file
   humagent open http://localhost:3000    Review a trusted local app
-  humagent setup                        Install the agent skill for this project
 
 Agent commands:
   humagent wait <session>                Wait until the user sends feedback
@@ -35,21 +34,14 @@ Options:
   -v, --version                         Show the installed version
 
 Also:
-  humagent setup [--directory path] [--force]
   humagent server [--port number]
 
 Run with Node.js 24+ or Bun 1.4.4+. Bun is not required for npm/npx use.
 Humagent does not run a model or change source files.
 The agent must run wait to receive browser input.
+Install the agent skill separately: npx skills add souljorje/humagent
 `;
-const booleanFlags = new Set([
-  'no-open',
-  'network',
-  'help',
-  'version',
-  'json',
-  'force',
-]);
+const booleanFlags = new Set(['no-open', 'network', 'help', 'version', 'json']);
 const flags = new Map<string, string>();
 const positional: string[] = [];
 let directory = '';
@@ -207,9 +199,9 @@ async function output(value: unknown, text?: string) {
     process.stdout.write(line + '\n', () => resolve()),
   );
 }
-/** Copy a shipped file. Keep a file that the user already has unless `replace` is set. */
-function copy(source: URL, destination: string, replace = false) {
-  if (!replace && fs.existsSync(destination)) return;
+/** Copy a shipped file unless the user already has one. */
+function copy(source: URL, destination: string) {
+  if (fs.existsSync(destination)) return;
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.writeFileSync(destination, fs.readFileSync(source));
 }
@@ -327,11 +319,9 @@ const commands: Record<string, Command> = {
         runtime: runtimeName,
         runtimeVersion,
         dataDirectory: directory,
-        filesPresent: [
-          '../ui/index.html',
-          '../sdk/sdk.js',
-          '../../skills/humagent/SKILL.md',
-        ].every((p) => fs.existsSync(new URL(p, import.meta.url))),
+        filesPresent: ['../ui/index.html', '../sdk/sdk.js'].every((p) =>
+          fs.existsSync(new URL(p, import.meta.url)),
+        ),
         serverRunning: !!live,
         serverVersion: r?.version ?? null,
         ...(live
@@ -359,32 +349,6 @@ const commands: Record<string, Command> = {
         r
           ? await request(r, '/api/stop', 'POST', {})
           : { stopped: true, alreadyStopped: true },
-      );
-    },
-  },
-  setup: {
-    flags: ['directory', 'force'],
-    argument: false,
-    async run() {
-      const destination = path.resolve(
-        flags.get('directory') ?? '.agents/skills/humagent',
-      );
-      const file = path.join(destination, 'SKILL.md');
-      const skill = new URL('../../skills/humagent/SKILL.md', import.meta.url);
-      if (fs.existsSync(file)) {
-        if (fs.readFileSync(file, 'utf8') === fs.readFileSync(skill, 'utf8')) {
-          await output({ installed: file, unchanged: true });
-          return;
-        }
-        ensure(
-          flags.has('force'),
-          'The skill contains different text. Preserve your changes or use --force to replace it.',
-        );
-      }
-      copy(skill, file, true);
-      await output(
-        { installed: file },
-        `Installed the agent skill:\n${file}\n\nAsk your agent to read it before starting a session.`,
       );
     },
   },

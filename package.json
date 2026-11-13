@@ -23,7 +23,6 @@
   },
   "files": [
     "dist",
-    "skills",
     "docs",
     "CONTRIBUTING.md",
     "AGENTS.md",

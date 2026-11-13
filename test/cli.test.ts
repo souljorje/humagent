@@ -96,12 +96,6 @@ test('Bun CLI preserves runtime and sessions through an agent loop and restart',
     const resumed = await run('open', source, '--no-open');
     assert.equal(resumed.session, opened.session);
     assert.equal((await run('status', opened.session)).agent, 'idle');
-    const skills = path.join(root, 'skills', 'humagent');
-    await run('setup', '--directory', skills);
-    assert.match(
-      fs.readFileSync(path.join(skills, 'SKILL.md'), 'utf8'),
-      /Humagent/,
-    );
     await run('end', opened.session);
     assert.equal((await run('wait', opened.session)).status, 'ended');
   } finally {
@@ -130,6 +124,7 @@ test('CLI provides help and version without starting a server', () => {
       ['ack', 'id', '--receipt'],
       ['wait', 'id', '--timeout', '1'],
       ['renew', 'id'],
+      ['setup'],
       ['demo', 'plan'],
       ['demo', 'calculator'],
       ['demo', 'existing'],
@@ -211,28 +206,5 @@ test('CLI rejects Node versions below 24', () => {
     assert.equal(fs.existsSync(path.join(home, 'server.json')), false);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
-  }
-});
-test('skill setup is repeatable and preserves edits', () => {
-  const directory = fixture('skill');
-  try {
-    const run = (...args: string[]) =>
-      JSON.parse(
-        execFileSync(
-          process.execPath,
-          [cli, 'setup', '--directory', directory, '--json', ...args],
-          { encoding: 'utf8' },
-        ),
-      );
-    run();
-    assert.equal(run().unchanged, true);
-    const file = path.join(directory, 'SKILL.md');
-    fs.appendFileSync(file, '\nCustom instruction.\n');
-    assert.throws(() => run());
-    assert.match(fs.readFileSync(file, 'utf8'), /Custom instruction/);
-    run('--force');
-    assert.ok(!fs.readFileSync(file, 'utf8').includes('Custom instruction.'));
-  } finally {
-    fs.rmSync(directory, { recursive: true, force: true });
   }
 });

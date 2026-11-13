@@ -46,6 +46,6 @@ Preserve conditions, numbers, scope, and uncertainty. Do not claim dictionary co
 
 ## Release
 
-Ship compiled JavaScript, browser assets, examples, and the skill. Installation must not run build or download scripts.
+Ship compiled JavaScript, browser assets, and examples. The skill installs separately with `npx skills`. Installation must not run build or download scripts.
 
 Do not publish, merge, deploy, or expose local ports without authorization.

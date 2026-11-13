@@ -4,13 +4,12 @@ See the [README](../README.md#install) for installation. Use `humagent --help` f
 
 Use `--json` for JSON results. Piped results also use JSON.
 
-## Pages and setup
+## Pages
 
 ```sh
 humagent open ./page.html
 humagent open http://127.0.0.1:3000/path
 humagent demo
-humagent setup [--directory PATH] [--force]
 ```
 
 `open` starts the server and returns a session ID and private URL. Use `--no-open` to open the URL yourself.
@@ -19,7 +18,15 @@ Keep the page and its assets in one directory. Humagent serves supported files f
 
 The demo opens an editable plan under `demos/VERSION/plan` in the data directory. It preserves existing files.
 
-Setup installs the skill at `.agents/skills/humagent` by default. It preserves changed instructions unless you pass `--force`.
+## Agent skill
+
+The package does not include the skill. Install it with the [skills CLI](https://github.com/vercel-labs/skills):
+
+```sh
+npx skills add souljorje/humagent
+```
+
+Update it with `npx skills update humagent`.
 
 ## Receive input
 

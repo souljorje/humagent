@@ -44,10 +44,10 @@ Building from source works too. See [Contributing](CONTRIBUTING.md#setup).
 
 ## Quick start
 
-Install the agent skill:
+Install the agent skill with the [skills CLI](https://github.com/vercel-labs/skills). It asks which agents to install it for:
 
 ```sh
-humagent setup
+npx skills add souljorje/humagent
 ```
 
 Try demo:
