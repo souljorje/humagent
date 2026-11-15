@@ -1,6 +1,7 @@
 ---
 name: humagent
 description: Visual interaction layer for human and agent. Use for user feedback on local apps or HTML pages, prototypes, UI/UX tweaks, and structured questions or plan choices.
+argument-hint: '[file or localhost URL]'
 ---
 
 # Humagent
@@ -8,6 +9,18 @@ description: Visual interaction layer for human and agent. Use for user feedback
 Use the installed `humagent` command with Node.js 24+ or Bun 1.4.4+.
 Use `npx humagent@latest` when no global command exists. Apply this prefix to each command below.
 Use `--json` for command results.
+
+## Start
+
+The user can name a target, such as `/humagent ./page.html` or `/humagent http://localhost:3000`.
+In Claude Code, the target also appears as `ARGUMENTS:` at the end of this skill.
+With a target, start at once. Do not ask for confirmation.
+
+1. Run `humagent open TARGET --json`.
+2. Tell the user that the page is open. Give the returned URL if the browser did not open.
+3. Run `humagent wait SESSION` with the returned session ID, as "Open and wait" describes.
+
+Without a target, use the page from the task. If the task has none, ask the user for a file or localhost URL.
 
 ## Prepare
 

@@ -11,7 +11,9 @@ Open an existing local page or an agent-generated interface. See the [quick star
 
 ## Connect an agent
 
-Expand the floating bar and copy its `humagent wait SESSION` command to your active agent chat.
+Start from your agent with `/humagent ./page.html` or `/humagent http://localhost:3000`. The agent opens the page and starts waiting.
+
+To connect an agent to a page that is already open, expand the floating bar. Copy its `humagent wait SESSION` command to your agent chat.
 
 **Agent listening** means a `wait` command is running. **Agent working** means the agent has events that it did not acknowledge yet. **No agent waiting** means neither is true.
 The status dot is green while an agent listens and blue while it works. It is amber with no agent, red without a connection, and gray after the session ends.

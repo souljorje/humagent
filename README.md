@@ -64,6 +64,12 @@ humagent open ./page.html
 humagent open http://127.0.0.1:3000
 ```
 
+Or let your agent open it and start listening:
+
+```text
+/humagent ./page.html
+```
+
 Generate an interactive page:
 
 > Read the Humagent skill. Create an interactive plan for next feature and open it in Humagent.
