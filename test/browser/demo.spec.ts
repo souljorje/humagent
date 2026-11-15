@@ -12,12 +12,12 @@ test('editing demo text preserves its layout at 390px', async ({
   await review.annotate();
   for (const selector of [
     'h1',
-    '.lede',
     '.steps h3',
     '.steps p',
-    '.plan .note',
+    '.note',
+    '.mock-hero h3',
+    '.mock-hero p',
     '.choice',
-    '.field',
   ]) {
     const target = review.frame.locator(selector).first();
     await target.evaluate((el) => el.scrollIntoView({ block: 'center' }));
@@ -54,7 +54,7 @@ test('editing demo text preserves its layout at 390px', async ({
   }
 });
 
-test('the plan demo combines text edits, comments, and choices without changing source', async ({
+test('the demo combines text edits, comments, and choices without changing source', async ({
   page,
   review,
   workspace,
@@ -65,53 +65,47 @@ test('the plan demo combines text edits, comments, and choices without changing 
   await review.expand(false);
   const headline = await review.frame.locator('h1').textContent();
   await review.replace('h1', 'Give your agent a clearer plan.');
-  await review.addComment('#plan-title', 'Keep this focused.');
+  await review.addComment('.mock-cta', 'Make this button stand out.');
   await page.locator('#annotate').click();
   await expect(page.locator('#annotate')).toHaveAttribute(
     'aria-pressed',
     'false',
   );
   const choice = review.frame.getByRole('radio', { name: /The interactions/ });
-  const outcome = review.frame.getByLabel(
-    'What would a good result look like?',
-  );
-  const notes = review.frame.getByLabel('Anything to leave alone?');
+  const button = review.frame.getByRole('radio', { name: 'Outline' });
   await choice.check();
-  await outcome.fill('An easier first review.');
-  await outcome.blur();
-  await review.frame
-    .getByLabel('How much should change per pass?')
-    .selectOption('behavior');
-  // Typed text saves without leaving the field.
-  await notes.fill('Keep existing interactions.');
+  await review.frame.getByRole('radio', { name: 'Split' }).check();
+  await button.check();
+  // Choices save at once, into one draft for the form.
+  const values = { layout: 'split', button: 'outline', workflow: 'behavior' };
   await expect
-    .poll(() => workspace.form(opened.session, 'review-plan')?.notes)
-    .toBe('Keep existing interactions.');
-  await expect(review.frame.locator('[data-humagent-status]')).toHaveText(
-    'Added to review',
-  );
+    .poll(() => workspace.form(opened.session, 'design-choices'))
+    .toEqual(values);
   expect((await review.state()).drafts).toHaveLength(3);
   expect(workspace.store.get(opened.session).events).toHaveLength(0);
   expect(fs.readFileSync(file, 'utf8')).toBe(source);
   await page.reload();
   await review.ready();
   await expect(choice).toBeChecked();
-  await expect(notes).toHaveValue('Keep existing interactions.');
+  await expect(button).toBeChecked();
   await review.connect();
   await page.locator('#send').click();
   const feedback = await review.receive();
   expect(feedback.events).toHaveLength(1);
   expect(feedback.events[0].items).toHaveLength(3);
+  expect(feedback.events[0].items[1].comment).toBe(
+    'Make this button stand out.',
+  );
   expect(feedback.events[0].items[2]).toMatchObject({
-    intent: 'plan_review',
-    values: {
-      workflow: 'behavior',
-      outcome: 'An easier first review.',
-      focus: 'behavior',
-      notes: 'Keep existing interactions.',
-      preserveBehavior: true,
-    },
+    comment:
+      'Apply these choices to the first screen. Do not publish anything.',
+    values,
   });
+  expect(Object.keys(feedback.events[0].items[2]!)).toEqual([
+    'id',
+    'comment',
+    'values',
+  ]);
   const heading = review.frame.locator('h1');
   await expect(heading).toHaveText('Give your agent a clearer plan.');
   await workspace.api(`/api/sessions/${opened.session}/ack`, 'POST', {
@@ -122,7 +116,7 @@ test('the plan demo combines text edits, comments, and choices without changing 
 });
 
 for (const width of [1440, 390])
-  test(`the plan page fits ${width}px and retains keyboard focus`, async ({
+  test(`the demo page fits ${width}px and retains keyboard focus`, async ({
     page,
     review,
     workspace,
@@ -136,7 +130,7 @@ for (const width of [1440, 390])
     await page.mouse.move(0, 0);
     await expect(
       review.frame.getByRole('heading', {
-        name: 'Show your agent what you mean.',
+        name: 'Show your agent what you mean',
       }),
     ).toBeVisible();
     expect(
@@ -144,12 +138,35 @@ for (const width of [1440, 390])
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    const outcome = review.frame.getByLabel(
-      'What would a good result look like?',
-    );
-    await outcome.focus();
-    await expect(outcome).toBeFocused();
+    const option = review.frame.getByRole('radio', { name: 'Stacked' });
+    await option.focus();
+    await expect(option).toBeFocused();
     expect(
-      await outcome.evaluate((el) => getComputedStyle(el).outlineStyle),
+      await option.evaluate((el) => getComputedStyle(el).outlineStyle),
     ).toBe('solid');
   });
+
+test('each install command copies on its own', async ({
+  review,
+  workspace,
+}) => {
+  await review.open(workspace.file('plan.html'));
+  await review.evaluate(() =>
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          document.body.dataset.copied = value;
+        },
+      },
+    }),
+  );
+  const button = review.frame.getByRole('button', {
+    name: 'Copy npx skills add souljorje/humagent',
+  });
+  await button.click();
+  await expect(button).toHaveAttribute('data-copied', '');
+  expect(await review.evaluate(() => document.body.dataset.copied)).toBe(
+    'npx skills add souljorje/humagent',
+  );
+});

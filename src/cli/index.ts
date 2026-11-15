@@ -271,7 +271,7 @@ const commands: Record<string, Command> = {
     argument: false,
     async run() {
       const destination = path.join(directory, 'demos', version, 'plan');
-      for (const file of ['plan.html', 'plan.css'])
+      for (const file of ['plan.html', 'plan.css', 'plan.js'])
         copy(
           new URL(`../examples/${file}`, import.meta.url),
           path.join(destination, file),

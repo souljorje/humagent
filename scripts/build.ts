@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, cpSync, rmSync } from 'node:fs';
+import { chmodSync, cpSync, readdirSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 if (!process.versions.bun) throw new Error('Build with Bun: bun run build');
@@ -17,4 +17,8 @@ for (const directory of ['ui', 'examples']) {
     { recursive: true, filter: (source) => !source.endsWith('.ts') },
   );
 }
+// Example pages are not libraries. Drop their type declarations.
+const examples = new URL('../dist/examples/', import.meta.url);
+for (const file of readdirSync(examples))
+  if (file.endsWith('.d.ts')) rmSync(new URL(file, examples));
 chmodSync(new URL('../dist/cli/index.js', import.meta.url), 0o755);

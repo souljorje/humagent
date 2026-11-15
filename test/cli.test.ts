@@ -157,7 +157,7 @@ test('demo serves only the editable plan and preserves existing user copies', as
     assert.equal(snapshot.target.value, path.join(old, 'plan', 'plan.html'));
     assert.deepEqual(
       fs.readdirSync(path.dirname(snapshot.target.value)).sort(),
-      ['plan.css', 'plan.html'],
+      ['plan.css', 'plan.html', 'plan.js'],
     );
     assert.match(
       await (await fetch(snapshot.surface.frameUrl)).text(),

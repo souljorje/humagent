@@ -74,6 +74,7 @@ try {
     'dist/sdk/targets.js',
     'dist/examples/plan.html',
     'dist/examples/plan.css',
+    'dist/examples/plan.js',
     'docs/CLI.md',
     'docs/SDK.md',
     'docs/USAGE.md',
@@ -92,6 +93,7 @@ try {
   assert.deepEqual(fs.readdirSync(path.join(root, 'dist/examples')).sort(), [
     'plan.css',
     'plan.html',
+    'plan.js',
   ]);
   for (const file of fs.readdirSync(path.join(root, 'dist'), {
     recursive: true,
@@ -148,7 +150,7 @@ try {
   assert.match(await shell.text(), /Humagent/);
   const surface = await fetch(snapshot.surface.frameUrl);
   assert.equal(surface.status, 200);
-  assert.match(await surface.text(), /data-humagent-intent/);
+  assert.match(await surface.text(), /data-humagent-id="design-choices"/);
   const waiting = run('wait', opened.session);
   for (
     let attempt = 0;
@@ -169,7 +171,7 @@ try {
     });
   const staged = await browser('drafts', {
     revision: snapshot.revision,
-    item: { intent: 'revise_plan', values: { approach: 'pilot-first' } },
+    item: { values: { approach: 'pilot-first' } },
   });
   assert.equal(staged.status, 200);
   const response = await browser('send', { revision: snapshot.revision });
