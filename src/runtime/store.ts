@@ -298,7 +298,6 @@ export class Store extends EventEmitter {
     );
     const event: Event = {
       id: randomUUID(),
-      createdAt: new Date().toISOString(),
       revision: s.revision,
       ...(message ? { message } : {}),
       items: s.drafts.map((d) => d.item),
@@ -334,12 +333,20 @@ export class Store extends EventEmitter {
           : e,
       ),
     });
+    // The agent gets what it needs to apply the review. Delivery state stays on the server.
     return {
       status: 'feedback' as const,
-      session: id,
-      target: s.target,
+      target: { kind: s.target.kind, value: s.target.value },
       receipt: delivery.receipt,
-      events: updated.events.filter((e) => ids.has(e.id)),
+      events: updated.events
+        .filter((e) => ids.has(e.id))
+        .map(({ id, revision, message, items, deliveries }) => ({
+          id,
+          revision,
+          ...(message ? { message } : {}),
+          items,
+          deliveries,
+        })),
     };
   }
   acknowledge(id: string, receipt: unknown) {

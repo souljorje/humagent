@@ -28,11 +28,12 @@ const interactiveSelector =
 export function isNativeInteractiveControl(target: EventTarget | null) {
   return target instanceof Element && !!target.closest(interactiveSelector);
 }
+/** The selector already names the tag. An element without a stable ID sends none. */
 export function context(el: Element, text: string) {
+  const id = el.getAttribute('data-humagent-id') || el.id;
   return {
-    id: el.getAttribute('data-humagent-id') || el.id || '',
+    ...(id ? { id } : {}),
     selector: selector(el),
-    tag: el.tagName.toLowerCase(),
     text: text.trim().replace(/\s+/g, ' ').slice(0, 4000),
   };
 }

@@ -68,7 +68,6 @@ Each **Send** creates one event. `humagent wait` returns events in `events[]`:
 ```json
 {
   "id": "event-id",
-  "createdAt": "2026-01-01T00:00:00.000Z",
   "revision": "source-revision",
   "message": "Keep changes small.",
   "items": [
@@ -76,12 +75,11 @@ Each **Send** creates one event. `humagent wait` returns events in `events[]`:
     { "id": "edit-1", "replacement": { "before": "Old", "after": "New" }, "target": { "selector": "#intro" } },
     { "id": "choice-1", "comment": "Revise the plan.", "values": { "strategy": "pilot-first" } }
   ],
-  "status": "delivered",
   "deliveries": 1
 }
 ```
 
-`message` is the optional overall instruction. `status` is `queued`, `delivered`, or `completed`. `deliveries` counts reservations.
+`message` is the optional overall instruction. `deliveries` counts how often `wait` returned the event. A value above 1 means a redelivery.
 
 Each item has a targeted comment, a targeted replacement, or `values`. Item fields come in this order: `id`, `comment`, `replacement`, `values`, `target`. A replacement needs nonempty `before` text. Empty `after` means deletion.
 
@@ -104,7 +102,7 @@ JSON values must be finite. The server rejects `__proto__`, `constructor`, and `
 
 ### Targets
 
-Targets include source URL, selector, tag, and up to 4,000 characters of normalized text. They include stable IDs and quote context when available.
+Targets include source URL, selector, and up to 4,000 characters of normalized text. They include a stable ID and quote context when available.
 
 `coordinates: { x, y, space: "document" }` records the click in CSS pixels. Keyboard annotations use the target center. The marker stays at the click point. Its position stays in the draft, not in the event.
 

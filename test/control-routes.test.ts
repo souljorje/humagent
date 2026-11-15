@@ -365,8 +365,20 @@ test('route receipts preserve target, revision, and individual event ownership',
   assert.notEqual(otherEvent.id, sent.id);
   const batch = await json(await firstWait.pending, 200);
   assert.equal(batch.status, 'feedback');
-  assert.equal(batch.session, first.session);
-  assert.equal(batch.target.value, first.targetPath);
+  // The agent gets no session echo, server paths, or delivery state.
+  assert.deepEqual(Object.keys(batch).sort(), [
+    'events',
+    'receipt',
+    'status',
+    'target',
+  ]);
+  assert.deepEqual(batch.target, { kind: 'file', value: first.targetPath });
+  assert.deepEqual(Object.keys(batch.events[0]).sort(), [
+    'deliveries',
+    'id',
+    'items',
+    'revision',
+  ]);
   assert.equal(batch.events[0].id, sent.id);
   assert.equal(batch.events[0].revision, view.revision);
   const again = await json(await jsonRequest(`${base}/wait`, 'POST', {}), 200);

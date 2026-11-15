@@ -49,10 +49,9 @@ export interface Draft {
   key?: string;
   labels?: DraftLabels;
 }
-/** One Send action, as the agent receives it. */
+/** One Send action. The agent receives it without `status`. */
 export interface Event {
   id: string;
-  createdAt: string;
   revision: string;
   message?: string;
   items: ReviewItem[];

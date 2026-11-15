@@ -256,7 +256,6 @@ export function createPageReview(bridge: ReviewBridge) {
     const target: ReviewTarget = {
       ...context(el, exactText(el)),
       url: boot.sourceUrl,
-      anchorId: crypto.randomUUID(),
     };
     if (range) {
       const prefix = range.cloneRange(),
@@ -296,7 +295,6 @@ export function createPageReview(bridge: ReviewBridge) {
     const target: ReviewTarget = existing?.item.target || {
       ...context(el, exactText(el)),
       url: boot.sourceUrl,
-      anchorId: crypto.randomUUID(),
       textNode: [...el.childNodes].indexOf(node),
       anchor: { quote: before },
     };
