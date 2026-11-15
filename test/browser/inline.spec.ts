@@ -216,7 +216,6 @@ test('newline and IME input do not confirm early, and source revision changes re
   await expect(review.editor).toHaveCount(0);
   expect((await review.draft()).replacement?.after).toBe('Line one\nLine two');
   fs.appendFileSync(workspace.file(), '\n<!-- source revision -->');
-  await expect(page.locator('#update')).toBeVisible();
   await expect(review.frame.locator('h1')).toHaveText(before!);
   expect((await review.state()).drafts).toHaveLength(1);
   await expect(page.locator('#send')).toBeDisabled();
@@ -228,9 +227,9 @@ test('indented source text stays readable in the inline diff', async ({
   workspace,
 }) => {
   await review.open(workspace.file('plan.html'));
-  const before = (await review.frame.locator('.lede').textContent())!;
+  const before = (await review.frame.locator('.existing .note').textContent())!;
   expect(before).toMatch(/\n\s+/);
-  await review.replace('.lede', '');
+  await review.replace('.existing .note', '');
   await review.expand();
   const diff = page.locator('.replacement');
   await expect(diff.locator('del')).toHaveText(before);
@@ -246,4 +245,26 @@ test('indented source text stays readable in the inline diff', async ({
         el.scrollHeight <= el.clientHeight && el.scrollWidth <= el.clientWidth,
     ),
   ).toBe(true);
+});
+
+test('a long text diff in the bar scrolls, and a click on it opens the editor', async ({
+  page,
+  plan: _plan,
+  review,
+}) => {
+  const after = 'Plan and launch in one place. '.repeat(30).trim();
+  await review.replace('h1', after);
+  await review.expand();
+  const diff = page.locator('.draft .replacement');
+  expect(await diff.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(
+    true,
+  );
+  await diff.hover();
+  await page.mouse.wheel(0, 200);
+  await expect
+    .poll(() => diff.evaluate((el) => el.scrollTop))
+    .toBeGreaterThan(0);
+  await diff.click();
+  await expect(review.editor).toBeVisible();
+  await expect(review.editor).toHaveText(after);
 });

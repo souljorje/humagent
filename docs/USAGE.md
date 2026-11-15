@@ -14,6 +14,7 @@ Open an existing local page or an agent-generated interface. See the [quick star
 Expand the floating bar and copy its `humagent wait SESSION` command to your active agent chat.
 
 **Agent listening** means a `wait` command is running. **Agent working** means the agent has events that it did not acknowledge yet. **No agent waiting** means neither is true.
+The status dot is green while an agent listens and blue while it works. It is amber with no agent, red without a connection, and gray after the session ends.
 
 New sends require an agent that is listening or working. Accepted feedback remains stored if the agent disconnects.
 
@@ -61,8 +62,8 @@ The server stores drafts, including marked form values, and the overall instruct
 This input survives browser reloads, other browsers, and server restarts while the data directory stays the same.
 Several tabs can edit one session. The workspace reads the server state about once per second.
 
-- **Changed source:** Inspect the page, then recreate or remove stale drafts. Stale drafts block Send. Humagent never changes their revision silently. The overall instruction has no revision and stays.
-- **Outdated page:** Send requires the page that you see to match the current source revision. Refresh the page.
+- **Changed source:** An HTML file page reloads on its own. An open editor delays the reload until you confirm or cancel it. An app page shows **Refresh page** in the bar.
+- **Stale drafts:** Recreate or remove them. Stale drafts block Send. Humagent never changes their revision silently. The overall instruction has no revision and stays.
 - **Missing target:** Feedback follows a unique stable ID or selector. An ambiguous target remains unavailable.
 - **Unfinished input:** Confirm or cancel it before reloading. The server does not store open editors.
 - **Save error:** Keep the tab open until the server saves your input.

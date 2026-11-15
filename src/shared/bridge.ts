@@ -48,6 +48,8 @@ export interface PageEvents {
   editing: { dirty: boolean };
   notice: { message: string };
   availability: { items: Availability[] };
+  /** Scrollbar sizes in CSS pixels. The bar outside the frame keeps clear of them. */
+  scrollbars: { right: number; bottom: number };
 }
 type Messages<T, Extra = unknown> = {
   [M in keyof T]: { method: M; params: T[M] } & Extra;

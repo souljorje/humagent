@@ -59,6 +59,7 @@ export function createPageReview(bridge: ReviewBridge) {
     scheduled = false;
   const enabled = () => annotating && writable;
   let lastAvailability = '',
+    lastScrollbars = '',
     lastDirty = false;
   let returnFocus: Element | null = null;
   let candidates: Element[] = [],
@@ -255,7 +256,6 @@ export function createPageReview(bridge: ReviewBridge) {
     const target: ReviewTarget = {
       ...context(el, exactText(el)),
       url: boot.sourceUrl,
-      revision: boot.revision,
       anchorId: crypto.randomUUID(),
     };
     if (range) {
@@ -296,7 +296,6 @@ export function createPageReview(bridge: ReviewBridge) {
     const target: ReviewTarget = existing?.item.target || {
       ...context(el, exactText(el)),
       url: boot.sourceUrl,
-      revision: boot.revision,
       anchorId: crypto.randomUUID(),
       textNode: [...el.childNodes].indexOf(node),
       anchor: { quote: before },
@@ -699,6 +698,14 @@ export function createPageReview(bridge: ReviewBridge) {
       lastAvailability = signature;
       post('availability', { items: available });
     }
+    const scrollbars = {
+      right: innerWidth - document.documentElement.clientWidth,
+      bottom: innerHeight - document.documentElement.clientHeight,
+    };
+    if (JSON.stringify(scrollbars) !== lastScrollbars) {
+      lastScrollbars = JSON.stringify(scrollbars);
+      post('scrollbars', scrollbars);
+    }
   }
   function schedule() {
     if (!scheduled) {
@@ -768,6 +775,8 @@ export function createPageReview(bridge: ReviewBridge) {
     },
     setMode,
     present(presentation: Presentation) {
+      // A new presentation may follow an attach. Report scrollbars again.
+      lastScrollbars = '';
       drafts = presentation.drafts;
       previews = presentation.previews;
       writable = presentation.writable;

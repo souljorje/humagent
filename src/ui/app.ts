@@ -33,13 +33,19 @@ let session: WorkspaceView | undefined,
   sent = false,
   manuallyToggled = false,
   messageTimer: ReturnType<typeof setTimeout> | undefined,
-  lastPresentation = '';
+  lastPresentation = '',
+  /** The source revision that last reloaded the page on its own. */
+  reloadedFor = '';
 const available = new Map<string, boolean>();
 
 $('annotate').innerHTML = icon('comment');
 $('end').innerHTML = icon('power');
 $('toggle-review').innerHTML = icon('chevron');
 $('copy-command').innerHTML = icon('copy');
+// Reload only the page frame at its current address. Drafts stay in the bar.
+$('reload-page').onclick = () => {
+  if (session) $('frame').src = session.surface.frameUrl;
+};
 /** The Send icon shows the state. Hidden text keeps it readable and announced. */
 function showSendState(label: 'Send' | 'Sending…' | 'Sent') {
   if ($('send').dataset.state === label) return;
@@ -179,13 +185,29 @@ function render() {
         : session?.agent === 'working'
           ? 'Agent working'
           : 'No agent waiting';
-  $('agent-indicator').dataset.active = String(agent);
+  $('agent-indicator').dataset.state = session?.ended
+    ? 'ended'
+    : !connected
+      ? 'offline'
+      : (session?.agent ?? 'idle');
   if (!session) return;
   const view = session;
   const mutable = !view.ended;
   $('end').disabled = view.ended;
   $('annotate').disabled = view.ended || !page;
-  $('update').hidden = !page || page.revision === view.revision;
+  const changed = !!page && page.revision !== view.revision;
+  // An HTML file reloads on its own when its source changes, once per revision.
+  // Unfinished input blocks it. App pages keep the button: their HTML can differ on each request.
+  if (
+    changed &&
+    view.target.kind === 'file' &&
+    !editorDirty &&
+    reloadedFor !== view.revision
+  ) {
+    reloadedFor = view.revision;
+    $('frame').src = view.surface.frameUrl;
+  }
+  $('update').hidden = !changed;
   const count = view.drafts.length;
   $('pending-count').hidden = !count;
   $('pending-count').textContent = count ? `Drafts (${count})` : '';
@@ -214,10 +236,9 @@ function render() {
               draft.labels?.title ??
                 (item.replacement
                   ? 'Text edit'
-                  : item.intent ||
-                    item.target?.id ||
-                    item.target?.tag ||
-                    'Comment'),
+                  : item.values
+                    ? 'Form'
+                    : item.target?.id || item.target?.tag || 'Comment'),
             ),
             'draft-title',
           ),
@@ -226,6 +247,9 @@ function render() {
           const replacement = element('p', '', 'replacement');
           replacement.setAttribute('role', 'group');
           replacement.setAttribute('aria-label', 'Text changes');
+          // The diff takes pointer input so it can scroll. A click still opens the editor.
+          replacement.onclick = () =>
+            li.querySelector<HTMLButtonElement>('.draft-open')?.click();
           for (const part of textDiff(
             item.replacement.before,
             item.replacement.after,
@@ -500,7 +524,7 @@ const bridge = connectPage({
         ...(key !== undefined ? { key, labels } : {}),
       });
       // A form updates its draft while the human types. Only a new decision opens the bar.
-      if (item.intent && (key === undefined || !known)) openTray();
+      if (item.values && (key === undefined || !known)) openTray();
       sent = false;
       error();
       return { draftId, status: 'draft' };
@@ -533,6 +557,13 @@ const bridge = connectPage({
     availability({ items }) {
       for (const item of items) available.set(item.id, item.available);
       render();
+    },
+    scrollbars({ right, bottom }) {
+      // Page input: keep each size between 0 and 40 pixels.
+      const size = (value: number) =>
+        `${Number.isFinite(value) ? Math.min(Math.max(value, 0), 40) : 0}px`;
+      document.body.style.setProperty('--frame-right', size(right));
+      document.body.style.setProperty('--frame-bottom', size(bottom));
     },
   },
 });

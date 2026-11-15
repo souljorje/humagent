@@ -25,6 +25,22 @@ test('compact controls, reversible expansion, content growth, and reduced motion
       expanded,
     );
   }
+  // The controls stay put on every frame while the tray opens and closes.
+  const drift = await page.evaluate(async () => {
+    const controls = document.querySelector('.bar-controls')!;
+    const start = controls.getBoundingClientRect().top;
+    let most = 0;
+    for (let toggle = 0; toggle < 2; toggle++) {
+      document.getElementById('toggle-review')!.click();
+      for (let frame = 0; frame < 14; frame++) {
+        await new Promise(requestAnimationFrame);
+        const top = controls.getBoundingClientRect().top;
+        most = Math.max(most, Math.abs(top - start));
+      }
+    }
+    return most;
+  });
+  expect(drift).toBeLessThan(1);
   await page.locator('#toggle-review').click();
   await expect(page.locator('#tray')).toHaveAttribute('data-expanded', 'true');
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -60,13 +76,16 @@ test('agent presence follows waits and receipts independently from delivery', as
   review,
 }) => {
   const status = page.locator('#agent-state');
+  const dot = page.locator('#agent-indicator');
   await expect(status).toHaveText('No agent waiting');
+  await expect(dot).toHaveAttribute('data-state', 'idle');
   // The request drops after 4 seconds, like an agent that stops waiting.
   // The bar refreshes every second, so it sees the wait before the drop.
   const wait = workspace
     .api(`/api/sessions/${plan.session}/wait`, 'POST', {}, 4000)
     .catch(() => undefined);
   await expect(status).toHaveText('Agent listening');
+  await expect(dot).toHaveAttribute('data-state', 'waiting');
   await expect(page.locator('#toggle-review')).toHaveAttribute(
     'aria-expanded',
     'true',
@@ -80,6 +99,7 @@ test('agent presence follows waits and receipts independently from delivery', as
   await expect(page.locator('#send')).toHaveText('Sent');
   const received = await review.receive();
   await expect(status).toHaveText('Agent working');
+  await expect(dot).toHaveAttribute('data-state', 'working');
   workspace.store.acknowledge(plan.session, received.receipt);
   await expect(status).toHaveText('No agent waiting');
   await expect(page.locator('#toggle-review')).toHaveAttribute(
@@ -90,12 +110,14 @@ test('agent presence follows waits and receipts independently from delivery', as
   const pattern = `**/api/sessions/${plan.session}`;
   await page.route(pattern, (route) => route.abort());
   await expect(status).toHaveText('Connection unavailable', { timeout: 8000 });
+  await expect(dot).toHaveAttribute('data-state', 'offline');
   await page.unroute(pattern);
   await expect(status).toHaveText('No agent waiting', { timeout: 8000 });
   await review.expand();
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'End session', exact: true }).click();
   await expect(status).toHaveText('Session ended');
+  await expect(dot).toHaveAttribute('data-state', 'ended');
 });
 
 test('agent command is session-specific with copy feedback', async ({
@@ -265,4 +287,29 @@ test('expanded controls use one status heading and a compact readable command', 
   page.once('dialog', (dialog) => dialog.accept());
   await end.click();
   await expect(heading).toHaveText('Session ended');
+});
+
+test('the bar keeps clear of the page scrollbars', async ({
+  page,
+  plan: _plan,
+  review,
+}) => {
+  // Headless Chromium hides scrollbars, so the page reports them directly.
+  await review.evaluate(() => {
+    const boot = window.__HUMAGENT__!;
+    parent.postMessage(
+      { ...boot, method: 'scrollbars', params: { right: 20, bottom: 12 } },
+      boot.parentOrigin,
+    );
+  });
+  const viewport = page.viewportSize()!;
+  await expect
+    .poll(async () => {
+      const bar = (await page.locator('#review-bar').boundingBox())!;
+      return (
+        viewport.width - (bar.x + bar.width) >= 36 &&
+        viewport.height - (bar.y + bar.height) >= 28
+      );
+    })
+    .toBe(true);
 });

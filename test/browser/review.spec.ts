@@ -197,10 +197,10 @@ test('comments and exact deletion send in creation order without changing source
   expect(event.items[2].target!.anchor).toMatchObject({
     quote: original,
   });
-  expect(event.items[0].target).toMatchObject({
-    id: 'headline',
-    revision: event.revision,
-  });
+  expect(event.items[0].target).toMatchObject({ id: 'headline' });
+  expect(event.items[0].target).not.toHaveProperty('revision');
+  expect(event.revision).toBe((await review.state()).revision);
+  expect(Object.keys(event.items[2]!)).toEqual(['id', 'replacement', 'target']);
   expect(await review.frame.locator('h1').textContent()).toBe('');
   await review.deliver();
   await expect(review.frame.locator('h1')).toHaveText(original!);
@@ -281,7 +281,7 @@ test('comments follow selectors through text changes and rerenders in a mini-app
   await expect(status).toContainText('Target unavailable');
 });
 
-test('stale feedback remains visible and blocks sending after explicit refresh', async ({
+test('a changed HTML file reloads on its own and stale feedback blocks sending', async ({
   page,
   plan,
   review,
@@ -289,10 +289,9 @@ test('stale feedback remains visible and blocks sending after explicit refresh',
 }) => {
   await review.addComment('h1', 'Preserve this note.');
   fs.appendFileSync(workspace.file(), '<p>Changed source.</p>');
+  await expect(review.frame.getByText('Changed source.')).toBeVisible();
   await review.expand();
-  await expect(page.locator('#update')).toBeVisible();
-  await review.evaluate(() => location.reload());
-  await review.ready();
+  await expect(page.locator('#update')).toBeHidden();
   await expect(page.locator('.draft-status')).toContainText('Stale revision');
   await expect(page.locator('#send')).toBeDisabled();
   await expect(page.locator('.draft')).toContainText('Preserve this note.');
@@ -318,7 +317,7 @@ test('frame credentials stay isolated and foreign bridge messages cannot stage f
       {
         method: 'stage',
         id: 'foreign',
-        params: { item: { intent: 'evil', values: {} } },
+        params: { item: { values: { evil: true } } },
       },
       location.origin,
     ),
@@ -365,4 +364,22 @@ test('a web component is reviewed as one element', async ({
   await review.addComment('#widget', 'Whole widget');
   expect((await review.draft()).target).toMatchObject({ id: 'widget' });
   await expect(review.frame.locator('.marker:visible')).toHaveCount(1);
+});
+
+test('a source change waits for an unfinished edit before the page reloads', async ({
+  page,
+  plan: _plan,
+  review,
+  workspace,
+}) => {
+  await review.annotate();
+  await review.frame.locator('h1').click();
+  await review.note.fill('Unfinished note');
+  fs.appendFileSync(workspace.file(), '<p>Changed source.</p>');
+  await expect(page.locator('#update')).not.toHaveAttribute('hidden', '');
+  // The bar refreshes every second. A reload would have closed the editor by now.
+  await page.waitForTimeout(1500);
+  await expect(review.note).toHaveValue('Unfinished note');
+  await review.note.press('Escape');
+  await expect(review.frame.getByText('Changed source.')).toBeVisible();
 });
