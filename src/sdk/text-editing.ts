@@ -1,5 +1,7 @@
-import type { Draft } from '../shared/feedback.js';
+import { LIMITS, type Draft } from '../shared/feedback.js';
 import { caretAtPoint } from './text-hit.js';
+
+const lf = (value = '') => value.replace(/\r\n/g, '\n');
 
 interface Preview {
   draft: Draft;
@@ -161,7 +163,7 @@ export function createTextEditing(hooks: {
       return editing?.element;
     },
     get value() {
-      return editing ? plainText(editing.element).replace(/\r\n/g, '\n') : '';
+      return editing ? lf(plainText(editing.element)) : '';
     },
     get initial() {
       return editing?.initial ?? '';
@@ -225,10 +227,7 @@ export function createTextEditing(hooks: {
       element.addEventListener('paste', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        insert(
-          event.clipboardData?.getData('text/plain').replace(/\r\n/g, '\n') ||
-            '',
-        );
+        insert(lf(event.clipboardData?.getData('text/plain')));
       });
       element.addEventListener('drop', (event) => {
         event.preventDefault();
@@ -238,10 +237,7 @@ export function createTextEditing(hooks: {
         const selection = getSelection();
         selection?.removeAllRanges();
         selection?.addRange(range);
-        insert(
-          event.dataTransfer?.getData('text/plain').replace(/\r\n/g, '\n') ||
-            '',
-        );
+        insert(lf(event.dataTransfer?.getData('text/plain')));
       });
       element.addEventListener('beforeinput', (event) => {
         if (event.isComposing) return;
@@ -311,7 +307,7 @@ export function isEditableText(node: Node | null): node is Text {
   return (
     node instanceof Text &&
     !!node.data.trim() &&
-    node.length <= 50000 &&
+    node.length <= LIMITS.text &&
     node.parentElement instanceof HTMLElement &&
     !node.parentElement.closest(
       '[data-humagent-ui],script,style,head,input,textarea,select,option,optgroup,[contenteditable]:not([contenteditable="false"])',

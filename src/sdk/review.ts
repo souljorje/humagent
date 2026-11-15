@@ -92,7 +92,10 @@ export function createPageReview(bridge: ReviewBridge) {
       .some(
         (item) => item instanceof Element && item.matches('[data-humagent-ui]'),
       );
-  const exactText = text.canonicalText;
+  const targetOf = (el: Element): ReviewTarget => ({
+    ...context(el, text.canonicalText(el)),
+    url: boot.sourceUrl,
+  });
   function changed() {
     if (!captured || ($('panel').hidden && !text.element)) return false;
     const commentChanged = captured.draft
@@ -247,16 +250,13 @@ export function createPageReview(bridge: ReviewBridge) {
   function show(el: EventTarget | null, range?: Range, point?: Point) {
     if (!(el instanceof Element) || ignored(el) || !writable || outside())
       return;
-    const before = range ? range.toString() : exactText(el);
+    const before = range ? range.toString() : text.canonicalText(el);
     if (before.length > LIMITS.text) {
       notice('Select a smaller section (maximum 50,000 characters).');
       return;
     }
     reopen();
-    const target: ReviewTarget = {
-      ...context(el, exactText(el)),
-      url: boot.sourceUrl,
-    };
+    const target = targetOf(el);
     if (range) {
       const prefix = range.cloneRange(),
         suffix = range.cloneRange();
@@ -293,8 +293,7 @@ export function createPageReview(bridge: ReviewBridge) {
     const before = existing?.item.replacement?.before ?? node.data;
     if (!before.trim() || before.length > LIMITS.text) return;
     const target: ReviewTarget = existing?.item.target || {
-      ...context(el, exactText(el)),
-      url: boot.sourceUrl,
+      ...targetOf(el),
       textNode: [...el.childNodes].indexOf(node),
       anchor: { quote: before },
     };
@@ -339,7 +338,7 @@ export function createPageReview(bridge: ReviewBridge) {
     reopen(markers.get(draftId));
     el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     capture(
-      { target: draft.item.target!, before: exactText(el), el, draft },
+      { target: draft.item.target!, before: text.canonicalText(el), el, draft },
       point || center(markers.get(draftId)),
     );
     showEditor();
@@ -613,7 +612,6 @@ export function createPageReview(bridge: ReviewBridge) {
       if (inView(rect, innerHeight)) layouts.push({ draft, index, rect });
     });
     const target = captured ? findTarget(captured.target) : hovered;
-    if (captured && target) captured.el = target;
     const highlighted = highlightedDraft
       ? drafts.find((draft) => draft.item.id === highlightedDraft)
       : undefined;
@@ -658,7 +656,6 @@ export function createPageReview(bridge: ReviewBridge) {
         markers.set(draft.item.id, marker);
         $('markers').append(marker);
       }
-      marker.hidden = false;
       marker.classList.toggle(
         'highlighted',
         draft.item.id === highlightedDraft,

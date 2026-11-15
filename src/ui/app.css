@@ -119,13 +119,6 @@ button:focus-visible {
   background: #666;
   color: #fff;
 }
-textarea {
-  caret-color: #fff;
-  scrollbar-color: #777 #353535;
-}
-textarea::placeholder {
-  color: #c8c8cc;
-}
 #connecting {
   position: fixed;
   inset: 0;

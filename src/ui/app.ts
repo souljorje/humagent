@@ -7,7 +7,6 @@ import { icon } from '../shared/icons.js';
 import { errorMessage } from '../shared/errors.js';
 import { installTooltips } from '../shared/tooltips.js';
 import { inputStyles } from '../shared/input-styles.js';
-import { materialStyles } from '../shared/material-styles.js';
 
 type Controls = Record<string, HTMLElement> & {
   frame: HTMLIFrameElement;
@@ -37,6 +36,14 @@ let session: WorkspaceView | undefined,
   /** The source revision that last reloaded the page on its own. */
   reloadedFor = '';
 const available = new Map<string, boolean>();
+const AGENT_STATUS = {
+  ended: 'Session ended',
+  offline: 'Connection unavailable',
+  waiting: 'Agent listening',
+  working: 'Agent working',
+  idle: 'No agent waiting',
+};
+const DIFF_TAG = { remove: 'del', add: 'ins', same: 'span' } as const;
 
 $('annotate').innerHTML = icon('comment');
 $('end').innerHTML = icon('power');
@@ -58,7 +65,7 @@ showSendState('Send');
 $('agent-command').textContent = `humagent wait ${id}`;
 installTooltips(document);
 const inputStyle = new CSSStyleSheet();
-inputStyle.replaceSync(materialStyles + inputStyles);
+inputStyle.replaceSync(inputStyles);
 document.adoptedStyleSheets = [...document.adoptedStyleSheets, inputStyle];
 
 function openTray(open = true) {
@@ -176,20 +183,13 @@ function resizeMessage() {
 }
 function render() {
   const agent = connected && !session?.ended && session?.agent !== 'idle';
-  $('agent-state').textContent = session?.ended
-    ? 'Session ended'
-    : !connected
-      ? 'Connection unavailable'
-      : session?.agent === 'waiting'
-        ? 'Agent listening'
-        : session?.agent === 'working'
-          ? 'Agent working'
-          : 'No agent waiting';
-  $('agent-indicator').dataset.state = session?.ended
+  const state = session?.ended
     ? 'ended'
     : !connected
       ? 'offline'
       : (session?.agent ?? 'idle');
+  $('agent-state').textContent = AGENT_STATUS[state];
+  $('agent-indicator').dataset.state = state;
   if (!session) return;
   const view = session;
   const mutable = !view.ended;
@@ -254,16 +254,7 @@ function render() {
             item.replacement.before,
             item.replacement.after,
           ))
-            replacement.append(
-              element(
-                part.kind === 'remove'
-                  ? 'del'
-                  : part.kind === 'add'
-                    ? 'ins'
-                    : 'span',
-                part.text,
-              ),
-            );
+            replacement.append(element(DIFF_TAG[part.kind], part.text));
           content.append(replacement);
         }
         if (item.comment) content.append(element('p', item.comment));
@@ -293,7 +284,7 @@ function render() {
               $('frame').focus();
               bridge.post('open', { draftId: item.id });
             },
-            !mutable || stale || available.get(item.id) === false,
+            !mutable || !!status,
           );
           open.className = 'draft-open';
           open.setAttribute('aria-label', `Edit feedback ${index + 1}`);

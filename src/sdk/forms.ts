@@ -212,11 +212,10 @@ export function createForms({ revision, stage, notice }: FormBridge) {
     'submit',
     (event) => {
       const form = event.target;
-      if (!isElement(form) || !hasTag(form, 'form') || !form.matches(FORMS))
-        return;
+      if (!isElement(form) || !form.matches(FORMS)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      void save(form);
+      void save(form as HTMLFormElement);
     },
     true,
   );

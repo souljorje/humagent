@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRuntime } from '../runtime/server.js';
 import { ensure } from '../runtime/validate.js';
+import { errorMessage } from '../shared/errors.js';
 import { version, runtimeName, runtimeVersion } from '../runtime/version.js';
 
 const HELP = `Humagent ${version}
@@ -91,7 +92,6 @@ function parse() {
       process.env.HUMAGENT_HOME ??
       path.join(os.homedir(), '.humagent'),
   );
-  machine ||= flags.has('json');
 }
 interface ServerRecord {
   pid: number;
@@ -258,11 +258,9 @@ const commands: Record<string, Command> = {
         argument,
         'Specify an HTML file or localhost URL. Example: humagent open ./page.html',
       );
-      const target = /^https?:/i.test(argument)
-        ? argument
-        : path.resolve(argument);
-      if (!/^https?:/i.test(target))
-        ensure(fs.existsSync(target), `File not found: ${target}`);
+      const url = /^https?:/i.test(argument);
+      const target = url ? argument : path.resolve(argument);
+      ensure(url || fs.existsSync(target), `File not found: ${target}`);
       await openTarget(target);
     },
   },
@@ -415,7 +413,7 @@ async function main() {
   await command.run(argument);
 }
 main().catch(async (error) => {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorMessage(error);
   if (machine) await output({ error: message });
   else process.stderr.write(`Humagent: ${message}\n`);
   process.exitCode = 1;

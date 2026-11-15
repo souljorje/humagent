@@ -122,12 +122,12 @@ h3 {
   background: #ffffff0d;
   color: #f5f5f5;
 }
-.command button svg + svg,
-.command button[data-copied] svg:first-child {
+.command button g + g,
+.command button[data-copied] g:first-child {
   display: none;
 }
-.command button[data-copied] svg + svg {
-  display: block;
+.command button[data-copied] g + g {
+  display: inline;
 }
 .steps p {
   margin-top: 8px;

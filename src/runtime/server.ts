@@ -15,7 +15,7 @@ import {
   type Surface,
 } from './surfaces.js';
 import { writeJson } from './storage.js';
-import { browserAsset } from './assets.js';
+import { browserAsset, noStore } from './assets.js';
 import { LIMITS, type WorkspaceView } from '../shared/feedback.js';
 
 const UI = fileURLToPath(new URL('../ui/', import.meta.url));
@@ -23,11 +23,7 @@ const equal = (a: unknown, b: string) =>
   typeof a === 'string' &&
   Buffer.byteLength(a) === Buffer.byteLength(b) &&
   timingSafeEqual(Buffer.from(a), Buffer.from(b));
-const JSON_HEADERS = {
-  'content-type': 'application/json',
-  'cache-control': 'no-store',
-  'x-content-type-options': 'nosniff',
-};
+const JSON_HEADERS = noStore('application/json');
 const json = (status: number, data: unknown) =>
   new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
 /** Public browser modules of the control page. */
@@ -209,29 +205,17 @@ export async function createRuntime(options: RuntimeOptions) {
     json(200, { app: 'humagent', pid: process.pid, version }),
   );
   app.get('/:root{ui|shared}/:file', async (c) => {
-    const asset = ASSET.test(c.req.path) && (await browserAsset(c.req.path));
-    ensure(asset, 'Not found', 'NOT_FOUND', 404);
-    return new Response(asset, {
-      headers: {
-        'content-type': c.req.path.endsWith('.css')
-          ? 'text/css'
-          : 'text/javascript',
-        'cache-control': 'no-store',
-        'x-content-type-options': 'nosniff',
-      },
-    });
+    const { body, headers } = await browserAsset(c.req.path, ASSET);
+    return new Response(body, { headers });
   });
   app.all('/', (c) => {
     ensure(c.req.method === 'GET', 'Method not allowed', 'METHOD', 405);
     return new Response(fs.readFileSync(path.join(UI, 'index.html')), {
-      headers: {
-        'content-type': 'text/html; charset=utf-8',
-        'cache-control': 'no-store',
+      headers: noStore('text/html; charset=utf-8', {
         'referrer-policy': 'no-referrer',
-        'x-content-type-options': 'nosniff',
         'content-security-policy':
           "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src http://127.0.0.1:*; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-      },
+      }),
     });
   });
 

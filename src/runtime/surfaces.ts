@@ -6,7 +6,7 @@ import { gunzipSync, inflateSync, brotliDecompressSync } from 'node:zlib';
 import { ensure, Failure, localUrl } from './validate.js';
 import type { Target } from '../shared/feedback.js';
 import type { Store } from './store.js';
-import { browserAsset } from './assets.js';
+import { browserAsset, noStore } from './assets.js';
 import type { Bootstrap } from '../shared/bridge.js';
 
 const LIMIT = 8 * 1024 * 1024;
@@ -30,7 +30,7 @@ const MIME: Record<string, string> = {
   '.txt': 'text/plain',
 };
 /** Browser modules of the page SDK. */
-const SDK_ASSET = /^\/(?:sdk|shared)\/[a-z][a-z0-9-]*\.(?:js|css|html)$/;
+const SDK_ASSET = /^\/(?:sdk|shared)\/[a-z][a-z0-9-]*\.js$/;
 const digest = (value: string | Buffer) =>
   createHash('sha256').update(value).digest('hex');
 export async function targetOf(
@@ -179,16 +179,16 @@ export async function startSurface(
   id: string,
   parentOrigin: string,
 ): Promise<Surface> {
-  const target = store.get(id).target;
+  const { target, surfacePath } = store.get(id);
   const channel = randomBytes(24).toString('hex');
   let origin = '';
+  const upstreamUrl = target.kind === 'url' ? new URL(target.value) : undefined;
   let currentPath =
-    store.get(id).surfacePath ??
-    (target.kind === 'file'
-      ? `/${encodeURIComponent(path.basename(target.value))}`
-      : new URL(target.value).pathname + new URL(target.value).search);
-  const upstreamOrigin =
-    target.kind === 'url' ? new URL(target.value).origin : '';
+    surfacePath ??
+    (upstreamUrl
+      ? upstreamUrl.pathname + upstreamUrl.search
+      : `/${encodeURIComponent(path.basename(target.value))}`);
+  const upstreamOrigin = upstreamUrl?.origin ?? '';
   const documents = new Map<string, { route: string; revision: string }>();
   let activeDocument: string;
   async function revision() {
@@ -247,14 +247,12 @@ export async function startSurface(
       if (requestOrigin && !['GET', 'HEAD'].includes(req.method ?? 'GET'))
         ensure(requestOrigin === origin, 'Foreign origin', 'FORBIDDEN', 403);
       if (rawPath.startsWith('/__humagent/')) {
-        const name = rawPath.slice('/__humagent'.length);
-        const asset = SDK_ASSET.test(name) && (await browserAsset(name));
-        ensure(asset, 'Not found', 'NOT_FOUND', 404);
-        res.writeHead(200, {
-          'content-type': 'text/javascript',
-          'cache-control': 'no-store',
-        });
-        return res.end(asset);
+        const asset = await browserAsset(
+          rawPath.slice('/__humagent'.length),
+          SDK_ASSET,
+        );
+        res.writeHead(200, asset.headers);
+        return res.end(asset.body);
       }
       if (target.kind === 'file') {
         ensure(
@@ -263,29 +261,24 @@ export async function startSurface(
           'READ_ONLY',
           405,
         );
-        const file = await safeFile(
-          target.root!,
-          rawPath === '/' ? `/${path.basename(target.value)}` : rawPath,
-        );
+        const page = rawPath === '/' ? `/${path.basename(target.value)}` : '';
+        const file = await safeFile(target.root!, page || rawPath);
         const bytes = await fs.readFile(file);
         ensure(bytes.length <= LIMIT, 'Asset exceeds 8 MiB', 'TOO_LARGE', 413);
         const html = /\.html?$/i.test(file);
         const net = target.network ? ' http: https: ws: wss:' : '';
         const policy = `default-src 'none'; script-src 'self' 'unsafe-inline'${net}; style-src 'self' 'unsafe-inline'${net}; img-src 'self' data: blob:${net}; font-src 'self' data:${net}; connect-src ${target.network ? "'self'" + net : "'none'"}; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors ${parentOrigin}`;
-        res.writeHead(200, {
-          'content-type': MIME[path.extname(file).toLowerCase()]!,
-          'content-security-policy': policy,
-          'x-content-type-options': 'nosniff',
-          'cache-control': 'no-store',
-        });
+        res.writeHead(
+          200,
+          noStore(MIME[path.extname(file).toLowerCase()]!, {
+            'content-security-policy': policy,
+          }),
+        );
         return res.end(
           req.method === 'HEAD'
             ? undefined
             : html && documentRequest
-              ? decorated(
-                  bytes,
-                  rawPath === '/' ? `/${path.basename(target.value)}` : req.url,
-                )
+              ? decorated(bytes, page || req.url)
               : bytes,
         );
       }
@@ -309,7 +302,6 @@ export async function startSurface(
               'connection',
               'transfer-encoding',
               'content-length',
-              'content-encoding',
               'set-cookie',
             ])
               delete out[h];
@@ -330,13 +322,11 @@ export async function startSurface(
               response.statusCode === 200
             ) {
               const body = await collect(response);
-              out['cache-control'] = 'no-store';
-              res.writeHead(200, out);
+              // The rewritten HTML is decoded. Other streams keep their content-encoding.
+              delete out['content-encoding'];
+              res.writeHead(200, { ...out, 'cache-control': 'no-store' });
               res.end(decorated(body, url.pathname + url.search));
             } else {
-              // Identity was requested; preserve content-encoding for non-HTML streams.
-              if (response.headers['content-encoding'])
-                out['content-encoding'] = response.headers['content-encoding'];
               res.writeHead(response.statusCode ?? 502, out);
               response.pipe(res);
             }

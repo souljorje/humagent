@@ -180,7 +180,7 @@ try {
   assert.equal(batch.events[0].items[0].values.approach, 'pilot-first');
   await run('ack', opened.session, '--receipt', batch.receipt);
   assert.equal((await run('status', opened.session)).agent, 'idle');
-  app = http.createServer((req, res) => {
+  app = http.createServer((_, res) => {
     res.setHeader('content-type', 'text/html');
     res.end('<h1>Installed package proxy</h1>');
   });

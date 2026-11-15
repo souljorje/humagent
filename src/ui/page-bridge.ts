@@ -4,16 +4,13 @@ import type {
   Requests,
   WorkspaceEvents,
 } from '../shared/bridge.js';
+import type { WorkspaceView } from '../shared/feedback.js';
 import { errorMessage } from '../shared/errors.js';
 
-interface Surface {
-  origin: string;
-  channel: string;
-}
 interface Options {
   frame: HTMLIFrameElement;
   /** The current page surface, or nothing before the first session view. */
-  surface(): Surface | undefined;
+  surface(): WorkspaceView['surface'] | undefined;
   /** Whether a message comes from the attached page document. */
   attached(msg: PageMessage): boolean;
   hello(msg: PageMessage): void;
