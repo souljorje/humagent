@@ -27,7 +27,7 @@ test('new document can stage before an older snapshot response returns', async (
     await expect(review.frame.locator('h1')).toHaveText('Page b');
     await review.ready();
     const result = await review.evaluate(() =>
-      window.humagent.submit({ intent: 'current-page', values: { page: 'b' } }),
+      window.humagent.submit({ values: { page: 'b' } }),
     );
     expect(result.status).toBe('draft');
     release();
@@ -68,7 +68,7 @@ test('a slow attach of an older page cannot replace the newer page', async ({
   await expect(review.frame.locator('h1')).toHaveText('Page b');
   await review.ready();
   const result = await review.evaluate(() =>
-    window.humagent.submit({ intent: 'current', values: { page: 'b' } }),
+    window.humagent.submit({ values: { page: 'b' } }),
   );
   expect(result.status).toBe('draft');
   expect(workspace.store.get(opened.session).surfacePath).toBe('/b');
@@ -204,7 +204,7 @@ test('HTML fragment fetches preserve the displayed app and allow submissions', a
   expect(after.surface.frameUrl).toBe(before.surface.frameUrl);
   expect(await review.evaluate(() => location.pathname)).toBe('/a');
   const event = await review.evaluate(() =>
-    window.humagent.submit({ intent: 'review', values: { choice: 'keep' } }),
+    window.humagent.submit({ values: { choice: 'keep' } }),
   );
   expect(event.status).toBe('draft');
   expect(workspace.store.get(opened.session).events).toHaveLength(0);
@@ -223,7 +223,7 @@ test('dynamic HTML accepts submissions without a refresh loop', async ({
   const session = await review.open(app.origin + '/dynamic');
   const requests = app.dynamicRequests;
   await review.frame
-    .locator('form[data-humagent-intent] button[type="submit"]')
+    .locator('form[data-humagent-id] button[type="submit"]')
     .click();
   await expect(page.locator('.draft')).toHaveCount(1);
   await review.connect();

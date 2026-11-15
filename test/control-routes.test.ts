@@ -147,7 +147,7 @@ test('control routes enforce origin, credential, content, and method boundaries'
   const form = {
     revision: snapshot.revision,
     key: 'plan form',
-    item: { intent: 'review', values: { selection: 'first' } },
+    item: { values: { selection: 'first' } },
   };
   const drafts = `/api/sessions/${first.session}/drafts`;
   await json(await jsonRequest(drafts, 'POST', form, sessionHeaders), 200);
@@ -155,7 +155,7 @@ test('control routes enforce origin, credential, content, and method boundaries'
     await jsonRequest(
       drafts,
       'POST',
-      { ...form, item: { intent: 'review', values: { selection: 'second' } } },
+      { ...form, item: { values: { selection: 'second' } } },
       sessionHeaders,
     ),
     200,

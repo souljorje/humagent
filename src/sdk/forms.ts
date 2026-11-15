@@ -7,7 +7,7 @@ import {
 } from '../shared/feedback.js';
 import { errorMessage } from '../shared/errors.js';
 
-const FORMS = 'form[data-humagent-intent]';
+const FORMS = 'form[data-humagent-id]';
 type FormControl = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 function isElement(target: EventTarget | null): target is Element {
   return !!target && 'nodeType' in target && target.nodeType === 1;
@@ -64,6 +64,8 @@ function groupName(el: FormControl) {
   const fieldset = el.closest('fieldset');
   return accessibleName(fieldset) || text(fieldset?.querySelector('legend'));
 }
+/** The form's draft key. One draft exists per key. */
+const key = (form: HTMLFormElement) => form.dataset.humagentId!;
 const ownLabel = (el: FormControl) =>
   accessibleName(el) || labelText(el.labels?.[0]);
 
@@ -110,7 +112,7 @@ function readForm(form: HTMLFormElement) {
     values[name] = value;
     fields.push({ label: clip(label || name), value: clip(shown) });
   }
-  const title = accessibleName(form) || form.dataset.humagentIntent!;
+  const title = accessibleName(form) || key(form);
   return {
     values,
     labels: { title: clip(title), fields: fields.slice(0, LIMITS.labelFields) },
@@ -142,7 +144,7 @@ interface FormBridge {
   stage(item: DraftItem, key: string, labels: DraftLabels): Promise<unknown>;
   notice(message: string): void;
 }
-/** Each intent form is one live draft. Choices save at once, typed text shortly after typing stops. */
+/** Each form with `data-humagent-id` is one live draft. Choices save at once, typed text shortly after typing stops. */
 export function createForms({ revision, stage, notice }: FormBridge) {
   // Forms with typed text that is not saved yet.
   const typing = new Map<HTMLFormElement, ReturnType<typeof setTimeout>>();
@@ -152,8 +154,6 @@ export function createForms({ revision, stage, notice }: FormBridge) {
   };
   // A failed save keeps its message until a later save succeeds.
   const failed = new Set<HTMLFormElement>();
-  const key = (form: HTMLFormElement) =>
-    form.id || form.dataset.humagentIntent!;
   const forms = () => document.querySelectorAll<HTMLFormElement>(FORMS);
   // Restoring and resetting dispatch input events for page scripts. Those events must not save.
   let quiet = false;
@@ -184,11 +184,7 @@ export function createForms({ revision, stage, notice }: FormBridge) {
     const { values, labels } = readForm(form);
     const message = form.dataset.humagentMessage;
     return stage(
-      {
-        intent: form.dataset.humagentIntent!,
-        values,
-        ...(message ? { comment: message } : {}),
-      },
+      { ...(message ? { comment: message } : {}), values },
       key(form),
       labels,
     ).then(
@@ -238,10 +234,9 @@ export function createForms({ revision, stage, notice }: FormBridge) {
         if (values) silently(form, () => fill(form, values));
       }
     },
-    present(drafts: Draft[]) {
-      for (const form of forms())
-        if (!failed.has(form))
-          status(form, current(drafts, form) ? 'Added to review' : '');
+    present() {
+      // A later successful save clears an earlier error.
+      for (const form of forms()) if (!failed.has(form)) status(form, '');
     },
     reset(formKey: string) {
       for (const form of forms())

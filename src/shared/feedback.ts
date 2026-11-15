@@ -8,7 +8,6 @@ export const LIMITS = {
   eventsPerReceipt: 100,
   comment: 4000,
   message: 4000,
-  intent: 200,
   text: 50000,
   formKey: 200,
   label: 500,
@@ -21,14 +20,14 @@ export interface Target {
   root?: string;
   network: boolean;
 }
-export type ReviewTarget = ObjectValue & { revision?: string };
+export type ReviewTarget = ObjectValue;
+/** Content fields come before `target`, so agents read the feedback first. */
 export interface ReviewItem {
   id: string;
-  target?: ReviewTarget;
   comment?: string;
   replacement?: { before: string; after: string };
-  intent?: string;
   values?: ObjectValue;
+  target?: ReviewTarget;
 }
 export type DraftItem = Omit<ReviewItem, 'id'>;
 /** Where the human clicked, relative to the target's top-left corner. */
@@ -77,9 +76,8 @@ export interface WorkspaceView extends SessionView {
   surface: { origin: string; frameUrl: string; channel: string };
 }
 export interface Submission {
-  intent: string;
   values: ObjectValue;
-  message?: string;
+  comment?: string;
 }
 export interface StageResult {
   draftId: string;

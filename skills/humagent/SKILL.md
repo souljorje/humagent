@@ -16,8 +16,9 @@ Use `--json` for command results.
 3. Apply the project's brand and domain instructions.
 4. Do not replace the application's renderer or server.
 
-For structured input, put named controls in a form with `data-humagent-intent`.
-Give each form a stable `id` and an accessible name, such as `aria-labelledby`. Label each control.
+For structured input, put named controls in a form with a stable, unique `data-humagent-id`.
+Use `data-humagent-message` to tell the agent what the answers mean.
+Give each form an accessible name, such as `aria-labelledby`. Label each control.
 
 Custom pages can add structured feedback through `window.humagent.submit()`.
 Forms and `submit()` add drafts. The user chooses **Send** to deliver the drafts as one review.
@@ -48,7 +49,7 @@ If something stops `wait` before it returns a result, run `wait` again at once.
 
 1. Read every review event in the receipt. Process each event's `message` and ordered `items` together.
 2. Preserve `replacement.before` and `replacement.after` exactly. An empty `replacement.after` proposes deletion.
-3. Interpret `comment`, `intent`, and `values` using the task context. Field presence describes each item.
+3. Interpret `comment` and `values` using the task context. Field presence describes each item.
 4. Find the source with `target.url`, `target.selector`, `target.text`, and `target.anchor.quote`.
 
 Each event represents one **Send** action. A receipt can contain several events.

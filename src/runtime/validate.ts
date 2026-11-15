@@ -72,23 +72,14 @@ export function parseJson(source: string): unknown {
   }
 }
 
-const ITEM_FIELDS = new Set([
-  'target',
-  'comment',
-  'replacement',
-  'intent',
-  'values',
-]);
+const ITEM_FIELDS = new Set(['comment', 'replacement', 'values', 'target']);
+/** Content fields come first and `target` comes last, so agents read the feedback first. */
 export function item(value: unknown): DraftItem {
   object(value, 'Item');
   for (const key of Object.keys(value))
     ensure(ITEM_FIELDS.has(key), `Unsupported item field: ${key}`);
-  const { target, comment, replacement, intent, values } = value;
+  const { target, comment, replacement, values } = value;
   const result: DraftItem = {};
-  if (target !== undefined) {
-    object(target, 'Target');
-    result.target = target;
-  }
   if (comment !== undefined)
     result.comment = text(comment, 'Comment', LIMITS.comment, true);
   if (replacement !== undefined) {
@@ -99,14 +90,17 @@ export function item(value: unknown): DraftItem {
       after: text(replacement.after, 'Replacement', LIMITS.text, true),
     };
   }
-  if (intent !== undefined || values !== undefined) {
-    result.intent = text(intent, 'Intent', LIMITS.intent);
+  if (values !== undefined) {
     object(values, 'Values');
     result.values = values;
   }
+  if (target !== undefined) {
+    object(target, 'Target');
+    result.target = target;
+  }
   ensure(
     (result.target && (result.comment?.trim() || result.replacement)) ||
-      result.intent,
+      result.values,
     'Each item needs a comment, replacement, or structured decision',
   );
   return result;

@@ -206,11 +206,6 @@ export class Store extends EventEmitter {
     object(value);
     current(s, value.revision);
     const fields = item(value.item);
-    ensure(
-      fields.target?.revision === undefined ||
-        fields.target.revision === s.revision,
-      'Target revision does not match the page',
-    );
     const key =
       value.key === undefined
         ? undefined

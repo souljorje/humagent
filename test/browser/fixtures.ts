@@ -321,11 +321,11 @@ export const test = base.extend<Fixtures>({
       } else if (req.url === '/dynamic') {
         dynamicRequests++;
         res.end(
-          `<h1>Dynamic ${dynamicRequests}</h1><form id="dynamic" data-humagent-intent="review"><input name="choice" value="keep"><button type="submit">Send</button></form>`,
+          `<h1>Dynamic ${dynamicRequests}</h1><form data-humagent-id="dynamic"><input name="choice" value="keep"><button type="submit">Send</button></form>`,
         );
       } else if (['/a', '/b'].includes(req.url || '')) {
         res.end(
-          `<h1>Page ${req.url!.slice(1)}</h1><a href="/b">Next page</a><form id="route" data-humagent-intent="review"><input name="note"></form>`,
+          `<h1>Page ${req.url!.slice(1)}</h1><a href="/b">Next page</a><form data-humagent-id="route"><input name="note"></form>`,
         );
       } else {
         const name =

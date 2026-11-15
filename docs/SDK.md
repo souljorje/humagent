@@ -5,7 +5,11 @@ Humagent injects its SDK into supported local HTML and HTTP localhost apps. Gene
 ## Declarative forms
 
 ```html
-<form id="plan" aria-label="Launch plan" data-humagent-intent="revise_plan">
+<form
+  aria-label="Launch plan"
+  data-humagent-id="plan"
+  data-humagent-message="Revise the plan. Do not execute it."
+>
   <label>Approach
     <select name="approach">
       <option value="pilot">Pilot first</option>
@@ -18,17 +22,16 @@ Humagent injects its SDK into supported local HTML and HTTP localhost apps. Gene
 
 | Attribute | Purpose |
 | --- | --- |
-| `data-humagent-intent` | Make the form one draft with named values |
-| `data-humagent-message` | Add the item's comment |
-| `data-humagent-id` | Identify annotation targets |
+| `data-humagent-id` | On a form, make the form one draft with named values. On other elements, identify annotation targets. |
+| `data-humagent-message` | Add the form item's comment |
 
-A marked form owns one draft. Each change saves it. Choices save at once. Typed text saves 300 milliseconds after typing stops. The submit button adds the form unchanged. The form shows **Added to review** while its draft exists. Marked forms do not send feedback. Unmarked forms behave normally.
+A marked form owns one draft. Each change saves it. Choices save at once. Typed text saves 300 milliseconds after typing stops. The submit button adds the form unchanged. Marked forms do not send feedback. Unmarked forms behave normally.
 
 Send delivers the values that the form shows. A reload refills the form from its draft. Deleting the draft in the bar resets the form to its HTML defaults. After a source revision change, the next form change replaces the stale draft.
 
-The form `id` identifies its draft. Without an `id`, the intent identifies it. Give each marked form a stable `id` when several forms share an intent.
+The `data-humagent-id` value is the draft key. Give each marked form a stable and unique value. A form item contains `comment` and `values`. It has no target and no marker on the page.
 
-The bar shows readable text. The title comes from `aria-label` or `aria-labelledby`, otherwise from the intent. Each field shows its label or fieldset legend and the visible text of its answer. The agent receives only field names and values.
+The bar shows readable text. The title comes from `aria-label` or `aria-labelledby`, otherwise from `data-humagent-id`. Each field shows its label or fieldset legend and the visible text of its answer. The agent receives only field names and values.
 
 | Control | Value |
 | --- | --- |
@@ -48,14 +51,13 @@ The only public method is `window.humagent.submit()`:
 
 ```js
 const result = await window.humagent.submit({
-  intent: 'revise_plan',
   values: { strategy: 'pilot-first' },
-  message: 'Revise the plan. Do not execute it.',
+  comment: 'Revise the plan. Do not execute it.',
 });
 // { draftId: '...', status: 'draft' }
 ```
 
-`intent` is a nonempty request name, not a handler or permission. `values` must be a JSON object. `message` is an optional item comment.
+`values` must be a JSON object. `comment` is optional. Each call adds a new draft.
 
 `submit()` waits for the bridge and saves a draft on the server. It does **not** confirm delivery. The human chooses **Send**. Show submission errors so the human can retry.
 
@@ -70,9 +72,9 @@ Each **Send** creates one event. `humagent wait` returns events in `events[]`:
   "revision": "source-revision",
   "message": "Keep changes small.",
   "items": [
-    { "id": "comment-1", "target": { "selector": "h1" }, "comment": "Shorten this." },
-    { "id": "edit-1", "target": { "selector": "#intro" }, "replacement": { "before": "Old", "after": "New" } },
-    { "id": "choice-1", "intent": "revise_plan", "values": { "strategy": "pilot-first" } }
+    { "id": "comment-1", "comment": "Shorten this.", "target": { "selector": "h1" } },
+    { "id": "edit-1", "replacement": { "before": "Old", "after": "New" }, "target": { "selector": "#intro" } },
+    { "id": "choice-1", "comment": "Revise the plan.", "values": { "strategy": "pilot-first" } }
   ],
   "status": "delivered",
   "deliveries": 1
@@ -81,9 +83,9 @@ Each **Send** creates one event. `humagent wait` returns events in `events[]`:
 
 `message` is the optional overall instruction. `status` is `queued`, `delivered`, or `completed`. `deliveries` counts reservations.
 
-Each item has a targeted comment, a targeted replacement, or an `intent` with `values`. A replacement needs nonempty `before` text. Empty `after` means deletion.
+Each item has a targeted comment, a targeted replacement, or `values`. Item fields come in this order: `id`, `comment`, `replacement`, `values`, `target`. A replacement needs nonempty `before` text. Empty `after` means deletion.
 
-An event can contain only a message. An empty review is invalid. The server rejects unknown item fields. A target `revision` must match the current page.
+An event can contain only a message. An empty review is invalid. The server rejects unknown item fields.
 
 ### Validation limits
 
@@ -93,7 +95,7 @@ An event can contain only a message. An empty review is invalid. The server reje
 | JSON nesting | Fewer than 24 levels |
 | Drafts per session | 100 |
 | Events per session | 2,000 |
-| Intent / comment / overall instruction | 200 / 4,000 / 4,000 characters |
+| Comment / overall instruction | 4,000 / 4,000 characters |
 | Each replacement string | 50,000 characters |
 | Form key | 200 characters |
 | Bar label text | 500 characters |
@@ -102,7 +104,7 @@ JSON values must be finite. The server rejects `__proto__`, `constructor`, and `
 
 ### Targets
 
-Targets include source URL, viewed revision, selector, tag, and up to 4,000 characters of normalized text. They include stable IDs and quote context when available.
+Targets include source URL, selector, tag, and up to 4,000 characters of normalized text. They include stable IDs and quote context when available.
 
 `coordinates: { x, y, space: "document" }` records the click in CSS pixels. Keyboard annotations use the target center. The marker stays at the click point. Its position stays in the draft, not in the event.
 
@@ -110,7 +112,7 @@ Targets describe rendered content, not guaranteed source lines. Missing or ambig
 
 ### Revisions
 
-Source revisions hash served HTML with SHA-256, excluding other assets. An HTTP revision follows the attached document, not nested frames, fragments, or status reads. File changes also trigger revision checks.
+Source revisions hash served HTML with SHA-256, excluding other assets. An HTTP revision follows the attached document, not nested frames, fragments, or status reads. File changes also trigger revision checks. After a file change, the workspace reloads the page once, unless an editor is open.
 
 Stale feedback cannot be silently rebound. See [refresh and recovery](USAGE.md#refresh-and-recovery).
 

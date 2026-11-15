@@ -39,14 +39,11 @@ test('a form keeps one draft that follows its current values', async ({
   workspace,
 }) => {
   const submit = review.frame.locator(
-    'form[data-humagent-intent] button[type="submit"]',
+    'form[data-humagent-id] button[type="submit"]',
   );
   const draft = page.locator('.draft');
   await submit.click();
   await submit.click();
-  await expect(review.frame.locator('[data-humagent-status]')).toHaveText(
-    'Added to review',
-  );
   await expect(draft).toHaveCount(1);
   const outcome = review.frame.locator('input[name="outcome"]');
   await outcome.fill('A later form value.');
@@ -73,8 +70,11 @@ test('form values survive reload and Send delivers the current values', async ({
   await approach.check();
   await outcome.fill('A preserved outcome.');
   await outcome.blur();
+  // Typed text saves without leaving the field.
   await notes.fill('Exact note.');
-  await notes.blur();
+  await expect
+    .poll(() => workspace.form(plan.session, 'launch')?.notes)
+    .toBe('Exact note.');
   await review.frame.locator('input[name="confirmBeforeAction"]').uncheck();
   await expect
     .poll(() => workspace.form(plan.session, 'launch')?.confirmBeforeAction)
@@ -93,7 +93,7 @@ test('form values survive reload and Send delivers the current values', async ({
     notes: 'Exact note.',
     confirmBeforeAction: false,
   });
-  await expect(review.frame.locator('[data-humagent-status]')).toHaveText('');
+  await expect(review.frame.locator('[data-humagent-status]')).toHaveCount(0);
 });
 
 test('deleting a form draft resets the form without adding it again', async ({
@@ -110,7 +110,7 @@ test('deleting a form draft resets the form without adding it again', async ({
   await page.getByRole('button', { name: 'Delete feedback 1' }).click();
   await expect(page.locator('.draft')).toHaveCount(0);
   await expect(outcome).toHaveValue(original);
-  await expect(review.frame.locator('[data-humagent-status]')).toHaveText('');
+  await expect(review.frame.locator('[data-humagent-status]')).toHaveCount(0);
   // A reset must not schedule a save that recreates the draft.
   await page.waitForTimeout(500);
   expect((await review.state()).drafts).toHaveLength(0);
@@ -140,7 +140,7 @@ test('SDK rejects lossy values and failed server writes without staging success'
       try {
         // Exercise runtime rejection of values excluded by the SDK's TypeScript contract.
         // @ts-expect-error Deliberately invalid JSON values.
-        await window.humagent.submit({ intent: 'invalid', values: { value } });
+        await window.humagent.submit({ values: { value } });
       } catch {
         rejected++;
       }
@@ -157,10 +157,7 @@ test('SDK rejects lossy values and failed server writes without staging success'
   );
   const failure = await review.evaluate(async () => {
     try {
-      await window.humagent.submit({
-        intent: 'review',
-        values: { safe: true },
-      });
+      await window.humagent.submit({ values: { safe: true } });
     } catch (e) {
       return e instanceof Error ? e.message : String(e);
     }
@@ -170,7 +167,7 @@ test('SDK rejects lossy values and failed server writes without staging success'
   expect(workspace.store.get(plan.session).events).toHaveLength(0);
   await page.unroute(drafts);
   await review.evaluate(() =>
-    window.humagent.submit({ intent: 'review', values: { safe: true } }),
+    window.humagent.submit({ values: { safe: true } }),
   );
   await expect(page.locator('.draft')).toHaveCount(1);
 });
@@ -184,7 +181,7 @@ test('form serialization handles repeated fields and excludes private or disable
   await review.expand(false);
   await review.evaluate(() => {
     const form = document.createElement('form');
-    form.dataset.humagentIntent = 'controls';
+    form.dataset.humagentId = 'controls';
     form.innerHTML =
       '<input name="repeated" value="one"><input name="repeated" value="two"><input type="checkbox" name="checks" value="a" checked><input type="checkbox" name="checks" value="b"><input type="radio" name="radio" value="yes" checked><select name="multi" multiple><option selected>a</option><option selected>b</option></select><input type="password" name="secret" value="no"><input type="file" name="file"><input name="disabled" disabled><button>Stage controls</button>';
     const frame = document.createElement('iframe');
@@ -214,11 +211,13 @@ test('separate concurrent SDK calls with equal values stage separate drafts', as
   await review.open();
   const results = await review.evaluate(() =>
     Promise.all([
-      window.humagent.submit({ intent: 'repeat', values: { choice: 'A' } }),
-      window.humagent.submit({ intent: 'repeat', values: { choice: 'A' } }),
+      window.humagent.submit({ values: { choice: 'A' }, comment: 'Repeat' }),
+      window.humagent.submit({ values: { choice: 'A' }, comment: 'Repeat' }),
     ]),
   );
   expect(results[0]!.draftId).not.toBe(results[1]!.draftId);
   const drafts = (await review.state()).drafts;
-  expect(drafts.filter((d) => d.item.intent === 'repeat')).toHaveLength(2);
+  const repeated = drafts.filter((d) => d.item.comment === 'Repeat');
+  expect(repeated).toHaveLength(2);
+  expect(Object.keys(repeated[0]!.item)).toEqual(['id', 'comment', 'values']);
 });

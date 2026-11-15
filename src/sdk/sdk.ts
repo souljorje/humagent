@@ -56,9 +56,8 @@ if (window.parent === window.top) {
       throw new Error('submit expects an object');
     return request('stage', {
       item: {
-        intent: captured.intent,
+        ...(captured.comment ? { comment: captured.comment } : {}),
         values: captured.values,
-        ...(captured.message ? { comment: captured.message } : {}),
       },
     });
   }
@@ -86,7 +85,7 @@ if (window.parent === window.top) {
     },
     update(params) {
       ended = !params.writable;
-      forms.present(params.drafts);
+      forms.present();
       review.present(params);
     },
     annotate(params) {

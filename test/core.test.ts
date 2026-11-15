@@ -37,17 +37,10 @@ test('items and drafts validate, persist, and edit in place', () => {
     { target: { selector: 'h1' }, comment: ' ' },
     { replacement: { before: 'a', after: 'b' } },
     { target: { selector: 'h1' }, comment: 'a'.repeat(4001) },
-    { intent: 'review' },
+    { intent: 'review', values: {} },
+    { values: 'x' },
   ])
     assert.throws(() => store.addDraft(id, { revision: 'v1', item }));
-  assert.throws(
-    () =>
-      store.addDraft(id, {
-        ...comment(),
-        item: { ...comment().item, target: { selector: 'h1', revision: 'v0' } },
-      }),
-    /Target revision/,
-  );
   assert.throws(() => parseJson('{"__proto__":{"x":1}}'));
   assert.throws(() => parseJson('['.repeat(30) + ']'.repeat(30)));
   assert.equal(store.get(id).drafts.length, 0);
@@ -56,11 +49,10 @@ test('items and drafts validate, persist, and edit in place', () => {
     id: 7,
     tag: ['section'],
     anchor: { quote: 3 },
-    revision: 'v1',
   };
   store.addDraft(id, {
     revision: 'v1',
-    item: { intent: 'entirely_new_workflow', values: { priority: 2 } },
+    item: { values: { priority: 2 } },
   });
   const note = store.addDraft(id, {
     revision: 'v1',
@@ -87,6 +79,13 @@ test('items and drafts validate, persist, and edit in place', () => {
   assert.equal(edited.item.id, draftId);
   assert.deepEqual(edited.item.replacement, { before: 'Old', after: 'Newer' });
   assert.equal(edited.item.comment, 'Why');
+  // Agents read content first, then the target.
+  assert.deepEqual(Object.keys(edited.item), [
+    'id',
+    'comment',
+    'replacement',
+    'target',
+  ]);
   assert.deepEqual(edited.marker, { x: 1, y: 2 });
   assert.throws(
     () =>
@@ -117,7 +116,7 @@ test('items and drafts validate, persist, and edit in place', () => {
   const form = (approach: string, revision = 'v1') => ({
     revision,
     key: 'plan',
-    item: { intent: 'revise_plan', values: { approach } },
+    item: { values: { approach }, comment: 'Revise the plan.' },
     labels: {
       title: 'Plan',
       fields: [{ label: 'Approach', value: approach }],
@@ -129,6 +128,7 @@ test('items and drafts validate, persist, and edit in place', () => {
   const forms = new Store(dir).get(id).drafts;
   assert.equal(forms.length, 2);
   assert.equal(forms[0].item.id, first);
+  assert.deepEqual(Object.keys(forms[0].item), ['id', 'comment', 'values']);
   assert.deepEqual(forms[0].item.values, { approach: 'platform' });
   assert.deepEqual(forms[0].labels!.fields, [
     { label: 'Approach', value: 'platform' },
