@@ -37,15 +37,30 @@ export function markerPoint(
   };
 }
 /** The editor opens after its anchor point, flips when it does not fit, and stays inside the viewport. */
-export function panelPoint(point: Point, panel: Size, viewport: Size): Point {
+export function panelPoint(
+  point: Point,
+  panel: Size,
+  viewport: Size,
+  reviewBar?: Point,
+): Point {
   const along = (start: number, size: number, limit: number) =>
     clamp(
       start + GAP + size <= limit - MARGIN ? start + GAP : start - size - GAP,
       MARGIN,
       limit - size - MARGIN,
     );
-  return {
+  const position = {
     x: along(point.x, panel.width, viewport.width),
     y: along(point.y, panel.height, viewport.height),
   };
+  if (
+    reviewBar &&
+    position.x + panel.width + GAP > reviewBar.x &&
+    position.y + panel.height + GAP > reviewBar.y
+  ) {
+    if (reviewBar.x >= panel.width + MARGIN + GAP)
+      position.x = reviewBar.x - panel.width - GAP;
+    else position.y = Math.max(MARGIN, reviewBar.y - panel.height - GAP);
+  }
+  return position;
 }

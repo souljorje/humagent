@@ -52,6 +52,7 @@ export function createPageReview(bridge: ReviewBridge) {
   let captured: Capture | null = null,
     hovered: Element | undefined;
   let highlightedDraft: string | undefined;
+  let reviewBar: Presentation['reviewBar'] | undefined;
   // A marker press opens its editor, which can move the marker before the click.
   let markerPress = false;
   let annotating = false,
@@ -626,6 +627,14 @@ export function createPageReview(bridge: ReviewBridge) {
           ? target.getBoundingClientRect()
           : null;
     const panel = !$('panel').hidden ? $('panel') : null;
+    if (panel) {
+      const height = window.visualViewport?.height || innerHeight;
+      const limit =
+        reviewBar && reviewBar.x < panel.offsetWidth + 22
+          ? Math.min(height - 24, reviewBar.y - 22)
+          : height - 24;
+      panel.style.maxHeight = `${Math.max(0, limit)}px`;
+    }
     const panelRect = panel?.getBoundingClientRect();
     const visible = new Set(layouts.map((layout) => layout.draft.item.id));
     for (const [id, marker] of markers) marker.hidden = !visible.has(id);
@@ -684,6 +693,7 @@ export function createPageReview(bridge: ReviewBridge) {
           width: innerWidth,
           height: window.visualViewport?.height || innerHeight,
         },
+        reviewBar,
       );
       panel.style.left = `${Math.round(x)}px`;
       panel.style.top = `${Math.round(y)}px`;
@@ -770,6 +780,7 @@ export function createPageReview(bridge: ReviewBridge) {
     },
     setMode,
     present(presentation: Presentation) {
+      reviewBar = presentation.reviewBar;
       // A new presentation may follow an attach. Report scrollbars again.
       lastScrollbars = '';
       drafts = presentation.drafts;

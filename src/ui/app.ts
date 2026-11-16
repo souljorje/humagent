@@ -121,7 +121,10 @@ function update(view: WorkspaceView) {
 const fresh = (revision?: string) =>
   revision === session?.revision && revision === page?.revision;
 function presentation(view: WorkspaceView): Presentation {
+  const bar = $('review-bar').getBoundingClientRect();
+  const frame = $('frame').getBoundingClientRect();
   return {
+    reviewBar: { x: bar.left - frame.left, y: bar.top - frame.top },
     drafts: view.drafts,
     previews: [...view.drafts, ...view.sent].filter(
       (draft) => draft.item.replacement && fresh(draft.revision),
@@ -555,6 +558,7 @@ const bridge = connectPage({
         `${Number.isFinite(value) ? Math.min(Math.max(value, 0), 40) : 0}px`;
       document.body.style.setProperty('--frame-right', size(right));
       document.body.style.setProperty('--frame-bottom', size(bottom));
+      render();
     },
   },
 });
@@ -565,6 +569,8 @@ window.addEventListener('beforeunload', (event) => {
 });
 
 await sync();
+new ResizeObserver(render).observe($('review-bar'));
+window.addEventListener('resize', render);
 setInterval(() => void sync(), 1000);
 setTimeout(() => {
   if (!page) {
