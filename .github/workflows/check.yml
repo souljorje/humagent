@@ -19,17 +19,35 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          fetch-depth: 2
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      # Compare the PR merge commit with its base, keeping the required check green.
+      - id: changes
+        if: github.event_name == 'pull_request'
+        run: |
+          changes=$(git diff --name-only --no-renames HEAD^1 HEAD -- . \
+            ':(top,glob,exclude)*.md' \
+            ':(top,glob,exclude)docs/**' \
+            ':(top,exclude).github/PULL_REQUEST_TEMPLATE.md')
+          if [[ -z "$changes" ]]; then
+            echo 'docs_only=true' >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.changes.outputs.docs_only != 'true'
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - uses: oven-sh/setup-bun@v2
+      - if: steps.changes.outputs.docs_only != 'true'
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.4'
-      - run: bun install --frozen-lockfile
-      - run: bun run check
-      - run: bunx --no-install playwright install --with-deps chromium
-      - run: bun run test:browser:built
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: bun install --frozen-lockfile
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: bun run check
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: bunx --no-install playwright install --with-deps chromium
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: bun run test:browser:built
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
