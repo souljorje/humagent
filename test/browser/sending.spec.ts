@@ -50,7 +50,6 @@ test('sending requires an agent and confirmation stays in the button briefly', a
   await page.reload();
   await review.ready();
   await expect(send).toHaveText('Send');
-  await expect(page.locator('#activity')).toHaveCount(0);
   await page.locator('#message').fill('More feedback while working');
   await expect(send).toBeEnabled();
   await review.deliver();

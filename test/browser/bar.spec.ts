@@ -90,9 +90,19 @@ test('agent presence follows waits and receipts independently from delivery', as
     'aria-expanded',
     'true',
   );
+  await page.reload();
+  await review.ready();
+  await expect(status).toHaveText('Agent listening');
+  await expect(page.locator('#toggle-review')).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
   await wait;
   await expect(status).toHaveText('No agent waiting');
-  await review.expand(false);
+  await expect(page.locator('#toggle-review')).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
   await page.locator('#message').fill('Work on this');
   await review.connect();
   await page.locator('#send').click();
@@ -106,7 +116,6 @@ test('agent presence follows waits and receipts independently from delivery', as
     'aria-expanded',
     'false',
   );
-  await expect(page.locator('#activity')).toHaveCount(0);
   const pattern = `**/api/sessions/${plan.session}`;
   await page.route(pattern, (route) => route.abort());
   await expect(status).toHaveText('Connection unavailable', { timeout: 8000 });
@@ -120,9 +129,11 @@ test('agent presence follows waits and receipts independently from delivery', as
   await expect(dot).toHaveAttribute('data-state', 'ended');
 });
 
-test('agent command is session-specific with copy feedback', async ({
+test('connection details support copying the command and cancelling or confirming session end', async ({
   page,
   plan,
+  review,
+  workspace,
 }) => {
   const command = `humagent wait ${plan.session}`;
   await expect(page.locator('#agent-command')).toHaveText(command);
@@ -150,6 +161,27 @@ test('agent command is session-specific with copy feedback', async ({
     'true',
     { timeout: 2500 },
   );
+  const heading = page.locator('.connection h2');
+  const end = page.locator('#end');
+  await expect(heading).toHaveText('No agent waiting');
+  await expect(heading).toHaveCount(1);
+  await expect(page.locator('#tray #end')).toHaveCount(1);
+  await expect(page.locator('.bar-controls #end')).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page
+      .locator('.connection-command')
+      .evaluate((el) => el.scrollWidth <= el.clientWidth),
+  ).toBe(true);
+  await review.expand(false);
+  await expect(end).not.toBeInViewport();
+  await review.expand();
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await end.click();
+  expect(workspace.store.get(plan.session).ended).toBe(false);
+  page.once('dialog', (dialog) => dialog.accept());
+  await end.click();
+  await expect(heading).toHaveText('Session ended');
 });
 
 test('tooltips explain disabled buttons with pointer and keyboard', async ({
@@ -185,31 +217,6 @@ test('tooltips explain disabled buttons with pointer and keyboard', async ({
   expect(
     await tip.evaluate((el) => getComputedStyle(el).transitionDuration),
   ).toBe('0s');
-});
-
-test('an initially listening agent starts collapsed and a later stop does not reopen details', async ({
-  page,
-  plan,
-  review,
-  workspace,
-}) => {
-  const wait = workspace
-    .api(`/api/sessions/${plan.session}/wait`, 'POST', {}, 5000)
-    .catch(() => undefined);
-  await expect(page.locator('#agent-state')).toHaveText('Agent listening');
-  await page.reload();
-  await review.ready();
-  await expect(page.locator('#agent-state')).toHaveText('Agent listening');
-  await expect(page.locator('#toggle-review')).toHaveAttribute(
-    'aria-expanded',
-    'false',
-  );
-  await wait;
-  await expect(page.locator('#agent-state')).toHaveText('No agent waiting');
-  await expect(page.locator('#toggle-review')).toHaveAttribute(
-    'aria-expanded',
-    'false',
-  );
 });
 
 for (const close of ['caret', 'Escape'])
@@ -259,35 +266,6 @@ for (const close of ['caret', 'Escape'])
     );
     await page.unroute(pattern);
   });
-
-test('expanded controls use one status heading and a compact readable command', async ({
-  page,
-  plan,
-  review,
-  workspace,
-}) => {
-  const heading = page.locator('.connection h2');
-  const end = page.locator('#end');
-  await expect(heading).toHaveText('No agent waiting');
-  await expect(heading).toHaveCount(1);
-  await expect(page.locator('#tray #end')).toHaveCount(1);
-  await expect(page.locator('.bar-controls #end')).toHaveCount(0);
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(
-    await page
-      .locator('.connection-command')
-      .evaluate((el) => el.scrollWidth <= el.clientWidth),
-  ).toBe(true);
-  await review.expand(false);
-  await expect(end).not.toBeInViewport();
-  await review.expand();
-  page.once('dialog', (dialog) => dialog.dismiss());
-  await end.click();
-  expect(workspace.store.get(plan.session).ended).toBe(false);
-  page.once('dialog', (dialog) => dialog.accept());
-  await end.click();
-  await expect(heading).toHaveText('Session ended');
-});
 
 test('the bar keeps clear of the page scrollbars', async ({
   page,

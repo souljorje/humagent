@@ -8,7 +8,7 @@ Name the problem or issue this solves.
 
 ## Checks
 
-List the checks you ran. `bun run check` must pass. Add `bun run test:browser:built` for browser or SDK changes.
+List the checks you ran. `bun run check` must pass. Add `bun run test:browser:built` for browser, SDK, or test changes.
 
 ## Limits
 

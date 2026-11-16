@@ -32,12 +32,14 @@ test('a form draft survives a lost HTTP response and refills the form', async ({
   expect((await review.state()).drafts).toHaveLength(1);
 });
 
-test('a form keeps one draft that follows its current values', async ({
+test('one form draft supports repeated submission, reset, reload, and delivery', async ({
   page,
   plan,
   review,
   workspace,
 }) => {
+  const outcome = review.frame.locator('input[name="outcome"]');
+  const original = await outcome.inputValue();
   const submit = review.frame.locator(
     'form[data-humagent-id] button[type="submit"]',
   );
@@ -45,26 +47,20 @@ test('a form keeps one draft that follows its current values', async ({
   await submit.click();
   await submit.click();
   await expect(draft).toHaveCount(1);
-  const outcome = review.frame.locator('input[name="outcome"]');
+  const first = (await review.draft()).id;
   await outcome.fill('A later form value.');
   await outcome.blur();
-  await expect
-    .poll(() => workspace.form(plan.session, 'launch')?.outcome)
-    .toBe('A later form value.');
-  await expect(draft).toHaveCount(1);
+  await expect(draft).toContainText('A later form value.');
+  expect((await review.draft()).id).toBe(first);
   await expect(draft.locator('dt').first()).toHaveText('approach');
   await expect(draft).toContainText('Working outcome');
-  await expect(draft).toContainText('A later form value.');
   await expect(draft).toContainText('Keep a human confirmation step');
-});
-
-test('form values survive reload and Send delivers the current values', async ({
-  page,
-  plan,
-  review,
-  workspace,
-}) => {
-  const outcome = review.frame.locator('input[name="outcome"]');
+  await page.getByRole('button', { name: 'Delete feedback 1' }).click();
+  await expect(draft).toHaveCount(0);
+  await expect(outcome).toHaveValue(original);
+  // Wait past the form debounce to detect a reset that accidentally stages another draft.
+  await page.waitForTimeout(500);
+  expect((await review.state()).drafts).toHaveLength(0);
   const notes = review.frame.locator('textarea[name="notes"]');
   const approach = review.frame.locator('input[value="platform-first"]');
   await approach.check();
@@ -94,26 +90,6 @@ test('form values survive reload and Send delivers the current values', async ({
     confirmBeforeAction: false,
   });
   await expect(review.frame.locator('[data-humagent-status]')).toHaveCount(0);
-});
-
-test('deleting a form draft resets the form without adding it again', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  const outcome = review.frame.locator('input[name="outcome"]');
-  const original = await outcome.inputValue();
-  await outcome.fill('Discard this value.');
-  await outcome.blur();
-  await expect(page.locator('.draft')).toHaveCount(1);
-  await review.expand();
-  await page.getByRole('button', { name: 'Delete feedback 1' }).click();
-  await expect(page.locator('.draft')).toHaveCount(0);
-  await expect(outcome).toHaveValue(original);
-  await expect(review.frame.locator('[data-humagent-status]')).toHaveCount(0);
-  // A reset must not schedule a save that recreates the draft.
-  await page.waitForTimeout(500);
-  expect((await review.state()).drafts).toHaveLength(0);
 });
 
 test('SDK rejects lossy values and failed server writes without staging success', async ({

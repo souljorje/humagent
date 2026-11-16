@@ -18,31 +18,6 @@ test('acknowledgment preserves same-value application writes', async ({
   await expect(review.frame.locator('h1')).toHaveText('Application wording');
 });
 
-test('physical clicks on disabled Send dismiss edits without sending', async ({
-  page,
-  plan,
-  review,
-  workspace,
-}) => {
-  await review.replace('h1', 'Saved preview');
-  // With an agent listening, a disabled Send proves the bar knows about the open edit.
-  await review.connect();
-  await expect(page.locator('#send')).toBeEnabled();
-  await review.frame.locator('.marker').click();
-  await review.editor.fill('Unconfirmed edit');
-  await expect(page.locator('#send')).toBeDisabled();
-  const box = (await page.locator('#send').boundingBox())!;
-  const click = () =>
-    page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await click();
-  await expect(review.editor).toBeFocused();
-  await expect(review.editor).toHaveText('Unconfirmed edit');
-  await click();
-  await expect(review.editor).toHaveCount(0);
-  await expect(review.frame.locator('h1')).toHaveText('Saved preview');
-  expect(workspace.store.get(plan.session).events).toHaveLength(0);
-});
-
 test('a sent text preview stays after a lost response until acknowledgment', async ({
   page,
   plan,

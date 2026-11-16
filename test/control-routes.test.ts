@@ -272,6 +272,8 @@ test('JSON requests enforce content type, syntax, object shape, and streamed byt
     ['', 'INVALID_JSON'],
     ['[]', 'INVALID_INPUT'],
     ['null', 'INVALID_INPUT'],
+    ['{"__proto__":{"x":1}}', 'INVALID_INPUT'],
+    ['['.repeat(30) + ']'.repeat(30), 'INVALID_INPUT'],
   ] as const)
     await json(
       await request('/api/open', {
@@ -283,6 +285,50 @@ test('JSON requests enforce content type, syntax, object shape, and streamed byt
       error,
     );
   const session = await open();
+  const base = `/api/sessions/${session.session}`;
+  const { revision } = await json(await request(base), 200);
+  for (const item of [
+    { target: { selector: 'h1' }, comment: 'x', kind: 'execute' },
+    { target: { selector: 'h1' }, comment: ' ' },
+    { replacement: { before: 'a', after: 'b' } },
+    { target: { selector: 'h1' }, comment: 'a'.repeat(LIMITS.comment + 1) },
+    { intent: 'review', values: {} },
+    { values: 'x' },
+  ])
+    await json(
+      await jsonRequest(`${base}/drafts`, 'POST', { revision, item }),
+      400,
+      'INVALID_INPUT',
+    );
+  assert.equal((await json(await request(base), 200)).drafts.length, 0);
+  const target = { id: 7, tag: ['section'], anchor: { quote: 3 } };
+  const draft = await json(
+    await jsonRequest(`${base}/drafts`, 'POST', {
+      revision,
+      item: { target, comment: 'Here' },
+    }),
+    200,
+  );
+  assert.deepEqual(draft.session.drafts[0].item.target, target);
+  for (const changes of [{ comment: 'x', after: 'y' }, { comment: '' }])
+    await json(
+      await jsonRequest(`${base}/drafts/${draft.draftId}`, 'PATCH', {
+        revision,
+        ...changes,
+      }),
+      400,
+      'INVALID_INPUT',
+    );
+  await json(
+    await jsonRequest(`${base}/drafts`, 'POST', {
+      revision,
+      key: 'plan',
+      item: { values: { choice: 'pilot' } },
+      labels: { title: '' },
+    }),
+    400,
+    'INVALID_INPUT',
+  );
   const route = `/api/sessions/${session.session}/wait`;
   // An ended session answers a wait at once.
   await json(

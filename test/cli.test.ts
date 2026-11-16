@@ -90,11 +90,16 @@ test('Bun CLI preserves runtime and sessions through an agent loop and restart',
     const batch = await pending;
     assert.equal(batch.status, 'feedback');
     assert.equal(batch.events[0].message, 'Check this interface.');
-    await run('ack', opened.session, '--receipt', batch.receipt);
-    assert.equal((await run('status', opened.session)).agent, 'idle');
     await stop();
     const resumed = await run('open', source, '--no-open');
     assert.equal(resumed.session, opened.session);
+    const redelivered = await run('wait', opened.session);
+    assert.equal(redelivered.events[0].id, batch.events[0].id);
+    assert.equal(redelivered.events[0].deliveries, 2);
+    await assert.rejects(() =>
+      run('ack', opened.session, '--receipt', batch.receipt),
+    );
+    await run('ack', opened.session, '--receipt', redelivered.receipt);
     assert.equal((await run('status', opened.session)).agent, 'idle');
     await run('end', opened.session);
     assert.equal((await run('wait', opened.session)).status, 'ended');

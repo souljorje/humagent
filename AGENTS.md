@@ -16,7 +16,11 @@ Keep temporary output in `.local/`.
 ## Validation
 
 Run `bun run check` after each coding increment.
-For browser or SDK changes, run `bun run test:browser:built` after the main check. CI runs both on pull requests.
+For browser, SDK, or test changes, run `bun run test:browser:built` after the main check. CI runs both on pull requests.
+
+Prioritize browser and CLI workflows. Extend existing tests and remove duplicate or obsolete coverage.
+Keep unit tests only for invariants that workflows cannot cover efficiently.
+Keep independent failure cases separate. Preserve permission, revision, receipt, persistence, and runtime checks.
 
 Follow [release instructions](CONTRIBUTING.md#changesets-and-release) for versioning, archive verification, and publication.
 

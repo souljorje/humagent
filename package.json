@@ -42,7 +42,7 @@
     "format": "bunx --bun --no-install oxfmt src test scripts tsconfig*.json package.json",
     "format:check": "bunx --bun --no-install oxfmt --check src test scripts tsconfig*.json package.json",
     "typecheck": "bun ./node_modules/typescript/bin/tsc -p tsconfig.tools.json",
-    "test": "bun run build && bun test ./test/*.test.ts --timeout 15000",
+    "test": "bun run check && bun run test:browser:built",
     "test:browser": "bun run build && bun run test:browser:built",
     "test:browser:built": "playwright test --config test/playwright.config.ts",
     "check": "bun run format:check && bun run lint && bun run build && bun run typecheck && bun test ./test/*.test.ts --timeout 15000",
