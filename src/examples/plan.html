@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Humagent demo</title>
+    <link rel="stylesheet" href="plan.css" />
+  </head>
+  <body>
+    <header>
+      <span class="brand">Humagent</span>
+      <span class="label">Interactive demo</span>
+    </header>
+    <main>
+      <section class="hero" aria-labelledby="headline">
+        <h1 id="headline" data-humagent-id="headline">
+          Show your agent what you mean
+        </h1>
+        <ol class="steps" aria-label="Get started">
+          <li>
+            <h3>Install</h3>
+            <div class="command">
+              <code>npm i -g humagent</code>
+              <button
+                type="button"
+                data-copy
+                aria-label="Copy npm i -g humagent"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <g>
+                    <rect x="8" y="8" width="12" height="13" rx="2" />
+                    <path
+                      d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"
+                    />
+                  </g>
+                  <g><path d="m5 12 4 4L19 6" /></g>
+                </svg>
+              </button>
+            </div>
+            <div class="command">
+              <code>npx skills add souljorje/humagent</code>
+              <button
+                type="button"
+                data-copy
+                aria-label="Copy npx skills add souljorje/humagent"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <g>
+                    <rect x="8" y="8" width="12" height="13" rx="2" />
+                    <path
+                      d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"
+                    />
+                  </g>
+                  <g><path d="m5 12 4 4L19 6" /></g>
+                </svg>
+              </button>
+            </div>
+          </li>
+          <li>
+            <h3>Connect</h3>
+            <p>
+              Run <code>humagent open ./page.html</code>. Paste the bar's wait
+              command into your agent chat.
+            </p>
+          </li>
+          <li>
+            <h3>Review</h3>
+            <p>
+              Comment on elements, rewrite text, and answer questions. Then send
+              it to the agent.
+            </p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="controls" aria-labelledby="controls-title">
+        <h2 id="controls-title">Controls</h2>
+        <dl class="keys">
+          <dt><kbd>Enter</kbd></dt>
+          <dd>Confirm a comment or edit</dd>
+          <dt><kbd>Shift</kbd> <kbd>Enter</kbd></dt>
+          <dd>Add a new line</dd>
+          <dt><kbd>Esc</kbd></dt>
+          <dd>Cancel</dd>
+          <dt><kbd>Arrow keys</kbd></dt>
+          <dd>Move between elements while commenting</dd>
+          <dt><kbd>⌘</kbd> or <kbd>Ctrl</kbd> <kbd>Enter</kbd></dt>
+          <dd>Send from the bar</dd>
+        </dl>
+      </section>
+
+      <section class="existing" aria-labelledby="existing-title">
+        <h2 id="existing-title">Review an existing page</h2>
+        <p class="note">
+          Humagent works on your running app without changing it. Try it on this
+          mock: comment on the button, or rewrite the headline.
+        </p>
+        <div class="mock">
+          <div class="mock-bar" aria-hidden="true">
+            <i></i><i></i><i></i><span>localhost:3000</span>
+          </div>
+          <div class="mock-page">
+            <nav class="mock-nav" aria-label="Example app">
+              <strong>Acme</strong>
+              <span>Pricing</span>
+              <span>Docs</span>
+              <span>Sign in</span>
+            </nav>
+            <div class="mock-hero">
+              <h3 id="mock-headline">Ship your next idea faster.</h3>
+              <p>Plan, build, and launch with one tool for the whole team.</p>
+              <button type="button" class="mock-cta">Start free trial</button>
+            </div>
+            <ul class="mock-cards">
+              <li><b>Plan</b><span>Roadmaps your team can follow.</span></li>
+              <li><b>Build</b><span>Tasks linked to every release.</span></li>
+              <li><b>Launch</b><span>Release notes in one click.</span></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="choices" aria-labelledby="choices-title">
+        <h2 id="choices-title">Build interactive plan</h2>
+        <p class="note">
+          Agents can propose options for you to choose from. Your choices join
+          the review at once.
+        </p>
+        <form
+          aria-labelledby="choices-title"
+          data-humagent-id="design-choices"
+          data-humagent-message="Apply these choices to the first screen. Do not publish anything."
+        >
+          <fieldset>
+            <legend>Which layout should the first screen use?</legend>
+            <div class="options">
+              <label class="option">
+                <span class="preview stacked" aria-hidden="true"
+                  ><i></i><i></i><i></i
+                ></span>
+                <span
+                  ><input type="radio" name="layout" value="stacked" />
+                  Stacked</span
+                >
+              </label>
+              <label class="option">
+                <span class="preview split" aria-hidden="true"
+                  ><i></i><i></i
+                ></span>
+                <span
+                  ><input type="radio" name="layout" value="split" />
+                  Split</span
+                >
+              </label>
+              <label class="option">
+                <span class="preview cards" aria-hidden="true"
+                  ><i></i><i></i><i></i
+                ></span>
+                <span
+                  ><input type="radio" name="layout" value="cards" />
+                  Cards</span
+                >
+              </label>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Which button design fits best?</legend>
+            <div class="options">
+              <label class="option">
+                <span class="preview buttons" aria-hidden="true"
+                  ><b class="solid"></b
+                ></span>
+                <span
+                  ><input type="radio" name="button" value="solid" />
+                  Solid</span
+                >
+              </label>
+              <label class="option">
+                <span class="preview buttons" aria-hidden="true"
+                  ><b class="outline"></b
+                ></span>
+                <span
+                  ><input type="radio" name="button" value="outline" />
+                  Outline</span
+                >
+              </label>
+              <label class="option">
+                <span class="preview buttons" aria-hidden="true"
+                  ><b class="soft"></b
+                ></span>
+                <span
+                  ><input type="radio" name="button" value="soft" /> Soft</span
+                >
+              </label>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>What should the agent change first?</legend>
+            <label class="choice">
+              <input type="radio" name="workflow" value="copy" />
+              The wording
+            </label>
+            <label class="choice">
+              <input type="radio" name="workflow" value="layout" />
+              The layout
+            </label>
+            <label class="choice">
+              <input type="radio" name="workflow" value="behavior" />
+              The interactions
+            </label>
+          </fieldset>
+        </form>
+      </section>
+
+      <section class="receive" aria-labelledby="receive-title">
+        <h2 id="receive-title">Your agent gets one structured feedback</h2>
+        <p class="note">
+          Press Send, and your agent gets everything you marked, in order. It
+          updates the page, then lets you know it is done.
+        </p>
+        <pre aria-label="Simplified example event"><code>{
+  "message": "Keep the tone friendly.",
+  "items": [
+    {
+      "id": "1c78…",
+      "comment": "Make this shorter.",
+      "target": {
+        "id": "headline",
+        "selector": "h1#headline",
+        "text": "Show your agent what you mean"
+      }
+    },
+    {
+      "id": "8579…",
+      "replacement": {
+        "before": "Ship your next idea faster.",
+        "after": "Plan and launch in one place."
+      },
+      "target": {
+        "id": "mock-headline",
+        "selector": "h3#mock-headline",
+        "text": "Ship your next idea faster.",
+        "anchor": { "quote": "Ship your next idea faster." }
+      }
+    },
+    {
+      "id": "c6f8…",
+      "comment": "Apply these choices to the first screen.",
+      "values": { "layout": "split", "button": "solid", "workflow": "layout" }
+    }
+  ]
+}</code></pre>
+      </section>
+    </main>
+    <script type="module" src="plan.js"></script>
+  </body>
+</html>

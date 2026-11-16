@@ -1,0 +1,271 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      font-family: Inter, sans-serif;
+    }
+    /* A neutral agent chat in the same window rect as the browser (160, 40, 1600 x 846). */
+    #ch-win {
+      position: absolute;
+      left: 160px;
+      top: 40px;
+      transform-origin: 800px 796px;
+      width: 1600px;
+      height: 846px;
+      border-radius: 16px;
+      overflow: hidden;
+      background: #131315;
+      box-shadow:
+        0 0 0 1px rgb(255 255 255 / 9%),
+        0 30px 80px rgb(0 0 0 / 40%);
+    }
+    .ch-head {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1600px;
+      height: 56px;
+      border-bottom: 1px solid rgb(255 255 255 / 7%);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-left: 22px;
+      font: 400 16px/1 Inter, sans-serif;
+      color: #a1a1a6;
+    }
+    .ch-head i {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #4ade80;
+    }
+    .ch-head b {
+      margin-left: auto;
+      margin-right: 22px;
+      font-weight: 400;
+      color: #6b6b70;
+    }
+    #ch-thread {
+      position: absolute;
+      left: 0;
+      top: 56px;
+      width: 1600px;
+      height: 700px;
+      overflow: hidden;
+    }
+    #ch-scroll {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1600px;
+    }
+    .ch-who {
+      position: absolute;
+      left: 240px;
+      top: 44px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font: 700 18px/1 Inter, sans-serif;
+      color: #f5f5f5;
+    }
+    .agent-icon {
+      width: 26px;
+      height: 26px;
+      color: #c8c8cc;
+      flex-shrink: 0;
+    }
+    .ch-plan {
+      position: absolute;
+      left: 240px;
+      top: 92px;
+      width: 1120px;
+      font: 400 22px/34px Inter, sans-serif;
+      color: #cfcfd4;
+    }
+    .ch-plan div {
+      height: 34px;
+      white-space: pre;
+    }
+    .ch-plan .agent-char {
+      opacity: 0;
+    }
+    .ch-plan .h {
+      color: #ffffff;
+      font-weight: 700;
+    }
+    #ch-me {
+      position: absolute;
+      right: 240px;
+      top: 836px;
+      height: 56px;
+      padding: 0 22px;
+      border-radius: 18px;
+      display: flex;
+      align-items: center;
+      background: #2a2a2e;
+      font: 400 24px/1 Inter, sans-serif;
+      color: #ffffff;
+      opacity: 0;
+    }
+    .tok {
+      padding: 2px 6px;
+      border-radius: 7px;
+      background: rgb(74 222 128 / 14%);
+      color: #86efac;
+    }
+    #ch-reply {
+      position: absolute;
+      left: 240px;
+      top: 922px;
+      font: 400 22px/34px Inter, sans-serif;
+      color: #cfcfd4;
+      opacity: 0;
+    }
+    #ch-composer {
+      position: absolute;
+      left: 420px;
+      top: 766px;
+      width: 760px;
+      height: 60px;
+      border-radius: 18px;
+      background: #1c1c1f;
+      box-shadow: inset 0 0 0 1px rgb(255 255 255 / 9%);
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      font: 400 24px/1 Inter, sans-serif;
+      color: #f5f5f5;
+      white-space: pre;
+    }
+    #ch-composer .ph {
+      color: #6b6b70;
+    }
+    #ch-composer .ch {
+      display: none;
+    }
+    #ch-caret {
+      display: inline-block;
+      width: 2px;
+      height: 26px;
+      margin-left: 1px;
+      background: #f5f5f5;
+      opacity: 0;
+    }
+    #ch-send {
+      position: absolute;
+      right: 10px;
+      top: 10px;
+      width: 40px;
+      height: 40px;
+      border-radius: 20px;
+      background: #f5f5f5;
+      color: #18181b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.35;
+    }
+  </style>
+
+  <div id="root" data-composition-id="chat" data-width="1920" data-height="1080">
+    <div id="ch-host" class="clip" data-start="0" data-duration="5.6" data-track-index="1">
+      <div id="ch-win">
+        <div class="ch-head" data-layout-ignore><i></i>night-market<b><svg class="agent-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-label="Agent"><path d="M12 3v3M9 3h6M3 12H1M23 12h-2"/><rect x="3" y="6" width="18" height="15" rx="5"/><path d="M8 11v2M16 11v2M9 17h6"/></svg></b></div>
+        <div id="ch-thread" data-layout-allow-overflow>
+          <div id="ch-scroll">
+            <div class="ch-who" data-layout-ignore><svg class="agent-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3M9 3h6M3 12H1M23 12h-2"/><rect x="3" y="6" width="18" height="15" rx="5"/><path d="M8 11v2M16 11v2M9 17h6"/></svg>Agent</div>
+            <div class="ch-plan" data-layout-ignore>
+              <div class="pl h"><span>Plan: Night Market landing page</span></div>
+              <div class="pl"><span>1) Hero: headline, subline, two buttons (Get tickets, See vendors)</span></div>
+              <div class="pl"><span>   – Headline options: "Street food under the lights" or "Eat late by the water"</span></div>
+              <div class="pl"><span>   – Button styles: solid, outline, soft Contrast check on all three</span></div>
+              <div class="pl"><span>2) Poster: event art with string lights, the date, and the pier</span></div>
+              <div class="pl"><span>   – Color options: Tangerine, Lagoon, Plum Each needs a dark-mode pass</span></div>
+              <div class="pl"><span>3) Social proof: attendee avatars, the count, and the number of stalls</span></div>
+              <div class="pl"><span>4) Vendors: 40 stalls grouped by cuisine, with opening hours</span></div>
+              <div class="pl"><span>   – Filters: vegan, gluten-free, cash only, card only</span></div>
+              <div class="pl"><span>5) Map: pier layout, entrances, seating, restrooms, first aid</span></div>
+              <div class="pl"><span>6) FAQ: weather policy, accessibility, parking, pets, re-entry</span></div>
+              <div class="pl"><span>7) Tickets: free entry or a reserved table, QR codes, refunds</span></div>
+              <div class="pl"><span>8) Analytics: track clicks on Get tickets and See vendors</span></div>
+              <div class="pl"><span>9) Copy review: tone, length, and a headline A/B test</span></div>
+              <div class="pl"><span>10) Accessibility: focus order, alt text, reduced motion, contrast</span></div>
+              <div class="pl"><span>11) Performance: image sizes, font loading, lazy-load the map</span></div>
+              <div class="pl"><span>12) SEO: title, description, Open Graph image, event schema</span></div>
+              <div class="pl"><span>13) Email capture: a reminder the day before, with the vendor list</span></div>
+              <div class="pl"><span>14) Open questions: poster color? headline? button style? layout?</span></div>
+              <div class="pl"><span>15) Rollout: preview link, a review pass, then publish on Friday</span></div>
+              <div class="pl"><span>16) After launch: compare the two headlines and keep the winner</span></div>
+              <div class="pl"><span>17) Follow-ups: a vendor signup form and a lost-and-found page</span></div>
+            </div>
+            <div id="ch-me">Let's use&nbsp;<span class="tok">/humagent</span>&nbsp;instead</div>
+            <div id="ch-reply">Opened in Humagent — mark up the page, then send</div>
+          </div>
+        </div>
+        <div id="ch-composer">
+          <span id="ch-ph" class="ph">Reply to the agent</span><span id="ch-t1" data-type="Let's use "></span><span id="ch-t2" class="tok" data-type="/humagent"></span><span id="ch-t3" data-type=" instead"></span><span id="ch-caret"></span>
+          <div id="ch-send">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      document.querySelectorAll("#ch-composer [data-type]").forEach((el) => {
+        el.innerHTML = [...el.dataset.type].map((c) => '<span class="ch">' + (c === " " ? " " : c) + "</span>").join("");
+      });
+      // Beat n of the music bed lands at B(n); see review.html.
+      const B = (n) => 1.021 + 0.49988 * n;
+      const tl = gsap.timeline({ paused: true });
+      const lines = [...document.querySelectorAll(".ch-plan .pl span")];
+      const SEND = B(5.5);
+
+      // Reveal fixed glyphs continuously. Avoid animated clipping during export.
+      let characterIndex = 0;
+      lines.forEach((line) => {
+        const text = line.textContent;
+        line.textContent = "";
+        for (const character of text) {
+          const glyph = document.createElement("span");
+          glyph.className = "agent-char";
+          glyph.textContent = character;
+          line.appendChild(glyph);
+          const time = 0.35 + characterIndex * 0.0026;
+          if (time < SEND) tl.set(glyph, { opacity: 1 }, time);
+          characterIndex++;
+        }
+      });
+      tl.to("#ch-scroll", { y: -116, duration: SEND - 2.7, ease: "none" }, 2.7);
+
+      // Focus moves to the composer: the camera eases in on it and the stream blurs and dims behind it.
+      tl.to("#ch-win", { scale: 1.35, y: -110, duration: 0.45, ease: "power3.inOut" }, 2.0);
+      tl.to("#ch-thread", { filter: "blur(6px)", opacity: 0.35, duration: 0.4, ease: "power2.out" }, 2.0);
+      tl.to("#ch-win", { scale: 1, y: 0, duration: 0.45, ease: "power3.inOut" }, SEND + 0.05);
+      tl.to("#ch-thread", { filter: "blur(0px)", opacity: 1, duration: 0.35, ease: "power2.out" }, SEND + 0.05);
+
+      // The human types over the stream and sends.
+      tl.set("#ch-caret", { opacity: 1 }, 2.25);
+      tl.set("#ch-ph", { display: "none" }, 2.35);
+      document.querySelectorAll("#ch-composer .ch").forEach((c, i) => tl.set(c, { display: "inline" }, 2.35 + i * 0.04));
+      tl.to("#ch-send", { opacity: 1, duration: 0.15 }, 2.55);
+      tl.to("#ch-send", { scale: 0.88, duration: 0.07 }, SEND);
+      tl.to("#ch-send", { scale: 1, opacity: 0.35, duration: 0.15 }, SEND + 0.07);
+      tl.set(["#ch-t1", "#ch-t2", "#ch-t3", "#ch-caret"], { opacity: 0 }, SEND + 0.03);
+      tl.set("#ch-ph", { display: "inline" }, SEND + 0.03);
+      tl.fromTo("#ch-me", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.3, ease: "expo.out" }, SEND + 0.03);
+      // Card top (978) plus scroll lands the preview at window y 470 (frame y 566); see CARD in review.html.
+      tl.to("#ch-scroll", { y: -508, duration: 0.55, ease: "power3.inOut" }, B(5.6));
+      tl.fromTo("#ch-reply", { opacity: 0, filter: "blur(4px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.25, ease: "power2.out" }, B(6.5));
+
+      // The preview card (the review window) opens over the chat; the chat falls back.
+      tl.to("#ch-win", { opacity: 0, filter: "blur(6px)", duration: 0.4, ease: "power3.in" }, B(8.2));
+
+      window.__timelines["chat"] = tl;
+    })();
+  </script>
+</template>

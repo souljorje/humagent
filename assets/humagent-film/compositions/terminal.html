@@ -1,0 +1,299 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+    }
+    #tm-card {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      background: #18181b;
+      transform-origin: 0 0;
+      opacity: 0;
+    }
+    #tm-body {
+      position: absolute;
+      left: 240px;
+      top: 86px;
+      font: 400 28px/30px 'JetBrains Mono', monospace;
+      color: #f5f5f5;
+    }
+    .jl {
+      height: 30px;
+      white-space: pre;
+    }
+    .jl.gap {
+      margin-bottom: 20px;
+    }
+    .k {
+      color: #a9cee9;
+    }
+    .p {
+      color: #a3a3ad;
+    }
+    .g {
+      color: #dedee3;
+    }
+    .tv {
+      display: inline-block;
+      line-height: 30px;
+      opacity: 0;
+      color: #dedee3;
+    }
+
+    /* A copy of the bar's tray at the send framing (frame px). Only the values are visible.
+       Values mirror the drafts CSS in review.html. */
+    #tm-rep {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 460px;
+      padding: 14px 14px 8px;
+      transform-origin: 0 0;
+      font-family: Inter, sans-serif;
+      color: #f5f5f5;
+    }
+    #tm-rep .st {
+      height: 24px;
+    }
+    #tm-rep .dh {
+      margin: 12px 0 6px;
+      height: 20px;
+    }
+    #tm-rep .draft {
+      position: relative;
+      padding: 12px 10px;
+      margin-top: 4px;
+    }
+    #tm-rep .dt {
+      height: 22px;
+    }
+    #tm-rep .dx {
+      margin-top: 2px;
+      height: 22px;
+      font: 400 14px/22px Inter, sans-serif;
+      white-space: nowrap;
+    }
+    #tm-rep .dv {
+      display: flex;
+      gap: 16px;
+      margin-top: 6px;
+      height: 36px;
+      font: 400 12px/18px Inter, sans-serif;
+    }
+    #tm-rep .dv > span:first-child {
+      width: 170px;
+      visibility: hidden;
+    }
+    #tm-rep .dv > .fly {
+      font-size: 13px;
+    }
+    /* The bar's input text: controls row at 344 px, 8 px padding, 42 px field, 12 px text inset, 14 px type. */
+    #tm-rep .note {
+      position: absolute;
+      left: 110px;
+      top: 366px;
+      font: 400 14px/14px Inter, sans-serif;
+      white-space: nowrap;
+    }
+    .fly {
+      position: relative;
+      display: inline-block;
+      transform-origin: 0 0;
+      opacity: 0;
+    }
+    .fly .source {
+      display: inline-block;
+    }
+    .fly .code {
+      position: absolute;
+      left: 0;
+      top: 0;
+      font: 400 14px/15px 'JetBrains Mono', monospace;
+      color: #dedee3;
+      white-space: pre;
+      opacity: 0;
+    }
+    .fly.s .source {
+      color: #b4b4b9;
+      text-decoration: line-through;
+    }
+    .fly.ins .source {
+      background: #ffffff12;
+      border-radius: 4px;
+      padding: 0 2px;
+    }
+  </style>
+
+  <!-- Simplified presentation: selector fields are flattened and the session ID is abbreviated. -->
+  <div id="root" data-composition-id="terminal" data-width="1920" data-height="1080">
+    <div id="tm-host" class="clip" data-start="0" data-duration="4.45" data-track-index="1">
+      <div id="tm-card" data-layout-allow-occlusion></div>
+      <div id="tm-body">
+<div class="jl gap"><span class="p">$ </span>humagent wait <span class="g">44517d91</span></div>
+<div class="jl">{</div>
+<div class="jl">  <span class="k">"status"</span>: <span class="g">"feedback"</span>,</div>
+<div class="jl">  <span class="k">"events"</span>: [</div>
+<div class="jl">    {</div>
+<div class="jl">      <span class="k">"message"</span>: "<span id="tj-0" class="tv">Use Lagoon for all accents</span>",</div>
+<div class="jl">      <span class="k">"items"</span>: [</div>
+<div class="jl">        {</div>
+<div class="jl">          <span class="k">"comment"</span>: "<span id="tj-1" class="tv">Apply this color to the poster</span>",</div>
+<div class="jl">          <span class="k">"values"</span>: { <span class="k">"color"</span>: "<span id="tj-2" class="tv">lagoon</span>" }</div>
+<div class="jl">        },</div>
+<div class="jl">        {</div>
+<div class="jl">          <span class="k">"comment"</span>: "<span id="tj-3" class="tv">Make this button stand out</span>",</div>
+<div class="jl">          <span class="k">"selector"</span>: <span class="g">"div#get-tickets"</span></div>
+<div class="jl">        },</div>
+<div class="jl">        {</div>
+<div class="jl">          <span class="k">"replacement"</span>: {</div>
+<div class="jl">            <span class="k">"before"</span>: "<span id="tj-4" class="tv">under the lights</span>",</div>
+<div class="jl">            <span class="k">"after"</span>: "<span id="tj-5" class="tv">after dark</span>"</div>
+<div class="jl">          },</div>
+<div class="jl">          <span class="k">"selector"</span>: <span class="g">"span#np-old"</span></div>
+<div class="jl">        }</div>
+<div class="jl">      ]</div>
+<div class="jl">    }</div>
+<div class="jl">  ]</div>
+<div class="jl">}</div>
+      </div>
+      <div id="tm-rep" data-layout-ignore data-motion-blur="off">
+        <div class="st"></div>
+        <div class="dh"></div>
+        <div class="draft" style="height: 112px; margin-top: 0">
+          <div class="dt"></div>
+          <div class="dx"><span id="tf-1" class="fly">Apply this color to the poster</span></div>
+          <div class="dv"><span>Which poster color should we ship?</span><span id="tf-2" class="fly">Lagoon</span></div>
+        </div>
+        <div class="draft" style="height: 70px">
+          <div class="dt"></div>
+          <div class="dx"><span id="tf-3" class="fly">Make this button stand out</span></div>
+        </div>
+        <div class="draft" style="height: 70px">
+          <div class="dt"></div>
+          <div class="dx"><span id="tf-4" class="fly s">under the lights</span> <span id="tf-5" class="fly ins">after dark</span></div>
+        </div>
+        <div class="note"><span id="tf-0" class="fly">Use Lagoon for all accents</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      // Local time of music beat n. This scene starts at B(29.5) = 15.767 s; see review.html.
+      const L = (n) => 0.49988 * (n - 29.5);
+
+      // The bar's top-left at the send framing (C4 in review.html): 160 + (-896 + 804 * 1.95), 76 + (-435.45 + 230 * 1.95).
+      const REP = { x: 831.8, y: 89.05, scale: 1.95 };
+      // The bar's rect as a transform of the full-frame card. Radii are divided by scale to stay round.
+      const FROM = { x: 831.8, y: 89.05, scaleX: 0.46719, scaleY: 0.72583, borderRadius: "100.17px / 64.48px" };
+      const FULL = { x: 0, y: 0, scaleX: 1, scaleY: 1, borderRadius: "0px / 0px" };
+      const BACK = { x: 855.6, y: 658, scaleX: 0.455208, scaleY: 0.182963, borderRadius: "100.17px / 249.23px" };
+
+      // Layout offsets (ignore transforms), summed up to a stop element.
+      const offset = (el, stop) => {
+        let x = 0, y = 0;
+        while (el && el !== stop) {
+          x += el.offsetLeft;
+          y += el.offsetTop;
+          el = el.offsetParent;
+        }
+        return { x, y };
+      };
+      // The runtime hides a scene outside its window (display: none), which zeroes every offset.
+      // Show hidden ancestors for the measurement only, then restore their inline display.
+      const shown = (els, fn) => {
+        const hidden = [];
+        for (const start of els) {
+          for (let el = start; el && el.nodeType === 1; el = el.parentElement) {
+            if (getComputedStyle(el).display === "none" && !hidden.some((h) => h.el === el)) {
+              hidden.push({ el, display: el.style.display });
+              el.style.display = "block";
+            }
+          }
+        }
+        try {
+          return fn();
+        } finally {
+          hidden.forEach(({ el, display }) => (el.style.display = display));
+        }
+      };
+      const rep = document.querySelector("#tm-rep");
+      const host = document.querySelector("#tm-host");
+      // Crossfade font layers while moving, then swap identical glyphs at rest.
+      for (let i = 0; i <= 5; i++) {
+        const fly = document.querySelector("#tf-" + i);
+        const source = document.createElement("span");
+        source.className = "source";
+        source.textContent = fly.textContent;
+        const code = document.createElement("span");
+        code.className = "code";
+        code.textContent = document.querySelector("#tj-" + i).textContent;
+        fly.replaceChildren(source, code);
+      }
+      // Measure the target span itself to align line boxes precisely.
+      const cache = {};
+      const target = (i) => cache[i] || (cache[i] = measure(i));
+      const measure = (i) => {
+        const fly = document.querySelector("#tf-" + i);
+        const tv = document.querySelector("#tj-" + i);
+        const { from, to } = shown([fly, tv], () => ({
+          from: offset(fly, rep),
+          to: offset(tv, host),
+        }));
+        return {
+          x: (to.x - REP.x) / REP.scale - from.x,
+          y: (to.y - REP.y) / REP.scale - from.y,
+        };
+      };
+
+      const tl = gsap.timeline({ paused: true });
+      gsap.set("#tm-rep", REP);
+
+      // Send: the values lift off the bar during the break.
+      tl.to(".fly", { opacity: 1, duration: 0.08 }, L(30));
+      tl.to(".fly", { y: -2, duration: L(31.2) - L(30), ease: "power2.out" }, L(30));
+
+      // The bar grows into the frame and fills it on the drop.
+      tl.to("#tm-card", { opacity: 1, duration: 0.1 }, L(31));
+      tl.fromTo("#tm-card", FROM, { ...FULL, duration: L(32) - L(31), ease: "power3.in", immediateRender: false }, L(31));
+      tl.fromTo(
+        "#tm-body .jl",
+        { opacity: 0 },
+        { opacity: 1, duration: 0.22, ease: "power2.out" },
+        L(32),
+      );
+
+      // The instruction dissolves with the panel instead of crossing every feedback row.
+      tl.to("#tf-0", { opacity: 0, duration: 0.18, ease: "power2.in" }, L(31));
+      tl.fromTo("#tj-0", { opacity: 0 }, { opacity: 1, duration: 0.24, ease: "power2.out" }, L(32));
+
+      // Stagger the remaining flights and hand over after landing.
+      for (let i = 1; i <= 5; i++) {
+        const t = L(31.6) + (i - 1) * 0.06;
+        const duration = 0.72;
+        tl.to("#tf-" + i, {
+          x: () => target(i).x,
+          y: () => target(i).y,
+          scale: 2 / REP.scale,
+          duration,
+          ease: "power3.inOut",
+        }, t);
+        tl.to("#tf-" + i + " .source", { opacity: 0, duration: 0.1, ease: "power2.in" }, t + 0.24);
+        tl.to("#tf-" + i + " .code", { opacity: 1, duration: 0.12, ease: "power2.out" }, t + 0.34);
+        tl.set("#tf-" + i, { opacity: 0 }, t + duration);
+        tl.set("#tj-" + i, { opacity: 1 }, t + duration);
+      }
+
+      // Back into the bar.
+      tl.to("#tm-body", { opacity: 0, filter: "blur(6px)", duration: 0.15, ease: "power3.in" }, L(37));
+      tl.fromTo("#tm-card", FULL, { ...BACK, duration: L(38) - L(37), ease: "power3.inOut", immediateRender: false }, L(37));
+      tl.to("#tm-card", { opacity: 0, duration: 0.12 }, L(38) - 0.06);
+
+      window.__timelines["terminal"] = tl;
+    })();
+  </script>
+</template>

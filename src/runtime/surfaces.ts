@@ -1,13 +1,14 @@
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { randomBytes, createHash } from 'node:crypto';
 import { gunzipSync, inflateSync, brotliDecompressSync } from 'node:zlib';
-import { ensure, Failure, type Target } from './protocol.js';
+import { ensure, Failure, localUrl } from './validate.js';
+import type { Target } from '../shared/feedback.js';
 import type { Store } from './store.js';
+import { browserAsset, noStore } from './assets.js';
+import type { Bootstrap } from '../shared/bridge.js';
 
-const SDK = fileURLToPath(new URL('../sdk/', import.meta.url));
 const LIMIT = 8 * 1024 * 1024;
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -28,7 +29,9 @@ const MIME: Record<string, string> = {
   '.wasm': 'application/wasm',
   '.txt': 'text/plain',
 };
-export const digest = (value: string | Buffer) =>
+/** Browser modules of the page SDK. */
+const SDK_ASSET = /^\/(?:sdk|shared)\/[a-z][a-z0-9-]*\.js$/;
+const digest = (value: string | Buffer) =>
   createHash('sha256').update(value).digest('hex');
 export async function targetOf(
   value: string,
@@ -37,10 +40,7 @@ export async function targetOf(
   if (/^https?:/i.test(value)) {
     const url = new URL(value);
     ensure(
-      url.protocol === 'http:' &&
-        ['localhost', '127.0.0.1'].includes(url.hostname) &&
-        !url.username &&
-        !url.password,
+      localUrl(url),
       'Only explicit HTTP localhost/127.0.0.1 targets are supported',
     );
     url.hostname = '127.0.0.1';
@@ -157,16 +157,20 @@ export async function sourceRevision(target: Target) {
       : await fetchDocument(new URL(target.value)),
   );
 }
-function inject(html: string, bootstrap: object) {
+function initializeFrame(bootstrap: Bootstrap) {
+  if (parent === top) window.__HUMAGENT__ = bootstrap;
+}
+function inject(html: string, bootstrap: Bootstrap) {
   // Insert after the initial doctype, not a regex-matched </body> inside a script.
   const prefix = /^\s*<!doctype[^>]*>/i.exec(html)?.[0] ?? '';
   const encoded = JSON.stringify(bootstrap).replaceAll('<', '\\u003c');
-  return `${prefix}<script>window.__HUMAGENT__=${encoded}</script><script type="module" src="/__humagent/sdk.js"></script>${html.slice(prefix.length)}`;
+  return `${prefix}<script>(${initializeFrame.toString()})(${encoded})</script><script type="module" src="/__humagent/sdk/sdk.js"></script>${html.slice(prefix.length)}`;
 }
 export interface Surface {
   origin: string;
   frameUrl: string;
   channel: string;
+  activate: (documentId: unknown) => void;
   checkRevision: () => Promise<string>;
   close: () => Promise<void>;
 }
@@ -175,16 +179,18 @@ export async function startSurface(
   id: string,
   parentOrigin: string,
 ): Promise<Surface> {
-  const target = store.get(id).target;
+  const { target, surfacePath } = store.get(id);
   const channel = randomBytes(24).toString('hex');
   let origin = '';
+  const upstreamUrl = target.kind === 'url' ? new URL(target.value) : undefined;
   let currentPath =
-    store.get(id).surfacePath ??
-    (target.kind === 'file'
-      ? `/${encodeURIComponent(path.basename(target.value))}`
-      : new URL(target.value).pathname + new URL(target.value).search);
-  const upstreamOrigin =
-    target.kind === 'url' ? new URL(target.value).origin : '';
+    surfacePath ??
+    (upstreamUrl
+      ? upstreamUrl.pathname + upstreamUrl.search
+      : `/${encodeURIComponent(path.basename(target.value))}`);
+  const upstreamOrigin = upstreamUrl?.origin ?? '';
+  const documents = new Map<string, { route: string; revision: string }>();
+  let activeDocument: string;
   async function revision() {
     if (target.kind === 'url') return store.get(id).revision;
     const bytes = await fs.readFile(
@@ -195,15 +201,16 @@ export async function startSurface(
     return hash;
   }
   function decorated(bytes: Buffer, route: string) {
-    currentPath = route;
     const hash = digest(bytes);
-    store.setRevision(id, hash, currentPath);
+    const documentId = randomBytes(16).toString('hex');
+    documents.set(documentId, { route, revision: hash });
+    if (documents.size > 256) documents.delete(documents.keys().next().value!);
     return inject(bytes.toString('utf8'), {
-      protocol: 1,
       session: id,
       channel,
       parentOrigin,
       revision: hash,
+      documentId,
       sourceUrl:
         target.kind === 'file'
           ? path.resolve(
@@ -240,18 +247,12 @@ export async function startSurface(
       if (requestOrigin && !['GET', 'HEAD'].includes(req.method ?? 'GET'))
         ensure(requestOrigin === origin, 'Foreign origin', 'FORBIDDEN', 403);
       if (rawPath.startsWith('/__humagent/')) {
-        const name = rawPath.slice('/__humagent/'.length);
-        ensure(
-          ['sdk.js', 'json.js', 'targets.js'].includes(name),
-          'Not found',
-          'NOT_FOUND',
-          404,
+        const asset = await browserAsset(
+          rawPath.slice('/__humagent'.length),
+          SDK_ASSET,
         );
-        res.writeHead(200, {
-          'content-type': 'text/javascript',
-          'cache-control': 'no-store',
-        });
-        return res.end(await fs.readFile(path.join(SDK, name)));
+        res.writeHead(200, asset.headers);
+        return res.end(asset.body);
       }
       if (target.kind === 'file') {
         ensure(
@@ -260,29 +261,24 @@ export async function startSurface(
           'READ_ONLY',
           405,
         );
-        const file = await safeFile(
-          target.root!,
-          rawPath === '/' ? `/${path.basename(target.value)}` : rawPath,
-        );
+        const page = rawPath === '/' ? `/${path.basename(target.value)}` : '';
+        const file = await safeFile(target.root!, page || rawPath);
         const bytes = await fs.readFile(file);
         ensure(bytes.length <= LIMIT, 'Asset exceeds 8 MiB', 'TOO_LARGE', 413);
         const html = /\.html?$/i.test(file);
         const net = target.network ? ' http: https: ws: wss:' : '';
         const policy = `default-src 'none'; script-src 'self' 'unsafe-inline'${net}; style-src 'self' 'unsafe-inline'${net}; img-src 'self' data: blob:${net}; font-src 'self' data:${net}; connect-src ${target.network ? "'self'" + net : "'none'"}; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors ${parentOrigin}`;
-        res.writeHead(200, {
-          'content-type': MIME[path.extname(file).toLowerCase()]!,
-          'content-security-policy': policy,
-          'x-content-type-options': 'nosniff',
-          'cache-control': 'no-store',
-        });
+        res.writeHead(
+          200,
+          noStore(MIME[path.extname(file).toLowerCase()]!, {
+            'content-security-policy': policy,
+          }),
+        );
         return res.end(
           req.method === 'HEAD'
             ? undefined
             : html && documentRequest
-              ? decorated(
-                  bytes,
-                  rawPath === '/' ? `/${path.basename(target.value)}` : req.url,
-                )
+              ? decorated(bytes, page || req.url)
               : bytes,
         );
       }
@@ -306,7 +302,6 @@ export async function startSurface(
               'connection',
               'transfer-encoding',
               'content-length',
-              'content-encoding',
               'set-cookie',
             ])
               delete out[h];
@@ -327,13 +322,11 @@ export async function startSurface(
               response.statusCode === 200
             ) {
               const body = await collect(response);
-              out['cache-control'] = 'no-store';
-              res.writeHead(200, out);
+              // The rewritten HTML is decoded. Other streams keep their content-encoding.
+              delete out['content-encoding'];
+              res.writeHead(200, { ...out, 'cache-control': 'no-store' });
               res.end(decorated(body, url.pathname + url.search));
             } else {
-              // Identity was requested; preserve content-encoding for non-HTML streams.
-              if (response.headers['content-encoding'])
-                out['content-encoding'] = response.headers['content-encoding'];
               res.writeHead(response.statusCode ?? 502, out);
               response.pipe(res);
             }
@@ -414,6 +407,20 @@ export async function startSurface(
   return {
     origin,
     channel,
+    activate(documentId) {
+      ensure(typeof documentId === 'string', 'Missing document identity');
+      if (documentId === activeDocument) return;
+      const document = documents.get(documentId);
+      ensure(
+        document,
+        'Document expired. Refresh the page.',
+        'STALE_DOCUMENT',
+        409,
+      );
+      currentPath = document.route;
+      store.setRevision(id, document.revision, currentPath);
+      activeDocument = documentId;
+    },
     get frameUrl() {
       return origin + currentPath;
     },
