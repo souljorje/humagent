@@ -1,6 +1,7 @@
 # Humagent
 
-[![Check](https://github.com/souljorje/humagent/actions/workflows/check.yml/badge.svg)](https://github.com/souljorje/humagent/actions/workflows/check.yml)
+[![Check](https://github.com/souljorje/humagent/actions/workflows/check.yml/badge.svg?branch=main)](https://github.com/souljorje/humagent/actions/workflows/check.yml?query=branch%3Amain)
+[![npm version](https://img.shields.io/npm/v/humagent)](https://www.npmjs.com/package/humagent)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **Collaborate with your AI agent in HTML: make edits, leave comments, and generate interactive plans.**
