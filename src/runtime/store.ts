@@ -173,8 +173,12 @@ export class Store extends EventEmitter {
         s.target.network === target.network,
     );
     if (existing) return existing;
+    let id: string;
+    do {
+      id = randomBytes(6).toString('hex');
+    } while (this.sessions.has(id) || this.failures.has(id));
     return this.commit({
-      id: randomUUID(),
+      id,
       title:
         target.kind === 'file'
           ? path.basename(target.value)
