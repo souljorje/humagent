@@ -51,7 +51,9 @@ bun run test
 ```
 
 This runs formatting, lint, builds, types, runtime tests, and browser workflows.
-`bun run check` runs the checks without Chromium. CI runs both stages on pull requests.
+`bun run check` runs the checks without Chromium.
+CI skips tests and releases for changes limited to root Markdown files, `docs/`, or the pull request template.
+Manual workflow runs always run checks.
 
 For browser work, install Chromium once and run Playwright locally:
 
