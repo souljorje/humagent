@@ -3,30 +3,28 @@
 [![Check](https://github.com/souljorje/humagent/actions/workflows/check.yml/badge.svg)](https://github.com/souljorje/humagent/actions/workflows/check.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Show your agent what you mean.** Comment on, rewrite, and answer any local page or app. Humagent sends it all to your AI agent as one structured review.
+**Collaborate with your AI agent in HTML: make edits, leave comments, and generate interactive plans.**
 
-Works with any agent that can run shell commands. Runs on your computer. Needs no account or API key.
+Works with any harness. Runs locally. Needs no account or API key.
+
+```mermaid
+flowchart LR
+  I["HTML / Web App"]
+  A["AI agent"]
+  H["Human"]
+  I <-->|"feedback"| A
+  H -->|"interact, edit, annotate"| I
+```
 
 [![Humagent demo: review a page and send structured feedback to your agent](./docs/humagent-demo.gif)](./docs/humagent-demo.gif)
 
-## How it works
+### Use cases
 
-1. **Open.** Your agent opens a page or local app with `humagent open`. It can also generate the page first.
-2. **Review.** You comment on elements, rewrite text in place, and answer forms. Drafts collect in the floating bar.
-3. **Send.** Your agent receives one review through `humagent wait`. It changes the source, then acknowledges the review.
+- Interactive plans and reports
+- Disposable prototypes
+- Design refinement
 
-The agent waits for your review during its turn. Its harness must allow a long-running shell command.
-
-## Features
-
-- Attach comments to any element, or rewrite page text in place. Source files stay unchanged until the agent applies feedback.
-- The floating bar collects comments, edits, and form answers into one review.
-- Drafts save on the server, so they survive reloads, restarts, and other tabs.
-- Marked forms turn agent questions into choices. The [SDK](docs/SDK.md) adds programmatic input.
-- Sandboxed frames and loopback-only serving. Read [Security and limits](docs/SECURITY.md).
-- Opens local HTML files and HTTP localhost apps. Version 0.1 does not support remote sites or cookie-authenticated apps.
-
-## Install
+## Quick start
 
 Requires Node.js 24+, or Bun 1.4.4+.
 
@@ -34,20 +32,10 @@ Requires Node.js 24+, or Bun 1.4.4+.
 npm i -g humagent
 ```
 
-Or run without installation:
+Run without installation:
 
 ```sh
 npx humagent@latest
-```
-
-Building from source works too. See [Contributing](CONTRIBUTING.md#setup).
-
-## Quick start
-
-Install the agent skill with the [skills CLI](https://github.com/vercel-labs/skills). It asks which agents to install it for:
-
-```sh
-npx skills add souljorje/humagent
 ```
 
 Try demo:
@@ -60,11 +48,15 @@ Or open your own file or local app:
 
 ```sh
 humagent open ./page.html
-
-humagent open http://127.0.0.1:3000
 ```
 
-Or let your agent open it and start listening:
+## Agent skill
+
+```sh
+npx skills add souljorje/humagent
+```
+
+Use with Agent:
 
 ```text
 /humagent ./page.html
@@ -72,7 +64,7 @@ Or let your agent open it and start listening:
 
 Generate an interactive page:
 
-> Read the Humagent skill. Create an interactive plan for next feature and open it in Humagent.
+> Create an interactive plan for next feature using /humagent.
 
 ## Docs
 
