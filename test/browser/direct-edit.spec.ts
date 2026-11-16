@@ -69,6 +69,26 @@ test('padding stays a comment target and keyboard activation edits only one dire
   plan: _plan,
   review,
 }) => {
+  const results = await review.evaluate(() => {
+    document.body.insertAdjacentHTML('beforeend', '<input value="Native">');
+    return [
+      document.querySelector('h1')!,
+      document.querySelector('input')!,
+    ].map((el) => {
+      const event = new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+      });
+      el.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+  });
+  expect(results).toEqual([false, false]);
+  await review.frame.locator('h1').dblclick();
+  expect(
+    await review.evaluate(() => document.getSelection()!.toString()),
+  ).toBeTruthy();
+  await expect(review.frame.getByRole('dialog')).toBeHidden();
   await review.evaluate(() => {
     const plain = document.createElement('h1');
     plain.id = 'direct-plain';
@@ -97,9 +117,17 @@ test('padding stays a comment target and keyboard activation edits only one dire
   await page.mouse.click(600, 120);
   await expect(review.editor).toHaveCount(0);
   await expect(review.note).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(review.frame.getByRole('dialog')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#annotate')).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await expect(page.locator('#annotate')).toBeFocused();
 });
 
-test('SVG labels remain usable comment targets', async ({
+test('SVG labels, ARIA controls, and shadow components preserve native behavior', async ({
   plan: _plan,
   review,
 }) => {
@@ -120,4 +148,35 @@ test('SVG labels remain usable comment targets', async ({
     .poll(async () => (await review.state()).drafts[0]?.item.comment)
     .toBe('Explain the chart');
   await expect(review.frame.locator('#svg-label')).toHaveText('Chart label');
+
+  await review.evaluate(() => {
+    const checkbox = document.createElement('div');
+    checkbox.id = 'custom-checkbox';
+    checkbox.role = 'checkbox';
+    checkbox.style.cursor = 'pointer';
+    checkbox.textContent = 'Custom checkbox';
+    const toggle = document.createElement('div');
+    toggle.id = 'unstyled-switch';
+    toggle.role = 'switch';
+    toggle.textContent = 'Unstyled switch';
+    document.body.prepend(checkbox, toggle);
+  });
+  await review.annotate();
+  const cursor = (selector: string) =>
+    review.frame
+      .locator(selector)
+      .evaluate((el) => getComputedStyle(el).cursor);
+  await expect.poll(() => cursor('#custom-checkbox')).toBe('pointer');
+  await review.frame.locator('#unstyled-switch').hover();
+  await expect.poll(() => cursor('#unstyled-switch')).toBe('auto');
+
+  await review.evaluate(() => {
+    const host = document.createElement('div');
+    host.id = 'widget';
+    host.attachShadow({ mode: 'open' }).innerHTML = '<p>Inner text</p>';
+    document.body.prepend(host);
+  });
+  await review.addComment('#widget', 'Whole widget');
+  expect((await review.draft(1)).target).toMatchObject({ id: 'widget' });
+  await expect(review.frame.locator('.marker:visible')).toHaveCount(2);
 });

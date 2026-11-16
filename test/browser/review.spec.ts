@@ -1,146 +1,6 @@
 import fs from 'node:fs';
 import { test, expect } from './fixtures.ts';
 
-test('old document messages cannot edit or remove current feedback', async ({
-  plan: _plan,
-  review,
-}) => {
-  await review.addComment('h1', 'Keep this');
-  const id = (await review.draft()).id;
-  await review.evaluate((draftId) => {
-    const boot = window.__HUMAGENT__!;
-    for (const method of ['edit', 'remove'])
-      parent.postMessage(
-        {
-          ...boot,
-          documentId: 'previous-document',
-          method,
-          id: crypto.randomUUID(),
-          params: { draftId, comment: 'Wrong document' },
-        },
-        boot.parentOrigin,
-      );
-  }, id);
-  await expect(review.frame.locator('.marker')).toHaveCount(1);
-  expect((await review.draft()).comment).toBe('Keep this');
-});
-
-test('commenting stays enabled, hover highlights, and confirmation creates a clickable marker', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await review.expand(false);
-  await review.annotate();
-  await review.frame.locator('h1').hover();
-  await expect(review.frame.locator('#highlight')).toBeVisible();
-  await review.frame.locator('h1').click();
-  await expect(
-    review.frame.getByRole('button', { name: 'Confirm text edit' }),
-  ).toBeDisabled();
-  await review.note.fill('Shorter heading');
-  await review.frame.getByRole('button', { name: 'Confirm text edit' }).click();
-  await expect(page.locator('#annotate')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  await expect(page.locator('#toggle-review')).toHaveAttribute(
-    'aria-expanded',
-    'false',
-  );
-  await expect(review.frame.locator('.marker')).toHaveText('1');
-  await page.locator('#annotate').click();
-  await review.frame.locator('input[name="outcome"]').fill('Native input');
-  await review.frame.locator('.marker').click();
-  await expect(review.note).toHaveValue('Shorter heading');
-  await expect(
-    review.frame.getByRole('button', { name: 'Save', exact: true }),
-  ).toBeDisabled();
-});
-
-test('unfinished feedback survives reselection and blocks refresh and send', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await page.locator('#message').fill('Overall instruction');
-  await review.annotate();
-  await review.frame.locator('h1').click();
-  await review.note.fill('Keep this unfinished note');
-  await review.evaluate(() =>
-    document
-      .querySelector('[data-humagent-id="brief"]')!
-      .dispatchEvent(
-        new MouseEvent('click', { bubbles: true, cancelable: true }),
-      ),
-  );
-  await expect(review.note).toHaveValue('Keep this unfinished note');
-  await expect(page.locator('#send')).toBeDisabled();
-  const documentId = await review.evaluate(
-    () => window.__HUMAGENT__!.documentId,
-  );
-  expect(
-    await review.evaluate(
-      () =>
-        !window.dispatchEvent(new Event('beforeunload', { cancelable: true })),
-    ),
-  ).toBe(true);
-  expect(await review.evaluate(() => window.__HUMAGENT__!.documentId)).toBe(
-    documentId,
-  );
-  await review.frame.getByRole('button', { name: 'Confirm text edit' }).click();
-  await expect
-    .poll(async () => (await review.state()).drafts[0]?.item.target?.id)
-    .toBe('headline');
-});
-
-test('native selection and context menus are untouched when commenting is off', async ({
-  plan: _plan,
-  review,
-}) => {
-  const results = await review.evaluate(() => {
-    document.body.insertAdjacentHTML('beforeend', '<input value="Native">');
-    return [
-      document.querySelector('h1')!,
-      document.querySelector('input')!,
-    ].map((el) => {
-      const event = new MouseEvent('contextmenu', {
-        bubbles: true,
-        cancelable: true,
-      });
-      el.dispatchEvent(event);
-      return event.defaultPrevented;
-    });
-  });
-  expect(results).toEqual([false, false]);
-  await review.frame.locator('h1').dblclick();
-  expect(
-    await review.evaluate(() => document.getSelection()!.toString()),
-  ).toBeTruthy();
-  await expect(review.frame.getByRole('dialog')).toBeHidden();
-});
-
-test('keyboard targeting and Escape restore normal interaction', async ({
-  page,
-  plan: _plan,
-  review,
-}) => {
-  await page.locator('#annotate').focus();
-  await page.keyboard.press('Enter');
-  await expect(review.frame.locator('#keyboard-hint')).toBeVisible();
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('Enter');
-  await expect(review.frame.getByRole('dialog')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(review.frame.getByRole('dialog')).toBeHidden();
-  await page.keyboard.press('Escape');
-  await expect(page.locator('#annotate')).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  );
-  await expect(page.locator('#annotate')).toBeFocused();
-});
-
 for (const trigger of ['button', 'Control+Enter'])
   test(`sending waits for unfinished draft edits via ${trigger}`, async ({
     page,
@@ -254,6 +114,22 @@ test('comments follow selectors through text changes and rerenders in a mini-app
   await review.note.press('Enter');
   await expect(review.frame.locator('#panel')).toBeHidden();
   const original = (await review.state()).drafts[0];
+  await review.evaluate(async () => {
+    const ticker = document.createElement('p');
+    document.body.append(ticker);
+    for (let i = 0; i < 50; i++) {
+      ticker.textContent = `Update ${i}`;
+      ticker.className = `tick-${i % 2}`;
+      if (i === 10)
+        document.body.insertAdjacentHTML(
+          'beforeend',
+          '<p id="busy-words" style="position:fixed;left:40px;top:300px;font:20px monospace">New plain text</p>',
+        );
+      await new Promise(requestAnimationFrame);
+    }
+  });
+
+  await expect(review.frame.locator('.marker')).toHaveCount(1);
   await target
     .locator('button')
     .evaluate((el) => (el.textContent = 'Count: 3'));
@@ -277,18 +153,43 @@ test('comments follow selectors through text changes and rerenders in a mini-app
   await expect(status).toHaveCount(0);
   await review.frame.locator('.marker').click();
   await expect(review.note).toHaveValue('Updated comment');
+  await review.frame
+    .getByRole('button', { name: 'Cancel', exact: true })
+    .click();
   await target.evaluate((el) => el.after(el.cloneNode(true)));
   await expect(status).toContainText('Target unavailable');
+  await review.frame.locator('#busy-words').click();
+  await expect(review.editor).toBeFocused();
 });
 
-test('a changed HTML file reloads on its own and stale feedback blocks sending', async ({
+test('source changes preserve unfinished input and keep saved feedback on its original revision', async ({
   page,
   plan,
   review,
   workspace,
 }) => {
   await review.addComment('h1', 'Preserve this note.');
+  await review.frame.locator('.marker').click();
+  await review.note.fill('Unfinished note');
+  await review.evaluate(() =>
+    document
+      .querySelector('[data-humagent-id="brief"]')!
+      .dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }),
+      ),
+  );
+  await expect(review.note).toHaveValue('Unfinished note');
+  expect(
+    await review.evaluate(
+      () =>
+        !window.dispatchEvent(new Event('beforeunload', { cancelable: true })),
+    ),
+  ).toBe(true);
   fs.appendFileSync(workspace.file(), '<p>Changed source.</p>');
+  await expect(page.locator('#update')).toBeVisible();
+  await expect(review.note).toHaveValue('Unfinished note');
+  await expect(page.locator('#send')).toBeDisabled();
+  await review.note.press('Escape');
   await expect(review.frame.getByText('Changed source.')).toBeVisible();
   await review.expand();
   await expect(page.locator('#update')).toBeHidden();
@@ -332,7 +233,47 @@ test('frame credentials stay isolated and foreign bridge messages cannot stage f
     expect(sandbox).toContain(token);
   for (const token of ['allow-top-navigation', 'allow-popups'])
     expect(sandbox).not.toContain(token);
-  await expect(review.frame.locator('h1')).toBeVisible();
+  await review.addComment('h1', 'Keep this');
+  const id = (await review.draft()).id;
+  const errors = await review.evaluate(async (draftId) => {
+    const boot = window.__HUMAGENT__!;
+    const errors: string[] = [];
+    for (const method of ['edit', 'remove']) {
+      const id = crypto.randomUUID();
+      errors.push(
+        await new Promise<string>((resolve) => {
+          const receive = (event: MessageEvent) => {
+            if (
+              event.source !== parent ||
+              event.data?.id !== id ||
+              event.data.method !== 'result'
+            )
+              return;
+            window.removeEventListener('message', receive);
+            resolve(event.data.error);
+          };
+          window.addEventListener('message', receive);
+          parent.postMessage(
+            {
+              ...boot,
+              documentId: 'previous-document',
+              method,
+              id,
+              params: { draftId, comment: 'Wrong document' },
+            },
+            boot.parentOrigin,
+          );
+        }),
+      );
+    }
+    return errors;
+  }, id);
+  expect(errors).toEqual([
+    'Refresh the page to reconnect.',
+    'Refresh the page to reconnect.',
+  ]);
+  expect((await review.draft()).comment).toBe('Keep this');
+  await expect(review.frame.locator('.marker')).toHaveCount(1);
 });
 
 test('two tabs edit one session and see each other’s feedback', async ({
@@ -349,37 +290,4 @@ test('two tabs edit one session and see each other’s feedback', async ({
   await review.addComment('h1', 'From the first tab');
   await expect(other.locator('.draft')).toContainText('From the first tab');
   await other.close();
-});
-
-test('a web component is reviewed as one element', async ({
-  plan: _plan,
-  review,
-}) => {
-  await review.evaluate(() => {
-    const host = document.createElement('div');
-    host.id = 'widget';
-    host.attachShadow({ mode: 'open' }).innerHTML = '<p>Inner text</p>';
-    document.body.prepend(host);
-  });
-  await review.addComment('#widget', 'Whole widget');
-  expect((await review.draft()).target).toMatchObject({ id: 'widget' });
-  await expect(review.frame.locator('.marker:visible')).toHaveCount(1);
-});
-
-test('a source change waits for an unfinished edit before the page reloads', async ({
-  page,
-  plan: _plan,
-  review,
-  workspace,
-}) => {
-  await review.annotate();
-  await review.frame.locator('h1').click();
-  await review.note.fill('Unfinished note');
-  fs.appendFileSync(workspace.file(), '<p>Changed source.</p>');
-  await expect(page.locator('#update')).not.toHaveAttribute('hidden', '');
-  // The bar refreshes every second. A reload would have closed the editor by now.
-  await page.waitForTimeout(1500);
-  await expect(review.note).toHaveValue('Unfinished note');
-  await review.note.press('Escape');
-  await expect(review.frame.getByText('Changed source.')).toBeVisible();
 });

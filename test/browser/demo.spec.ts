@@ -1,14 +1,31 @@
 import fs from 'node:fs';
 import { test, expect } from './fixtures.ts';
 
-test('editing demo text preserves its layout at 390px', async ({
+test('the demo fits desktop and mobile, retains keyboard focus, and preserves text layout while editing', async ({
   page,
   review,
   workspace,
 }) => {
-  await page.setViewportSize({ width: 390, height: 1000 });
   await review.open(workspace.file('plan.html'));
   await review.expand(false);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await review.evaluate(() => scrollTo(0, 0));
+    await expect(
+      review.frame.getByRole('heading', {
+        name: 'Show your agent what you mean',
+      }),
+    ).toBeVisible();
+    expect(
+      await review.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    const option = review.frame.getByRole('radio', { name: 'Stacked' });
+    await option.focus();
+    await expect(option).toBeFocused();
+    await expect(option).toHaveCSS('outline-style', 'solid');
+  }
   await review.annotate();
   for (const selector of [
     'h1',
@@ -62,6 +79,24 @@ test('the demo combines text edits, comments, and choices without changing sourc
   const file = workspace.file('plan.html');
   const source = fs.readFileSync(file, 'utf8');
   const opened = await review.open(file);
+  await review.evaluate(() =>
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          document.body.dataset.copied = value;
+        },
+      },
+    }),
+  );
+  const copyButton = review.frame.getByRole('button', {
+    name: 'Copy npx skills add souljorje/humagent',
+  });
+  await copyButton.click();
+  await expect(copyButton).toHaveAttribute('data-copied', '');
+  expect(await review.evaluate(() => document.body.dataset.copied)).toBe(
+    'npx skills add souljorje/humagent',
+  );
   await review.expand(false);
   const headline = await review.frame.locator('h1').textContent();
   await review.replace('h1', 'Give your agent a clearer plan.');
@@ -113,60 +148,4 @@ test('the demo combines text edits, comments, and choices without changing sourc
   });
   await expect(heading).toHaveText(headline!);
   expect(fs.readFileSync(file, 'utf8')).toBe(source);
-});
-
-for (const width of [1440, 390])
-  test(`the demo page fits ${width}px and retains keyboard focus`, async ({
-    page,
-    review,
-    workspace,
-  }) => {
-    await page.setViewportSize({ width, height: 1000 });
-    await review.open(workspace.file('plan.html'));
-    await review.expand(false);
-    await page
-      .locator('#toggle-review')
-      .evaluate((el) => (el as HTMLElement).blur());
-    await page.mouse.move(0, 0);
-    await expect(
-      review.frame.getByRole('heading', {
-        name: 'Show your agent what you mean',
-      }),
-    ).toBeVisible();
-    expect(
-      await review.evaluate(
-        () => document.documentElement.scrollWidth <= innerWidth,
-      ),
-    ).toBe(true);
-    const option = review.frame.getByRole('radio', { name: 'Stacked' });
-    await option.focus();
-    await expect(option).toBeFocused();
-    expect(
-      await option.evaluate((el) => getComputedStyle(el).outlineStyle),
-    ).toBe('solid');
-  });
-
-test('each install command copies on its own', async ({
-  review,
-  workspace,
-}) => {
-  await review.open(workspace.file('plan.html'));
-  await review.evaluate(() =>
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: {
-        writeText: async (value: string) => {
-          document.body.dataset.copied = value;
-        },
-      },
-    }),
-  );
-  const button = review.frame.getByRole('button', {
-    name: 'Copy npx skills add souljorje/humagent',
-  });
-  await button.click();
-  await expect(button).toHaveAttribute('data-copied', '');
-  expect(await review.evaluate(() => document.body.dataset.copied)).toBe(
-    'npx skills add souljorje/humagent',
-  );
 });

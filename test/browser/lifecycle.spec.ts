@@ -49,6 +49,16 @@ test('a slow attach of an older page cannot replace the newer page', async ({
   app,
 }) => {
   const opened = await review.open(app.origin + '/a');
+  let release!: () => void, seen!: () => void, finished!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const requested = new Promise<void>((resolve) => {
+    seen = resolve;
+  });
+  const completed = new Promise<void>((resolve) => {
+    finished = resolve;
+  });
   let held = false;
   await page.route(
     `**/api/sessions/${opened.session}/surface`,
@@ -56,25 +66,53 @@ test('a slow attach of an older page cannot replace the newer page', async ({
       if (held) return route.continue();
       held = true;
       const response = await route.fetch();
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      seen();
+      await gate;
       await route.fulfill({ response });
+      finished();
     },
   );
-  await review.evaluate(() => location.reload());
-  await expect.poll(() => held).toBe(true);
-  await review.evaluate(() => {
-    location.href = '/b';
-  });
-  await expect(review.frame.locator('h1')).toHaveText('Page b');
-  await review.ready();
-  const result = await review.evaluate(() =>
-    window.humagent.submit({ values: { page: 'b' } }),
-  );
-  expect(result.status).toBe('draft');
-  expect(workspace.store.get(opened.session).surfacePath).toBe('/b');
-  await review.connect();
-  await page.locator('#send').click();
-  expect((await review.events(1))[0].items[0].values).toEqual({ page: 'b' });
+  try {
+    await review.evaluate(() => location.reload());
+    await requested;
+    const oldDocument = await review.evaluate(
+      () => window.__HUMAGENT__!.documentId,
+    );
+    const nextHello = page.evaluate(
+      (oldDocument) =>
+        new Promise<void>((resolve) => {
+          const hello = (event: MessageEvent) => {
+            if (
+              event.data?.method !== 'hello' ||
+              event.data.documentId === oldDocument
+            )
+              return;
+            window.removeEventListener('message', hello);
+            resolve();
+          };
+          window.addEventListener('message', hello);
+        }),
+      oldDocument,
+    );
+    await review.evaluate(() => {
+      location.href = '/b';
+    });
+    await nextHello;
+    release();
+    await completed;
+    await expect(review.frame.locator('h1')).toHaveText('Page b');
+    await review.ready();
+    const result = await review.evaluate(() =>
+      window.humagent.submit({ values: { page: 'b' } }),
+    );
+    expect(result.status).toBe('draft');
+    expect(workspace.store.get(opened.session).surfacePath).toBe('/b');
+    await review.connect();
+    await page.locator('#send').click();
+    expect((await review.events(1))[0].items[0].values).toEqual({ page: 'b' });
+  } finally {
+    release();
+  }
 });
 
 test('existing apps keep native clicks, API requests, nested frames, and annotations', async ({
@@ -85,6 +123,23 @@ test('existing apps keep native clicks, API requests, nested frames, and annotat
 }) => {
   const opened = await review.open(app.origin + '/nested');
   const before = workspace.store.get(opened.session);
+  const snapshot = await workspace.api(`/api/sessions/${opened.session}`);
+  const fragment = await review.evaluate(async () => {
+    const response = await fetch('/fragment');
+    return {
+      text: await response.text(),
+      encoding: response.headers.get('content-encoding'),
+    };
+  });
+  expect(fragment).toEqual({
+    text: '<p>Unchanged HTML fragment</p>',
+    encoding: 'gzip',
+  });
+  const after = await workspace.api(`/api/sessions/${opened.session}`);
+  expect(after.revision).toBe(before.revision);
+  expect(after.surface.frameUrl).toBe(snapshot.surface.frameUrl);
+  expect(await review.evaluate(() => location.pathname)).toBe('/nested');
+
   await review.frame.locator('#counter').click();
   await expect(review.frame.locator('#counter')).toHaveText('Count: 1');
   expect(
@@ -108,6 +163,10 @@ test('existing apps keep native clicks, API requests, nested frames, and annotat
   expect(workspace.store.get(opened.session).revision).toBe(before.revision);
   expect(workspace.store.get(opened.session).surfacePath).toBe('/nested');
   await review.addComment('#headline', 'Review an existing app.');
+  const staged = await review.evaluate(() =>
+    window.humagent.submit({ values: { choice: 'keep' } }),
+  );
+  expect(staged.status).toBe('draft');
   await review.connect();
   await page.locator('#send').click();
   const [event] = await review.events(1);
@@ -178,40 +237,6 @@ test('browser reload retains saved form state and the displayed route', async ({
     'Save before reload.',
   );
   expect(workspace.store.get(session.session).surfacePath).toBe('/b');
-});
-
-test('HTML fragment fetches preserve the displayed app and allow submissions', async ({
-  page,
-  review,
-  workspace,
-  app,
-}) => {
-  const opened = await review.open(app.origin + '/a');
-  const before = await workspace.api(`/api/sessions/${opened.session}`);
-  const fragment = await review.evaluate(async () => {
-    const response = await fetch('/fragment');
-    return {
-      text: await response.text(),
-      encoding: response.headers.get('content-encoding'),
-    };
-  });
-  expect(fragment).toEqual({
-    text: '<p>Unchanged HTML fragment</p>',
-    encoding: 'gzip',
-  });
-  const after = await workspace.api(`/api/sessions/${opened.session}`);
-  expect(after.revision).toBe(before.revision);
-  expect(after.surface.frameUrl).toBe(before.surface.frameUrl);
-  expect(await review.evaluate(() => location.pathname)).toBe('/a');
-  const event = await review.evaluate(() =>
-    window.humagent.submit({ values: { choice: 'keep' } }),
-  );
-  expect(event.status).toBe('draft');
-  expect(workspace.store.get(opened.session).events).toHaveLength(0);
-  await review.connect();
-  await page.locator('#send').click();
-  await review.events(1);
-  await expect(page.locator('#error')).toBeHidden();
 });
 
 test('dynamic HTML accepts submissions without a refresh loop', async ({

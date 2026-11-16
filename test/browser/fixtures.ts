@@ -34,12 +34,11 @@ interface Workspace {
   /** Values of the draft that a form owns, by form key. */
   form(sessionId: string, key: string): ObjectValue | undefined;
   restart(): Promise<void>;
-  /** `timeout` drops the request after that many milliseconds. Zero never drops it. */
   api<T = WorkspaceView>(
     route: string,
     method?: string,
     data?: unknown,
-    timeout?: number,
+    signal?: AbortSignal,
   ): Promise<T>;
 }
 interface Review {
@@ -51,8 +50,9 @@ interface Review {
   evaluate: Frame['evaluate'];
   ready(): Promise<void>;
   expand(open?: boolean): Promise<void>;
-  /** Start an agent wait. `stopAfterMs` drops it, like an agent that stops. */
-  connect(stopAfterMs?: number): Promise<void>;
+  connect(): Promise<void>;
+  /** Cancel the current agent wait through its HTTP connection. */
+  disconnect(): void;
   receive(): Promise<Feedback>;
   /** Receive the next feedback and acknowledge its receipt. */
   deliver(): Promise<Feedback>;
@@ -88,7 +88,8 @@ const existingModule = transpileModule(
 ).outputText;
 
 export const test = base.extend<Fixtures>({
-  workspace: async ({ request }, use) => {
+  // oxlint-disable-next-line no-empty-pattern -- Playwright requires a destructured fixture argument.
+  workspace: async ({}, use) => {
     const directory = fixture('browser');
     const state = path.join(directory, 'state');
     let runtime!: Runtime;
@@ -131,21 +132,21 @@ export const test = base.extend<Fixtures>({
           route: string,
           method = 'GET',
           data?: unknown,
-          timeout?: number,
+          signal?: AbortSignal,
         ): Promise<T> {
-          const response = await request.fetch(runtime.origin + route, {
+          const response = await fetch(runtime.origin + route, {
             method,
-            timeout,
+            signal,
             headers: {
               authorization: `Bearer ${runtime.token}`,
               'content-type': 'application/json',
             },
-            data,
+            ...(data === undefined ? {} : { body: JSON.stringify(data) }),
           });
           const body = await response.text();
           expect(
-            response.ok(),
-            `${method} ${route}: ${response.status()} ${body}`,
+            response.ok,
+            `${method} ${route}: ${response.status} ${body}`,
           ).toBeTruthy();
           return JSON.parse(body);
         },
@@ -160,7 +161,12 @@ export const test = base.extend<Fixtures>({
   },
 
   review: async ({ page, workspace }, use) => {
-    const receipts: Promise<Feedback | { status: string }>[] = [];
+    let receipt: Promise<Feedback | { status: string }> | undefined;
+    let controller: AbortController | undefined;
+    const disconnect = () => {
+      controller?.abort();
+      receipt = undefined;
+    };
     const frame = page.frameLocator('#frame');
     const editor = frame.getByRole('textbox', {
       name: 'Edit text',
@@ -183,9 +189,9 @@ export const test = base.extend<Fixtures>({
       await attachedFrame().waitForFunction(() => !!window.humagent);
     };
     const receive = async () => {
-      const received = receipts.length
-        ? await receipts.shift()!
-        : workspace.store.take(session());
+      const received = await (receipt ??
+        workspace.api<Feedback>(`/api/sessions/${session()}/wait`, 'POST', {}));
+      receipt = undefined;
       if (received?.status !== 'feedback' || !('receipt' in received))
         throw new Error('Expected agent feedback');
       return received as Feedback;
@@ -216,90 +222,101 @@ export const test = base.extend<Fixtures>({
       ).toBeHidden();
     };
     const state = async () => workspace.store.get(session());
-    await use({
-      frame,
-      editor,
-      note,
-      get evaluate() {
-        const frame = attachedFrame();
-        return frame.evaluate.bind(frame);
-      },
-      ready,
-      async connect(stopAfterMs) {
-        const id = session();
-        const view = await workspace.api(`/api/sessions/${id}`);
-        if (view.agent === 'idle') {
-          const wait = workspace.api<Feedback | { status: string }>(
-            `/api/sessions/${id}/wait`,
-            'POST',
-            {},
-            stopAfterMs ?? 0,
+    try {
+      await use({
+        frame,
+        editor,
+        note,
+        get evaluate() {
+          const frame = attachedFrame();
+          return frame.evaluate.bind(frame);
+        },
+        ready,
+        async connect() {
+          const id = session();
+          const view = await workspace.api(`/api/sessions/${id}`);
+          if (view.agent === 'idle') {
+            controller = new AbortController();
+            const { signal } = controller;
+            receipt = workspace
+              .api<Feedback | { status: string }>(
+                `/api/sessions/${id}/wait`,
+                'POST',
+                {},
+                signal,
+              )
+              .catch((error: unknown) => {
+                if (signal.aborted) return { status: 'interrupted' };
+                throw error;
+              });
+          }
+          await expect(page.locator('#agent-state')).toHaveText(
+            /Agent (listening|working)/,
           );
-          receipts.push(
-            stopAfterMs ? wait.catch(() => ({ status: 'stopped' })) : wait,
+        },
+        disconnect,
+        receive,
+        async deliver() {
+          const received = await receive();
+          await workspace.api(`/api/sessions/${session()}/ack`, 'POST', {
+            receipt: received.receipt,
+          });
+          return received;
+        },
+        async expand(open = true) {
+          const toggle = page.locator('#toggle-review');
+          if ((await toggle.getAttribute('aria-expanded')) !== String(open))
+            await toggle.click();
+          await expect(toggle).toHaveAttribute('aria-expanded', String(open));
+        },
+        annotate,
+        selectText,
+        async addComment(selector, comment) {
+          await annotate();
+          await frame.locator(selector).click();
+          await note.fill(comment);
+          await confirm(/^(Add comment|Confirm text edit)$/);
+        },
+        async replace(selector, replacement) {
+          await annotate();
+          await selectText(selector);
+          await editor.fill(replacement);
+          await confirm(/^(Confirm text edit|Save)$/);
+        },
+        state,
+        async draft(index = 0) {
+          return (await state()).drafts[index]!.item;
+        },
+        async events(count) {
+          await expect
+            .poll(() => workspace.store.get(session()).events.length)
+            .toBe(count);
+          return workspace.store.get(session()).events;
+        },
+        async loseResponse(route) {
+          let lost = false;
+          await page.route(
+            `**/api/sessions/${session()}/${route}`,
+            async (request) => {
+              if (lost) return request.continue();
+              lost = true;
+              await request.fetch();
+              await request.abort();
+            },
           );
-        }
-        await expect(page.locator('#agent-state')).toHaveText(
-          /Agent (listening|working)/,
-        );
-      },
-      receive,
-      async deliver() {
-        const received = await receive();
-        workspace.store.acknowledge(session(), received.receipt);
-        return received;
-      },
-      async expand(open = true) {
-        const toggle = page.locator('#toggle-review');
-        if ((await toggle.getAttribute('aria-expanded')) !== String(open))
-          await toggle.click();
-        await expect(toggle).toHaveAttribute('aria-expanded', String(open));
-      },
-      annotate,
-      selectText,
-      async addComment(selector, comment) {
-        await annotate();
-        await frame.locator(selector).click();
-        await note.fill(comment);
-        await confirm(/^(Add comment|Confirm text edit)$/);
-      },
-      async replace(selector, replacement) {
-        await annotate();
-        await selectText(selector);
-        await editor.fill(replacement);
-        await confirm(/^(Confirm text edit|Save)$/);
-      },
-      state,
-      async draft(index = 0) {
-        return (await state()).drafts[index]!.item;
-      },
-      async events(count) {
-        await expect
-          .poll(() => workspace.store.get(session()).events.length)
-          .toBe(count);
-        return workspace.store.get(session()).events;
-      },
-      async loseResponse(route) {
-        let lost = false;
-        await page.route(
-          `**/api/sessions/${session()}/${route}`,
-          async (request) => {
-            if (lost) return request.continue();
-            lost = true;
-            await request.fetch();
-            await request.abort();
-          },
-        );
-      },
-      async open(target = workspace.file()) {
-        const opened = await workspace.api<Opened>('/api/open', 'POST', {
-          target,
-        });
-        await page.goto(opened.url);
-        await ready();
-        return opened;
-      },
-    });
+        },
+        async open(target = workspace.file()) {
+          const opened = await workspace.api<Opened>('/api/open', 'POST', {
+            target,
+          });
+          await page.goto(opened.url);
+          await ready();
+          return opened;
+        },
+      });
+    } finally {
+      disconnect();
+    }
   },
 
   plan: async ({ review }, use) => {

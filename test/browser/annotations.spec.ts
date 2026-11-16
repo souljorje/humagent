@@ -10,6 +10,8 @@ test('markers retain the click position across editing, reload, and scrolling', 
   await review.expand(false);
   await review.annotate();
   const target = review.frame.locator('h1');
+  await target.hover();
+  await expect(review.frame.locator('#highlight')).toBeVisible();
   const bounds = (await target.boundingBox())!;
   const coordinates = {
     x: Math.round(bounds.x + 30),
@@ -17,10 +19,23 @@ test('markers retain the click position across editing, reload, and scrolling', 
     space: 'document',
   };
   await target.click({ position: { x: 30, y: 20 } });
+  await expect(
+    review.frame.getByRole('button', { name: 'Confirm text edit' }),
+  ).toBeDisabled();
   await review.note.fill('Keep the marker here');
   await review.frame.getByRole('button', { name: 'Confirm text edit' }).click();
   const marker = review.frame.locator('.marker');
-  await expect(marker).toBeVisible();
+  await expect(marker).toHaveText('1');
+  await expect(page.locator('#annotate')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.locator('#toggle-review')).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
+  await page.locator('#annotate').click();
+  await review.frame.locator('input[name="outcome"]').fill('Native input');
   const first = (await marker.boundingBox())!;
   expect(first.x).toBeCloseTo(coordinates.x, 0);
   expect(first.y).toBeCloseTo(coordinates.y, 0);
@@ -99,6 +114,7 @@ test('button labels edit without activation', async ({
   await expect.poll(() => cursor(button)).toBe('pointer');
   await label.hover();
   await expect.poll(() => cursor(label)).toBe('pointer');
+  await expect(label).toHaveCSS('user-select', 'text');
   await label.click();
   await expect(review.editor).toBeFocused();
   await review.editor.fill('New label');

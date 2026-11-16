@@ -64,8 +64,9 @@ test('a send that the server refuses keeps the feedback in place', async ({
   workspace,
 }) => {
   await page.locator('#message').fill('Keep this feedback');
-  await review.connect(4000);
+  await review.connect();
   await page.route(`**/api/sessions/${plan.session}/send`, async (route) => {
+    review.disconnect();
     await expect
       .poll(
         async () =>

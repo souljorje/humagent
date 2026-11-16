@@ -79,11 +79,7 @@ test('agent presence follows waits and receipts independently from delivery', as
   const dot = page.locator('#agent-indicator');
   await expect(status).toHaveText('No agent waiting');
   await expect(dot).toHaveAttribute('data-state', 'idle');
-  // The request drops after 4 seconds, like an agent that stops waiting.
-  // The bar refreshes every second, so it sees the wait before the drop.
-  const wait = workspace
-    .api(`/api/sessions/${plan.session}/wait`, 'POST', {}, 4000)
-    .catch(() => undefined);
+  await review.connect();
   await expect(status).toHaveText('Agent listening');
   await expect(dot).toHaveAttribute('data-state', 'waiting');
   await expect(page.locator('#toggle-review')).toHaveAttribute(
@@ -97,7 +93,7 @@ test('agent presence follows waits and receipts independently from delivery', as
     'aria-expanded',
     'false',
   );
-  await wait;
+  review.disconnect();
   await expect(status).toHaveText('No agent waiting');
   await expect(page.locator('#toggle-review')).toHaveAttribute(
     'aria-expanded',
@@ -272,13 +268,13 @@ test('the bar keeps clear of the page scrollbars', async ({
   plan: _plan,
   review,
 }) => {
-  // Headless Chromium hides scrollbars, so the page reports them directly.
+  // Headless Chromium hides scrollbars. Keep dimensions consistent across SDK updates.
   await review.evaluate(() => {
-    const boot = window.__HUMAGENT__!;
-    parent.postMessage(
-      { ...boot, method: 'scrollbars', params: { right: 20, bottom: 12 } },
-      boot.parentOrigin,
-    );
+    Object.defineProperties(document.documentElement, {
+      clientWidth: { configurable: true, get: () => innerWidth - 20 },
+      clientHeight: { configurable: true, get: () => innerHeight - 12 },
+    });
+    dispatchEvent(new Event('resize'));
   });
   const viewport = page.viewportSize()!;
   await expect

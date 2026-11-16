@@ -75,32 +75,6 @@ test('a selected text comment omits a no-op replacement', async ({
   expect(item.replacement).toBeUndefined();
 });
 
-test('ARIA controls retain their native cursors while commenting', async ({
-  plan: _plan,
-  review,
-}) => {
-  await review.evaluate(() => {
-    const checkbox = document.createElement('div');
-    checkbox.id = 'custom-checkbox';
-    checkbox.role = 'checkbox';
-    checkbox.style.cursor = 'pointer';
-    checkbox.textContent = 'Custom checkbox';
-    const toggle = document.createElement('div');
-    toggle.id = 'unstyled-switch';
-    toggle.role = 'switch';
-    toggle.textContent = 'Unstyled switch';
-    document.body.prepend(checkbox, toggle);
-  });
-  await review.annotate();
-  const cursor = (selector: string) =>
-    review.frame
-      .locator(selector)
-      .evaluate((el) => getComputedStyle(el).cursor);
-  await expect.poll(() => cursor('#custom-checkbox')).toBe('pointer');
-  await review.frame.locator('#unstyled-switch').hover();
-  await expect.poll(() => cursor('#unstyled-switch')).toBe('auto');
-});
-
 test('Enter confirms comments and edits while Shift+Enter preserves line breaks', async ({
   page,
   plan: _plan,

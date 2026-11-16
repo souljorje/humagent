@@ -21,6 +21,7 @@ For browser, SDK, or test changes, run `bun run test:browser:built` after the ma
 Prioritize browser and CLI workflows. Extend existing tests and remove duplicate or obsolete coverage.
 Keep unit tests only for invariants that workflows cannot cover efficiently.
 Keep independent failure cases separate. Preserve permission, revision, receipt, persistence, and runtime checks.
+Prefer request cancellation and explicit response gates over fixed delays.
 
 Follow [release instructions](CONTRIBUTING.md#changesets-and-release) for versioning, archive verification, and publication.
 
