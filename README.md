@@ -7,6 +7,8 @@
 
 Works with any agent that can run shell commands. Runs on your computer. Needs no account or API key.
 
+[![Humagent demo: review a page and send structured feedback to your agent](./docs/humagent-demo.gif)](./docs/humagent-demo.gif)
+
 ## How it works
 
 1. **Open.** Your agent opens a page or local app with `humagent open`. It can also generate the page first.
@@ -14,8 +16,6 @@ Works with any agent that can run shell commands. Runs on your computer. Needs n
 3. **Send.** Your agent receives one review through `humagent wait`. It changes the source, then acknowledges the review.
 
 The agent waits for your review during its turn. Its harness must allow a long-running shell command.
-
-[![humagent.png](./docs/humagent.png)](./docs/humagent.png)
 
 ## Features
 
