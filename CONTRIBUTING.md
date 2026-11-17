@@ -50,7 +50,7 @@ Check `npm view humagent version` before you change installation instructions.
 bun run test
 ```
 
-This runs formatting, lint, builds, types, runtime tests, and browser workflows.
+This runs formatting, lint, the build, types, and a smoke suite of CLI, server, and browser workflows.
 `bun run check` runs the checks without Chromium.
 CI skips tests and releases for changes limited to root Markdown files, `docs/`, or the pull request template.
 Manual workflow runs always run checks.
@@ -62,7 +62,9 @@ bunx --no-install playwright install chromium
 bun run test:browser:built
 ```
 
-Release verification adds packaging, installation with Node.js, and Bun runner checks. Run `bun run check:release` locally before a release.
+The release script packs the archive, then runs `bun run check` and `bun run test:browser:built`.
+Run `bun run check:release` locally before a release.
+No automated test installs the archive. Use the commands in [Build an archive](#build-an-archive) for that check.
 
 ## Pull requests
 
@@ -88,8 +90,8 @@ The [Release workflow](.github/workflows/release.yml) creates a version PR when 
 Merging that PR publishes the version automatically if its full checks pass.
 
 The release script checks for an unpublished version before running expensive tests.
-It packs once, verifies the archive under Node.js and Bun, then publishes that **same tarball**.
-Never publish without a verified archive. Use `bun run check:release` for a local dry run.
+It packs once, runs the checks, then publishes that **same tarball**.
+The script does not install the archive. Use `bun run check:release` for a local dry run.
 
 **First release:** Publish `0.1.0` manually after verification:
 

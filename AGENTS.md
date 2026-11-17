@@ -18,12 +18,14 @@ Keep temporary output in `.local/`.
 Run `bun run check` after each coding increment.
 For browser, SDK, or test changes, run `bun run test:browser:built` after the main check. CI runs both unless only documentation changes.
 
-Prioritize browser and CLI workflows. Extend existing tests and remove duplicate or obsolete coverage.
-Keep unit tests only for invariants that workflows cannot cover efficiently.
-Keep independent failure cases separate. Preserve permission, revision, receipt, persistence, and runtime checks.
+Keep the tests a smoke suite. Test each user workflow one time. Use the browser or the CLI for that test.
+Extend an existing test before you add a test. Remove duplicate or obsolete coverage.
+Do not add a unit test for behavior that a workflow test covers.
+Keep at least one check for each of permission, revision, receipt, persistence, and runtime.
 Prefer request cancellation and explicit response gates over fixed delays.
 
-Follow [release instructions](CONTRIBUTING.md#changesets-and-release) for versioning, archive verification, and publication.
+Follow [release instructions](CONTRIBUTING.md#changesets-and-release) for versioning and publication.
+Before a release, check the archive with the [archive commands](CONTRIBUTING.md#build-an-archive).
 
 Report executed checks and limits. Do not claim unexecuted tests passed.
 
