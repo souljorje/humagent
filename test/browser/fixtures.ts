@@ -1,385 +1,31 @@
-import {
-  test as base,
-  expect,
-  type Frame,
-  type FrameLocator,
-  type Locator,
-} from '@playwright/test';
+import { test as base, expect, type Frame, type Page } from '@playwright/test';
 import fs from 'node:fs';
-import http from 'node:http';
 import path from 'node:path';
-import { gzipSync } from 'node:zlib';
-import { transpileModule, ModuleKind, ScriptTarget } from 'typescript';
 import { fileURLToPath } from 'node:url';
 import { createRuntime } from '../../dist/runtime/server.js';
 import { fixture } from '../fixtures.ts';
-import type { AddressInfo } from 'node:net';
-import type { Session } from '../../dist/runtime/store.js';
-import type { WorkspaceView } from '../../src/shared/feedback.js';
-import type { ObjectValue } from '../../src/shared/json.js';
 
 type Runtime = Awaited<ReturnType<typeof createRuntime>>;
 type Feedback = Extract<
   NonNullable<ReturnType<Runtime['store']['take']>>,
   { status: 'feedback' }
 >;
-interface Opened {
-  session: string;
-  url: string;
-}
-interface Workspace {
-  file(name?: string): string;
-  origin: string;
-  store: Runtime['store'];
-  /** Values of the draft that a form owns, by form key. */
-  form(sessionId: string, key: string): ObjectValue | undefined;
-  restart(): Promise<void>;
-  api<T = WorkspaceView>(
-    route: string,
-    method?: string,
-    data?: unknown,
-    signal?: AbortSignal,
-  ): Promise<T>;
-}
-interface Review {
-  frame: FrameLocator;
-  /** The "Edit text" box of the open feedback popover. */
-  editor: Locator;
-  /** The "Comment" field of the open feedback popover. */
-  note: Locator;
-  evaluate: Frame['evaluate'];
-  ready(): Promise<void>;
-  expand(open?: boolean): Promise<void>;
-  connect(): Promise<void>;
-  /** Cancel the current agent wait through its HTTP connection. */
-  disconnect(): void;
-  receive(): Promise<Feedback>;
-  /** Receive the next feedback and acknowledge its receipt. */
-  deliver(): Promise<Feedback>;
-  /** Turn commenting on. */
-  annotate(): Promise<void>;
-  /** Select the first text node of an element, from `start` to `end`, and release the mouse. */
-  selectText(selector: string, start?: number, end?: number): Promise<void>;
-  addComment(selector: string, comment: string): Promise<void>;
-  replace(selector: string, replacement: string): Promise<void>;
-  /** The server's saved feedback for the open session. */
-  state(): Promise<Session>;
-  /** The item of the saved draft at `index`. */
-  draft(index?: number): Promise<Session['drafts'][number]['item']>;
-  /** Wait until the open session holds `count` events, then return them. */
-  events(count: number): Promise<Session['events']>;
-  /** Let the server handle the next request to a session route, then drop its response. */
-  loseResponse(route: string): Promise<void>;
-  open(target?: string): Promise<Opened>;
-}
-interface Fixtures {
-  workspace: Workspace;
-  review: Review;
-  plan: Opened;
-  app: { origin: string; dynamicRequests: number };
+
+/** One server, one copy of the demo page, and the actions of a reviewer and an agent. */
+export const test = base.extend<{
+  review: Awaited<ReturnType<typeof createReview>>;
   pageErrors: void;
-}
-const fixtureDirectory = new URL('../fixtures/', import.meta.url);
-const existingModule = transpileModule(
-  fs.readFileSync(new URL('existing.ts', fixtureDirectory), 'utf8'),
-  {
-    compilerOptions: { module: ModuleKind.ESNext, target: ScriptTarget.ES2022 },
-  },
-).outputText;
-
-export const test = base.extend<Fixtures>({
-  // oxlint-disable-next-line no-empty-pattern -- Playwright requires a destructured fixture argument.
-  workspace: async ({}, use) => {
+}>({
+  review: async ({ page }, use) => {
     const directory = fixture('browser');
-    const state = path.join(directory, 'state');
-    let runtime!: Runtime;
+    const review = await createReview(page, directory);
     try {
-      fs.cpSync(
-        fileURLToPath(new URL('../../dist/examples/', import.meta.url)),
-        path.join(directory, 'examples'),
-        { recursive: true },
-      );
-      fs.cpSync(
-        fileURLToPath(fixtureDirectory),
-        path.join(directory, 'examples'),
-        {
-          recursive: true,
-          filter: (source) => !source.endsWith('.ts'),
-        },
-      );
-      fs.writeFileSync(
-        path.join(directory, 'examples/existing.js'),
-        existingModule,
-      );
-      runtime = await createRuntime({ directory: state });
-      await use({
-        file: (name = 'review.html') => path.join(directory, 'examples', name),
-        get origin() {
-          return runtime.origin;
-        },
-        get store() {
-          return runtime.store;
-        },
-        form(sessionId, key) {
-          return runtime.store.get(sessionId).drafts.find((d) => d.key === key)
-            ?.item.values;
-        },
-        async restart() {
-          await runtime.close();
-          runtime = await createRuntime({ directory: state });
-        },
-        async api<T = WorkspaceView>(
-          route: string,
-          method = 'GET',
-          data?: unknown,
-          signal?: AbortSignal,
-        ): Promise<T> {
-          const response = await fetch(runtime.origin + route, {
-            method,
-            signal,
-            headers: {
-              authorization: `Bearer ${runtime.token}`,
-              'content-type': 'application/json',
-            },
-            ...(data === undefined ? {} : { body: JSON.stringify(data) }),
-          });
-          const body = await response.text();
-          expect(
-            response.ok,
-            `${method} ${route}: ${response.status} ${body}`,
-          ).toBeTruthy();
-          return JSON.parse(body);
-        },
-      });
+      await use(review);
     } finally {
-      try {
-        await runtime?.close();
-      } finally {
-        fs.rmSync(directory, { recursive: true, force: true });
-      }
+      await review.close();
+      fs.rmSync(directory, { recursive: true, force: true });
     }
   },
-
-  review: async ({ page, workspace }, use) => {
-    let receipt: Promise<Feedback | { status: string }> | undefined;
-    let controller: AbortController | undefined;
-    const disconnect = () => {
-      controller?.abort();
-      receipt = undefined;
-    };
-    const frame = page.frameLocator('#frame');
-    const editor = frame.getByRole('textbox', {
-      name: 'Edit text',
-      exact: true,
-    });
-    const note = frame.getByLabel('Comment', { exact: true });
-    const annotateButton = page.locator('#annotate');
-    const session = () => new URL(page.url()).searchParams.get('session')!;
-    const attachedFrame = () => {
-      const frame = page
-        .frames()
-        .find((frame) => frame.parentFrame() === page.mainFrame());
-      expect(frame, 'Attached surface frame').toBeDefined();
-      return frame!;
-    };
-    const ready = async () => {
-      await expect(page.locator('#bridge-status')).toHaveText(
-        'Interface connected',
-      );
-      await attachedFrame().waitForFunction(() => !!window.humagent);
-    };
-    const receive = async () => {
-      const received = await (receipt ??
-        workspace.api<Feedback>(`/api/sessions/${session()}/wait`, 'POST', {}));
-      receipt = undefined;
-      if (received?.status !== 'feedback' || !('receipt' in received))
-        throw new Error('Expected agent feedback');
-      return received as Feedback;
-    };
-    const annotate = async () => {
-      if ((await annotateButton.getAttribute('aria-pressed')) !== 'true')
-        await annotateButton.click();
-      await expect(annotateButton).toHaveAttribute('aria-pressed', 'true');
-    };
-    const selectText = (selector: string, start?: number, end?: number) =>
-      attachedFrame().evaluate(
-        ({ selector, start, end }) => {
-          const element = document.querySelector(selector)!,
-            node = element.firstChild!,
-            range = document.createRange();
-          range.setStart(node, start ?? 0);
-          range.setEnd(node, end ?? node.textContent!.length);
-          getSelection()!.removeAllRanges();
-          getSelection()!.addRange(range);
-          element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-        },
-        { selector, start, end },
-      );
-    const confirm = async (name: RegExp) => {
-      await frame.getByRole('button', { name }).click();
-      await expect(
-        frame.getByRole('dialog', { name: 'Feedback' }),
-      ).toBeHidden();
-    };
-    const state = async () => workspace.store.get(session());
-    try {
-      await use({
-        frame,
-        editor,
-        note,
-        get evaluate() {
-          const frame = attachedFrame();
-          return frame.evaluate.bind(frame);
-        },
-        ready,
-        async connect() {
-          const id = session();
-          const view = await workspace.api(`/api/sessions/${id}`);
-          if (view.agent === 'idle') {
-            controller = new AbortController();
-            const { signal } = controller;
-            receipt = workspace
-              .api<Feedback | { status: string }>(
-                `/api/sessions/${id}/wait`,
-                'POST',
-                {},
-                signal,
-              )
-              .catch((error: unknown) => {
-                if (signal.aborted) return { status: 'interrupted' };
-                throw error;
-              });
-          }
-          await expect(page.locator('#agent-state')).toHaveText(
-            /Agent (listening|working)/,
-          );
-        },
-        disconnect,
-        receive,
-        async deliver() {
-          const received = await receive();
-          await workspace.api(`/api/sessions/${session()}/ack`, 'POST', {
-            receipt: received.receipt,
-          });
-          return received;
-        },
-        async expand(open = true) {
-          const toggle = page.locator('#toggle-review');
-          if ((await toggle.getAttribute('aria-expanded')) !== String(open))
-            await toggle.click();
-          await expect(toggle).toHaveAttribute('aria-expanded', String(open));
-        },
-        annotate,
-        selectText,
-        async addComment(selector, comment) {
-          await annotate();
-          await frame.locator(selector).click();
-          await note.fill(comment);
-          await confirm(/^(Add comment|Confirm text edit)$/);
-        },
-        async replace(selector, replacement) {
-          await annotate();
-          await selectText(selector);
-          await editor.fill(replacement);
-          await confirm(/^(Confirm text edit|Save)$/);
-        },
-        state,
-        async draft(index = 0) {
-          return (await state()).drafts[index]!.item;
-        },
-        async events(count) {
-          await expect
-            .poll(() => workspace.store.get(session()).events.length)
-            .toBe(count);
-          return workspace.store.get(session()).events;
-        },
-        async loseResponse(route) {
-          let lost = false;
-          await page.route(
-            `**/api/sessions/${session()}/${route}`,
-            async (request) => {
-              if (lost) return request.continue();
-              lost = true;
-              await request.fetch();
-              await request.abort();
-            },
-          );
-        },
-        async open(target = workspace.file()) {
-          const opened = await workspace.api<Opened>('/api/open', 'POST', {
-            target,
-          });
-          await page.goto(opened.url);
-          await ready();
-          return opened;
-        },
-      });
-    } finally {
-      disconnect();
-    }
-  },
-
-  plan: async ({ review }, use) => {
-    await use(await review.open());
-  },
-
-  app: async ({ workspace }, use) => {
-    let dynamicRequests = 0;
-    const server = http.createServer((req, res) => {
-      if (req.url === '/api/value') {
-        res.setHeader('content-type', 'application/json');
-        res.end('{"value":42}');
-        return;
-      }
-      res.setHeader('content-type', 'text/html');
-      if (req.url === '/fragment') {
-        res.setHeader('content-encoding', 'gzip');
-        res.end(gzipSync('<p>Unchanged HTML fragment</p>'));
-      } else if (req.url === '/dynamic') {
-        dynamicRequests++;
-        res.end(
-          `<h1>Dynamic ${dynamicRequests}</h1><form data-humagent-id="dynamic"><input name="choice" value="keep"><button type="submit">Send</button></form>`,
-        );
-      } else if (['/a', '/b'].includes(req.url || '')) {
-        res.end(
-          `<h1>Page ${req.url!.slice(1)}</h1><a href="/b">Next page</a><form data-humagent-id="route"><input name="note"></form>`,
-        );
-      } else {
-        const name =
-          req.url === '/example.css'
-            ? 'example.css'
-            : req.url === '/existing.js'
-              ? 'existing.js'
-              : 'existing.html';
-        res.setHeader(
-          'content-type',
-          name.endsWith('.css')
-            ? 'text/css'
-            : name.endsWith('.js')
-              ? 'text/javascript'
-              : 'text/html',
-        );
-        res.end(fs.readFileSync(workspace.file(name)));
-      }
-    });
-    try {
-      await new Promise<void>((resolve, reject) => {
-        server.once('error', reject);
-        server.listen(0, '127.0.0.1', resolve);
-      });
-      await use({
-        origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
-        get dynamicRequests() {
-          return dynamicRequests;
-        },
-      });
-    } finally {
-      server.closeAllConnections();
-      if (server.listening)
-        await new Promise((resolve) => server.close(resolve));
-    }
-  },
-
   pageErrors: [
     async ({ page }, use) => {
       const errors: string[] = [];
@@ -390,5 +36,140 @@ export const test = base.extend<Fixtures>({
     { auto: true },
   ],
 });
+
+async function createReview(page: Page, directory: string) {
+  const state = path.join(directory, 'state');
+  const file = path.join(directory, 'examples/plan.html');
+  fs.cpSync(
+    fileURLToPath(new URL('../../dist/examples/', import.meta.url)),
+    path.dirname(file),
+    { recursive: true },
+  );
+  let runtime = await createRuntime({ directory: state });
+  let id = '';
+  let key = '';
+  let wait: Promise<Feedback> | undefined;
+  const agent = new AbortController();
+  const frame = page.frameLocator('#frame');
+  const note = frame.getByLabel('Comment', { exact: true });
+  const editor = frame.getByRole('textbox', { name: 'Edit text', exact: true });
+  const annotateButton = page.locator('#annotate');
+  const toggle = page.locator('#toggle-review');
+  const surface = (): Frame =>
+    page.frames().find((child) => child.parentFrame() === page.mainFrame())!;
+
+  /** Call a control route with the agent's credential. */
+  async function api<T>(route: string, method: string, data?: unknown) {
+    const response = await fetch(runtime.origin + route, {
+      method,
+      signal: agent.signal,
+      headers: {
+        authorization: `Bearer ${runtime.token}`,
+        'content-type': 'application/json',
+      },
+      ...(data === undefined ? {} : { body: JSON.stringify(data) }),
+    });
+    const body = await response.text();
+    expect(response.ok, `${method} ${route}: ${body}`).toBeTruthy();
+    return JSON.parse(body) as T;
+  }
+  async function ready() {
+    await expect(page.locator('#bridge-status')).toHaveText(
+      'Interface connected',
+    );
+    await surface().waitForFunction(() => !!window.humagent);
+  }
+  async function expand(open: boolean) {
+    if ((await toggle.getAttribute('aria-expanded')) !== String(open))
+      await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', String(open));
+  }
+  /** Turn commenting on or off. */
+  async function annotate(on = true) {
+    if ((await annotateButton.getAttribute('aria-pressed')) !== String(on))
+      await annotateButton.click();
+    await expect(annotateButton).toHaveAttribute('aria-pressed', String(on));
+  }
+  async function confirm() {
+    await frame
+      .getByRole('button', { name: /^(Add comment|Confirm text edit|Save)$/ })
+      .click();
+    await expect(frame.getByRole('dialog', { name: 'Feedback' })).toBeHidden();
+  }
+
+  return {
+    file,
+    frame,
+    expand,
+    annotate,
+    ready,
+    get origin() {
+      return runtime.origin;
+    },
+    /** The credential that the opened URL gives to the browser page. */
+    get key() {
+      return key;
+    },
+    /** The server's saved state of the open session. */
+    session: () => runtime.store.get(id),
+    evaluate: ((...args: Parameters<Frame['evaluate']>) =>
+      surface().evaluate(...args)) as Frame['evaluate'],
+    /** Open a target with the review details closed. Return the session ID. */
+    async open(target = file) {
+      const opened = await api<{ session: string; url: string }>(
+        '/api/open',
+        'POST',
+        { target },
+      );
+      id = opened.session;
+      key = new URL(opened.url).hash.slice(1);
+      await page.goto(opened.url);
+      await ready();
+      await expand(false);
+      return id;
+    },
+    async addComment(selector: string, comment: string) {
+      await annotate();
+      await frame.locator(selector).click();
+      await note.fill(comment);
+      await confirm();
+    },
+    /** Replace the complete first text node of an element. */
+    async replace(selector: string, replacement: string) {
+      await annotate();
+      await surface().evaluate((selector) => {
+        const element = document.querySelector(selector)!;
+        const range = document.createRange();
+        range.selectNodeContents(element.firstChild!);
+        getSelection()!.removeAllRanges();
+        getSelection()!.addRange(range);
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      }, selector);
+      await editor.fill(replacement);
+      await confirm();
+    },
+    /** Start an agent wait. `receive` returns its feedback. */
+    async connect() {
+      wait = api<Feedback>(`/api/sessions/${id}/wait`, 'POST', {});
+      wait.catch(() => {});
+      await expect(page.locator('#agent-state')).toHaveText('Agent listening');
+    },
+    async receive() {
+      const feedback = await wait!;
+      expect(feedback.status).toBe('feedback');
+      return feedback;
+    },
+    acknowledge: (feedback: Feedback) =>
+      api(`/api/sessions/${id}/ack`, 'POST', { receipt: feedback.receipt }),
+    async restart() {
+      await runtime.close();
+      runtime = await createRuntime({ directory: state });
+    },
+    async close() {
+      agent.abort();
+      await runtime.close();
+    },
+  };
+}
 
 export { expect };

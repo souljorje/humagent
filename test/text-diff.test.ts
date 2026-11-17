@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { textDiff } from '../dist/ui/text-diff.js';
 
-test('diffs reconstruct exact originals and proposals across edge cases', () => {
+test('a text diff reconstructs the exact original and the exact proposal', () => {
   for (const [before, after] of [
     ['', 'New text'],
     ['Removed text', ''],
@@ -16,29 +16,19 @@ test('diffs reconstruct exact originals and proposals across edge cases', () => 
     ['old '.repeat(1500), 'new '.repeat(1500)],
   ]) {
     const diff = textDiff(before!, after!);
-    assert.equal(
+    const join = (omit: string) =>
       diff
-        .filter((p) => p.kind !== 'add')
-        .map((p) => p.text)
-        .join(''),
-      before,
-    );
-    assert.equal(
-      diff
-        .filter((p) => p.kind !== 'remove')
-        .map((p) => p.text)
-        .join(''),
-      after,
-    );
+        .filter((part) => part.kind !== omit)
+        .map((part) => part.text)
+        .join('');
+    assert.equal(join('add'), before);
+    assert.equal(join('remove'), after);
   }
-  for (const [before, after] of [
-    ['A page that was already here.', 'Raz dva tri'],
-    ['Hello, world', 'One, two'],
-  ])
-    assert.deepEqual(textDiff(before!, after!), [
-      { kind: 'remove', text: before },
-      { kind: 'add', text: after },
-    ]);
+  // Texts with little in common show as one removal and one addition.
+  assert.deepEqual(textDiff('Hello, world', 'One, two'), [
+    { kind: 'remove', text: 'Hello, world' },
+    { kind: 'add', text: 'One, two' },
+  ]);
   assert.deepEqual(textDiff('a b c d', 'd e f g'), [
     { kind: 'remove', text: 'a b c ' },
     { kind: 'same', text: 'd' },

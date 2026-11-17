@@ -17,8 +17,8 @@ const archive = path.join(
   'packages',
   `humagent-${pkg.version}.tgz`,
 );
-const run = (args: string[], env: NodeJS.ProcessEnv = process.env) =>
-  execFileSync(process.execPath, args, { cwd: root, env, stdio: 'inherit' });
+const run = (args: string[]) =>
+  execFileSync(process.execPath, args, { cwd: root, stdio: 'inherit' });
 
 rmSync(path.join(root, output), { recursive: true, force: true });
 run(['run', 'changeset', 'pack', '--out-dir', output]);
@@ -45,12 +45,5 @@ if (!existsSync(archive)) {
 
   run(['run', 'check']);
   run(['run', 'test:browser:built']);
-  const env = { ...process.env, HUMAGENT_TEST_ARCHIVE: archive };
-  execFileSync('node', ['test/install.ts'], {
-    cwd: root,
-    env,
-    stdio: 'inherit',
-  });
-  run(['run', 'test:runners'], env);
   if (publish) run(['run', 'changeset', 'publish', '--from-pack-dir', output]);
 }

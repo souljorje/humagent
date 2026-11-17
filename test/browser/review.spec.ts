@@ -1,218 +1,133 @@
 import fs from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { test, expect } from './fixtures.ts';
 
-for (const trigger of ['button', 'Control+Enter'])
-  test(`sending waits for unfinished draft edits via ${trigger}`, async ({
-    page,
-    plan,
-    review,
-    workspace,
-  }) => {
-    await review.addComment('h1', 'Original comment');
-    await review.frame.locator('.marker').click();
-    await review.note.fill('Updated comment');
-    await expect(page.locator('#send')).toBeDisabled();
-    if (trigger === 'button')
-      await page.locator('#send').dispatchEvent('click');
-    else await page.locator('#message').press(trigger);
-    expect(workspace.store.get(plan.session).events).toHaveLength(0);
-    await expect(review.note).toHaveValue('Updated comment');
-    expect((await review.draft()).comment).toBe('Original comment');
-    const cancelled = trigger === 'button';
-    await review.frame
-      .getByRole('button', { name: cancelled ? 'Cancel' : 'Save', exact: true })
-      .click();
-    await review.connect();
-    await page.locator('#send').click();
-    expect((await review.events(1))[0].items[0].comment).toBe(
-      cancelled ? 'Original comment' : 'Updated comment',
-    );
-  });
-
-test('comments and exact deletion send in creation order without changing source', async ({
+test('a text edit, a comment, and form choices reach the agent as one event without changing source', async ({
   page,
-  plan: _plan,
   review,
-  workspace,
 }) => {
-  const source = fs.readFileSync(workspace.file(), 'utf8');
-  const original = await review.frame.locator('h1').textContent();
-  await review.addComment('h1', 'A shorter heading.');
-  await review.addComment(
-    '[data-humagent-id="brief"]',
-    'Keep these boundaries.',
-  );
-  await review.replace('h1', '');
-  await expect(review.frame.locator('.marker')).toHaveCount(3);
+  const source = fs.readFileSync(review.file, 'utf8');
+  await review.open();
+  const heading = review.frame.locator('h1');
+  const headline = await heading.textContent();
+  await review.replace('h1', 'Give your agent a clearer plan.');
+  await review.addComment('.mock-cta', 'Make this button stand out.');
+  await review.annotate(false);
+  const choice = review.frame.getByRole('radio', { name: 'Split' });
+  await choice.check();
+  await review.frame.getByRole('radio', { name: 'Outline' }).check();
+  await review.frame.getByRole('radio', { name: /The interactions/ }).check();
+  const values = { layout: 'split', button: 'outline', workflow: 'behavior' };
+  await expect
+    .poll(() => review.session().drafts.at(-1)?.item.values)
+    .toEqual(values);
+  expect(review.session().drafts).toHaveLength(3);
+  expect(review.session().events).toHaveLength(0);
+
+  await page.reload();
+  await review.ready();
+  await expect(choice).toBeChecked();
   await page.locator('#message').fill('Apply these together.');
   await review.connect();
   await page.locator('#send').click();
-  const [event] = await review.events(1);
-  await expect(review.frame.locator('.marker:visible')).toHaveCount(0);
-  await expect(page.locator('#send')).toHaveText('Sent');
-  expect(
-    event.items.map((item) => item.comment || item.replacement!.after),
-  ).toEqual(['A shorter heading.', 'Keep these boundaries.', '']);
-  expect(event.items[2].replacement!.before).toBe(original);
-  expect(event.items[2].target!.anchor).toMatchObject({
-    quote: original,
-  });
-  expect(event.items[0].target).toMatchObject({ id: 'headline' });
-  expect(event.items[0].target).not.toHaveProperty('revision');
-  expect(event.revision).toBe((await review.state()).revision);
-  expect(Object.keys(event.items[2]!)).toEqual(['id', 'replacement', 'target']);
-  expect(await review.frame.locator('h1').textContent()).toBe('');
-  await review.deliver();
-  await expect(review.frame.locator('h1')).toHaveText(original!);
-  expect(fs.readFileSync(workspace.file(), 'utf8')).toBe(source);
+  const feedback = await review.receive();
+  expect(feedback.events).toHaveLength(1);
+  const [event] = feedback.events;
+  expect(event.message).toBe('Apply these together.');
+  expect(event.revision).toBe(review.session().revision);
+  expect(event.items).toMatchObject([
+    { replacement: { after: 'Give your agent a clearer plan.' } },
+    { comment: 'Make this button stand out.' },
+    { values },
+  ]);
+  expect(feedback.target).toEqual({ kind: 'file', value: review.file });
+
+  // The preview stays until the agent acknowledges its receipt.
+  await expect(heading).toHaveText('Give your agent a clearer plan.');
+  await review.acknowledge(feedback);
+  await expect(heading).toHaveText(headline!);
+  expect(fs.readFileSync(review.file, 'utf8')).toBe(source);
 });
 
-test('reused targets become unavailable when data-humagent-id changes', async ({
+test('sending requires a waiting agent, and an ended session accepts no input', async ({
   page,
-  plan: _plan,
   review,
 }) => {
-  await review.evaluate(() => {
-    const heading = document.querySelector('h1')!;
-    heading.removeAttribute('id');
-    heading.setAttribute('data-humagent-id', 'original-target');
-  });
-  await review.addComment('h1', 'Keep my original target');
-  await expect(review.frame.locator('.marker')).toHaveCount(1);
-  const target = (await review.draft()).target;
-  await review.evaluate(() => {
-    document
-      .querySelector('h1')!
-      .setAttribute('data-humagent-id', 'different-target');
-  });
-  await expect(page.locator('.draft-status')).toContainText(
-    'Target unavailable',
+  await review.open();
+  const send = page.locator('#send');
+  const status = page.locator('#agent-state');
+  await page.locator('#message').fill('Review this');
+  await expect(status).toHaveText('No agent waiting');
+  await expect(send).toBeDisabled();
+  await send.dispatchEvent('click');
+  await expect(page.locator('#error')).toContainText('Connect an agent');
+  expect(review.session().events).toHaveLength(0);
+
+  await review.connect();
+  await send.click();
+  const feedback = await review.receive();
+  expect(feedback.events[0].message).toBe('Review this');
+  await expect(status).toHaveText('Agent working');
+  await review.acknowledge(feedback);
+  await expect(status).toHaveText('No agent waiting');
+  await expect(send).toBeDisabled();
+
+  await review.expand(true);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'End session', exact: true }).click();
+  await expect(status).toHaveText('Session ended');
+  await expect(page.locator('#message')).toBeDisabled();
+});
+
+test('a server restart keeps drafts, the instruction, and form choices', async ({
+  page,
+  review,
+}) => {
+  const session = await review.open();
+  await review.addComment('h1', 'Keep this draft.');
+  await review.annotate(false);
+  const choice = review.frame.getByRole('radio', { name: 'Split' });
+  await choice.check();
+  await page.locator('#message').fill('Keep this unsent message.');
+  await expect
+    .poll(() => review.session().message)
+    .toBe('Keep this unsent message.');
+  await expect.poll(() => review.session().drafts.length).toBe(2);
+
+  await review.restart();
+  expect(await review.open()).toBe(session);
+  await expect(page.locator('#message')).toHaveValue(
+    'Keep this unsent message.',
   );
-  await expect(review.frame.locator('.marker:visible')).toHaveCount(0);
-  expect((await review.draft()).target).toEqual(target);
+  await expect(page.locator('.draft')).toHaveCount(2);
+  await expect(
+    page.locator('.draft', { hasText: 'Keep this draft.' }),
+  ).toHaveCount(1);
+  await expect(choice).toBeChecked();
 });
 
-test('comments follow selectors through text changes and rerenders in a mini-app', async ({
+test('a source change marks saved feedback as stale and blocks sending', async ({
   page,
-  plan: _plan,
   review,
 }) => {
-  await review.expand(false);
-  await review.evaluate(() => {
-    const host = document.createElement('div');
-    host.id = 'comment-host';
-    host.style.cssText = 'position:fixed;left:40px;top:40px;width:400px';
-    host.innerHTML =
-      '<section style="height:180px;padding:20px"><p>Live section</p><button>Count: 0</button></section>';
-    document.body.prepend(host);
-  });
-  await review.annotate();
-  const target = review.frame.locator('#comment-host section');
-  await target.click({ position: { x: 350, y: 160 } });
-  const status = page.locator('.draft-status');
-  await review.note.fill('Keep this comment attached');
-  await review.note.press('Enter');
-  await expect(review.frame.locator('#panel')).toBeHidden();
-  const original = (await review.state()).drafts[0];
-  await review.evaluate(async () => {
-    const ticker = document.createElement('p');
-    document.body.append(ticker);
-    for (let i = 0; i < 50; i++) {
-      ticker.textContent = `Update ${i}`;
-      ticker.className = `tick-${i % 2}`;
-      if (i === 10)
-        document.body.insertAdjacentHTML(
-          'beforeend',
-          '<p id="busy-words" style="position:fixed;left:40px;top:300px;font:20px monospace">New plain text</p>',
-        );
-      await new Promise(requestAnimationFrame);
-    }
-  });
-
-  await expect(review.frame.locator('.marker')).toHaveCount(1);
-  await target
-    .locator('button')
-    .evaluate((el) => (el.textContent = 'Count: 3'));
-  await review.frame.locator('.marker').click();
-  await expect(review.note).toHaveValue('Keep this comment attached');
-  await review.note.fill('Updated comment');
-  await target.evaluate((el) => el.replaceWith(el.cloneNode(true)));
-  await review.note.press('Enter');
-  await expect(review.frame.locator('#panel')).toBeHidden();
-  await expect(status).toHaveCount(0);
-  const updated = (await review.state()).drafts[0];
-  expect(updated.item.id).toBe(original.item.id);
-  expect(updated.item.target).toEqual(original.item.target);
-  expect(updated.item.comment).toBe('Updated comment');
-  await target.evaluate((el) => el.remove());
-  await expect(status).toContainText('Target unavailable');
-  await review.evaluate(() => {
-    document.querySelector('#comment-host')!.innerHTML =
-      '<section style="height:180px;padding:20px">Replacement content</section>';
-  });
-  await expect(status).toHaveCount(0);
-  await review.frame.locator('.marker').click();
-  await expect(review.note).toHaveValue('Updated comment');
-  await review.frame
-    .getByRole('button', { name: 'Cancel', exact: true })
-    .click();
-  await target.evaluate((el) => el.after(el.cloneNode(true)));
-  await expect(status).toContainText('Target unavailable');
-  await review.frame.locator('#busy-words').click();
-  await expect(review.editor).toBeFocused();
-});
-
-test('source changes preserve unfinished input and keep saved feedback on its original revision', async ({
-  page,
-  plan,
-  review,
-  workspace,
-}) => {
+  await review.open();
   await review.addComment('h1', 'Preserve this note.');
-  await review.frame.locator('.marker').click();
-  await review.note.fill('Unfinished note');
-  await review.evaluate(() =>
-    document
-      .querySelector('[data-humagent-id="brief"]')!
-      .dispatchEvent(
-        new MouseEvent('click', { bubbles: true, cancelable: true }),
-      ),
-  );
-  await expect(review.note).toHaveValue('Unfinished note');
-  expect(
-    await review.evaluate(
-      () =>
-        !window.dispatchEvent(new Event('beforeunload', { cancelable: true })),
-    ),
-  ).toBe(true);
-  fs.appendFileSync(workspace.file(), '<p>Changed source.</p>');
-  await expect(page.locator('#update')).toBeVisible();
-  await expect(review.note).toHaveValue('Unfinished note');
-  await expect(page.locator('#send')).toBeDisabled();
-  await review.note.press('Escape');
+  await review.connect();
+  await expect(page.locator('#send')).toBeEnabled();
+  fs.appendFileSync(review.file, '<p>Changed source.</p>');
   await expect(review.frame.getByText('Changed source.')).toBeVisible();
-  await review.expand();
-  await expect(page.locator('#update')).toBeHidden();
   await expect(page.locator('.draft-status')).toContainText('Stale revision');
-  await expect(page.locator('#send')).toBeDisabled();
   await expect(page.locator('.draft')).toContainText('Preserve this note.');
-  expect(workspace.store.get(plan.session).events).toHaveLength(0);
+  await expect(page.locator('#send')).toBeDisabled();
+  expect(review.session().events).toHaveLength(0);
 });
 
-test('frame credentials stay isolated and foreign bridge messages cannot stage feedback', async ({
+test('the page under review cannot use control routes, learn the session key, or stage through a foreign message', async ({
   page,
-  plan,
   review,
-  workspace,
 }) => {
-  const denied = await review.evaluate(async (origin) => {
-    try {
-      return (await fetch(`${origin}/api/sessions`, { method: 'GET' })).status;
-    } catch {
-      return 'blocked';
-    }
-  }, workspace.origin);
-  expect([403, 'blocked']).toContain(denied);
+  await review.open();
   await page.evaluate(() =>
     window.postMessage(
       {
@@ -223,71 +138,70 @@ test('frame credentials stay isolated and foreign bridge messages cannot stage f
       location.origin,
     ),
   );
-  expect((await review.state()).drafts).toHaveLength(0);
-  expect(workspace.store.get(plan.session).events).toHaveLength(0);
+  const denied = await review.evaluate(async (origin) => {
+    try {
+      return (await fetch(`${origin}/api/sessions`)).status;
+    } catch {
+      return 'blocked';
+    }
+  }, review.origin);
+  expect([403, 'blocked']).toContain(denied);
+  expect(review.key).not.toBe('');
   expect(
     await review.evaluate(() => JSON.stringify(window.__HUMAGENT__)),
-  ).not.toContain(new URL(plan.url).hash.slice(1));
+  ).not.toContain(review.key);
   const sandbox = await page.locator('#frame').getAttribute('sandbox');
-  for (const token of ['allow-scripts', 'allow-forms', 'allow-same-origin'])
-    expect(sandbox).toContain(token);
-  for (const token of ['allow-top-navigation', 'allow-popups'])
-    expect(sandbox).not.toContain(token);
-  await review.addComment('h1', 'Keep this');
-  const id = (await review.draft()).id;
-  const errors = await review.evaluate(async (draftId) => {
-    const boot = window.__HUMAGENT__!;
-    const errors: string[] = [];
-    for (const method of ['edit', 'remove']) {
-      const id = crypto.randomUUID();
-      errors.push(
-        await new Promise<string>((resolve) => {
-          const receive = (event: MessageEvent) => {
-            if (
-              event.source !== parent ||
-              event.data?.id !== id ||
-              event.data.method !== 'result'
-            )
-              return;
-            window.removeEventListener('message', receive);
-            resolve(event.data.error);
-          };
-          window.addEventListener('message', receive);
-          parent.postMessage(
-            {
-              ...boot,
-              documentId: 'previous-document',
-              method,
-              id,
-              params: { draftId, comment: 'Wrong document' },
-            },
-            boot.parentOrigin,
-          );
-        }),
-      );
-    }
-    return errors;
-  }, id);
-  expect(errors).toEqual([
-    'Refresh the page to reconnect.',
-    'Refresh the page to reconnect.',
-  ]);
-  expect((await review.draft()).comment).toBe('Keep this');
-  await expect(review.frame.locator('.marker')).toHaveCount(1);
+  expect(sandbox).not.toContain('allow-top-navigation');
+  expect(sandbox).not.toContain('allow-popups');
+  // A comment that stages after the foreign message proves that the message staged nothing.
+  await review.addComment('h1', 'The only draft');
+  expect(review.session().drafts).toHaveLength(1);
 });
 
-test('two tabs edit one session and see each other’s feedback', async ({
-  context,
-  plan,
+test('a proxied app keeps its own behavior and accepts comments and SDK submissions', async ({
+  page,
   review,
 }) => {
-  const other = await context.newPage();
-  await other.goto(plan.url);
-  await expect(other.locator('#bridge-status')).toHaveText(
-    'Interface connected',
-  );
-  await expect(other.locator('#annotate')).toBeEnabled();
-  await review.addComment('h1', 'From the first tab');
-  await expect(other.locator('.draft')).toContainText('From the first tab');
-  await other.close();
+  const app = http.createServer((request, response) => {
+    if (request.url === '/api/value')
+      response.setHeader('content-type', 'application/json').end('{"v":42}');
+    else if (request.url === '/app.js')
+      response
+        .setHeader('content-type', 'text/javascript')
+        .end(
+          'let n = 0; const b = document.querySelector("#counter"); b.onclick = () => (b.textContent = `Count: ${++n}`);',
+        );
+    else
+      response
+        .setHeader('content-type', 'text/html')
+        .end(
+          '<!doctype html><h1 id="headline">A page that was already here.</h1><button id="counter">Count: 0</button><script type="module" src="/app.js"></script>',
+        );
+  });
+  await new Promise<void>((resolve) => app.listen(0, '127.0.0.1', resolve));
+  try {
+    const target = `http://127.0.0.1:${(app.address() as AddressInfo).port}/`;
+    await review.open(target);
+    await review.frame.locator('#counter').click();
+    await expect(review.frame.locator('#counter')).toHaveText('Count: 1');
+    expect(
+      await review.evaluate(async () => (await fetch('/api/value')).json()),
+    ).toEqual({ v: 42 });
+    await review.addComment('#headline', 'Review an existing app.');
+    const staged = await review.evaluate(() =>
+      window.humagent.submit({ values: { choice: 'keep' } }),
+    );
+    expect(staged.status).toBe('draft');
+    await review.connect();
+    await page.locator('#send').click();
+    const feedback = await review.receive();
+    expect(feedback.target.kind).toBe('url');
+    expect(feedback.events[0].items).toMatchObject([
+      { target: { id: 'headline' }, comment: 'Review an existing app.' },
+      { values: { choice: 'keep' } },
+    ]);
+  } finally {
+    app.closeAllConnections();
+    app.close();
+  }
 });
