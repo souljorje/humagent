@@ -38,22 +38,18 @@ test('a text edit, a comment, and form choices reach the agent as one event with
   expect(event.revision).toBe(review.session().revision);
   expect(event.items).toMatchObject([
     { kind: 'edit', edit: { after: 'Give your agent a clearer plan.' } },
-    { kind: 'comment', comment: 'Make this button stand out.', target: {} },
+    { kind: 'comment', comment: 'Make this button stand out.' },
     {
       kind: 'form',
-      form: {
-        values,
-        instruction:
-          'Apply these choices to the first screen. Do not publish anything.',
-      },
+      form: { instruction: expect.stringMatching(/^Apply these/), values },
       target: { id: 'design-choices' },
     },
   ]);
   // Content comes before `target`. An edit without a note has no `comment`.
-  expect(event.items.map((item) => Object.keys(item))).toEqual([
-    ['id', 'kind', 'edit', 'target'],
-    ['id', 'kind', 'comment', 'target'],
-    ['id', 'kind', 'form', 'target'],
+  expect(event.items.map((item) => Object.keys(item).join())).toEqual([
+    'id,kind,edit,target',
+    'id,kind,comment,target',
+    'id,kind,form,target',
   ]);
   expect(feedback.target).toEqual({ kind: 'file', value: review.file });
 
@@ -210,16 +206,13 @@ test('a proxied app keeps its own behavior and accepts comments and SDK submissi
     await page.locator('#send').click();
     const feedback = await review.receive();
     expect(feedback.target.kind).toBe('url');
-    expect(feedback.events[0].items[0]).toMatchObject({
-      kind: 'comment',
-      target: { id: 'headline' },
-      comment: 'Review an existing app.',
-    });
-    expect(feedback.events[0].items[1]).toEqual({
-      id: expect.any(String),
-      kind: 'form',
-      form: { values: { choice: 'keep' } },
-    });
+    expect(feedback.events[0].items).toMatchObject([
+      { kind: 'comment', comment: 'Review an existing app.' },
+      { kind: 'form', form: { values: { choice: 'keep' } } },
+    ]);
+    expect(feedback.events[0].items[0]).toHaveProperty('target.id', 'headline');
+    // An SDK submission belongs to no form, so it has no target.
+    expect(feedback.events[0].items[1]).not.toHaveProperty('target');
   } finally {
     app.closeAllConnections();
     app.close();

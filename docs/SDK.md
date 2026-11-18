@@ -23,15 +23,15 @@ Humagent injects its SDK into supported local HTML and HTTP localhost apps. Gene
 | Attribute | Purpose |
 | --- | --- |
 | `data-humagent-id` | On a form, make the form one draft with named values. On other elements, identify annotation targets. |
-| `data-humagent-message` | Add the form item's comment |
+| `data-humagent-message` | Set the form item's `instruction` |
 
 A marked form owns one draft. Each change saves it. Choices save at once. Typed text saves 300 milliseconds after typing stops. The submit button adds the form unchanged. Marked forms do not send feedback. Unmarked forms behave normally.
 
 Send delivers the values that the form shows. A reload refills the form from its draft. Deleting the draft in the bar resets the form to its HTML defaults. After a source revision change, the next form change replaces the stale draft.
 
-The `data-humagent-id` value is the draft key. Give each marked form a stable and unique value. A form item contains `comment` and `values`. The agent receives them as `form.instruction` and `form.values`. A marked form also gives the agent `target.id`. The form item has no marker on the page.
+The `data-humagent-id` value is the draft key. Give each marked form a stable and unique value. The form item has no marker on the page.
 
-The bar shows readable text. The title comes from `aria-label` or `aria-labelledby`, otherwise from `data-humagent-id`. Each field shows its label or fieldset legend and the visible text of its answer. The agent does not receive these labels. It receives field names and values.
+The bar shows readable text. The title comes from `aria-label` or `aria-labelledby`, otherwise from `data-humagent-id`. Each field shows its label or fieldset legend and the visible text of its answer. The agent receives only field names and values.
 
 | Control | Value |
 | --- | --- |
@@ -63,44 +63,27 @@ const result = await window.humagent.submit({
 
 ## Event format
 
-Each **Send** creates one event. `humagent wait` returns one feedback object with the events that it delivers:
+Each **Send** creates one event. `humagent wait` returns events in `events[]`:
 
 ```json
 {
-  "status": "feedback",
-  "target": { "kind": "file", "value": "/path/to/page.html" },
-  "receipt": "receipt-id",
-  "events": [
-    {
-      "id": "event-id",
-      "revision": "source-revision",
-      "message": "Keep changes small.",
-      "items": [
-        { "id": "comment-1", "kind": "comment", "comment": "Shorten this.", "target": { "selector": "h1" } },
-        { "id": "edit-1", "kind": "edit", "edit": { "before": "Old", "after": "New" }, "target": { "selector": "#intro" } },
-        { "id": "form-1", "kind": "form", "form": { "instruction": "Revise the plan.", "values": { "strategy": "pilot-first" } }, "target": { "id": "plan" } }
-      ],
-      "deliveries": 1
-    }
-  ]
+  "id": "event-id",
+  "revision": "source-revision",
+  "message": "Keep changes small.",
+  "items": [
+    { "id": "comment-1", "kind": "comment", "comment": "Shorten this.", "target": { "selector": "h1" } },
+    { "id": "edit-1", "kind": "edit", "edit": { "before": "Old", "after": "New" }, "target": { "selector": "#intro" } },
+    { "id": "form-1", "kind": "form", "form": { "instruction": "Revise the plan.", "values": { "strategy": "pilot-first" } }, "target": { "id": "plan" } }
+  ],
+  "deliveries": 1
 }
 ```
 
-`status` is always `feedback` in this result. `target` names the reviewed page. `receipt` identifies this delivery. Acknowledge it when the work is done.
+`message` is the optional overall instruction. `deliveries` counts how often `wait` returned the event. A value above 1 means a redelivery.
 
-Each event has `id`, `revision`, `items`, and `deliveries`. `message` is the optional overall instruction. `deliveries` counts how often `wait` returned the event. A value above 1 means a redelivery.
+`kind` names the key that holds the item's content. `comment` is the reviewer's text. `form.instruction` is the page's text. Empty `edit.after` means deletion.
 
-Each item has `id` and `kind`. The `kind` names the item's content key:
-
-| `kind` | Content | Meaning |
-| --- | --- | --- |
-| `comment` | `comment` | A comment on the element in `target`. `comment` is always present. |
-| `edit` | `edit` | A proposed text change to the element in `target`. `edit.before` is nonempty. Empty `edit.after` proposes deletion. |
-| `form` | `form` | Named answers from a form. `form.values` holds them. `form.instruction` holds the page's text for the form, when present. |
-
-Top-level `comment` is always the reviewer's own text. An `edit` item can have it, and it is omitted when empty. A `form` item never has it. A marked form item has `target.id`, which is the form's `data-humagent-id`. An item from a bare `submit()` call has no `target`.
-
-An event can contain only a message. An empty review is invalid. The server rejects unknown item fields. It rejects an item that combines `values` with `replacement` or `target`.
+An event can contain only a message. An empty review is invalid. The server rejects unknown item fields.
 
 ### Validation limits
 

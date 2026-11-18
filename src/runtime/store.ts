@@ -27,38 +27,26 @@ import {
 
 const FORMAT = 2;
 
-/** Map a stored item to the shape that `take()` delivers. The validator gives each non-form item a target. */
-function feedbackItem(stored: ReviewItem): FeedbackItem {
-  const comment = stored.comment?.trim() ? stored.comment : undefined;
-  if (stored.values)
+/** Give a stored item the shape that the agent receives. */
+function feedbackItem(item: ReviewItem): FeedbackItem {
+  const { id, replacement, values, target } = item;
+  const comment = item.comment?.trim() ? item.comment : undefined;
+  if (values)
     return {
-      id: stored.id,
+      id,
       kind: 'form',
-      form: {
-        ...(comment ? { instruction: comment } : {}),
-        values: stored.values,
-      },
-      ...(typeof stored.target?.id === 'string'
-        ? { target: { id: stored.target.id } }
-        : {}),
+      form: { ...(comment ? { instruction: comment } : {}), values },
+      ...(target ? { target } : {}),
     };
-  if (stored.replacement)
+  if (replacement)
     return {
-      id: stored.id,
+      id,
       kind: 'edit',
       ...(comment ? { comment } : {}),
-      edit: {
-        before: stored.replacement.before,
-        after: stored.replacement.after,
-      },
-      target: stored.target!,
+      edit: replacement,
+      target: target!,
     };
-  return {
-    id: stored.id,
-    kind: 'comment',
-    comment: stored.comment!,
-    target: stored.target!,
-  };
+  return { id, kind: 'comment', comment: comment!, target: target! };
 }
 
 /** The events that the last `wait` returned. They stay unfinished until the agent acknowledges this receipt. */
@@ -341,10 +329,9 @@ export class Store extends EventEmitter {
       id: randomUUID(),
       revision: s.revision,
       ...(message ? { message } : {}),
+      // A marked form has no page target, so its key identifies it.
       items: s.drafts.map((d) =>
-        d.key !== undefined && d.item.values
-          ? { ...d.item, target: { id: d.key } }
-          : d.item,
+        d.key ? { ...d.item, target: { id: d.key } } : d.item,
       ),
       status: 'queued',
       deliveries: 0,
