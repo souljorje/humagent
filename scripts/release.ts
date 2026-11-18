@@ -44,6 +44,17 @@ if (!existsSync(archive)) {
     );
 
   run(['run', 'check']);
+  // Version PRs and already published versions do not need browser setup.
+  if (process.env.CI)
+    run([
+      'x',
+      '--no-install',
+      'playwright',
+      'install',
+      '--with-deps',
+      '--only-shell',
+      'chromium',
+    ]);
   run(['run', 'test:browser:built']);
   if (publish) run(['run', 'changeset', 'publish', '--from-pack-dir', output]);
 }
