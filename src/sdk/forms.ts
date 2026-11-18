@@ -2,7 +2,7 @@ import type { Json, ObjectValue } from '../shared/json.js';
 import {
   LIMITS,
   type Draft,
-  type DraftItem,
+  type NewItem,
   type DraftLabels,
 } from '../shared/feedback.js';
 import { errorMessage } from '../shared/errors.js';
@@ -141,7 +141,7 @@ function fill(form: HTMLFormElement, values: ObjectValue) {
 
 interface FormBridge {
   revision: string;
-  stage(item: DraftItem, key: string, labels: DraftLabels): Promise<unknown>;
+  stage(item: NewItem, key: string, labels: DraftLabels): Promise<unknown>;
   notice(message: string): void;
 }
 /** Each form with `data-humagent-id` is one live draft. Choices save at once, typed text shortly after typing stops. */
@@ -182,9 +182,9 @@ export function createForms({ revision, stage, notice }: FormBridge) {
   function save(form: HTMLFormElement) {
     settle(form);
     const { values, labels } = readForm(form);
-    const message = form.dataset.humagentMessage;
+    const comment = form.dataset.humagentComment;
     return stage(
-      { ...(message ? { comment: message } : {}), values },
+      { ...(comment ? { comment } : {}), form: values },
       key(form),
       labels,
     ).then(
@@ -229,7 +229,7 @@ export function createForms({ revision, stage, notice }: FormBridge) {
     /** Refill forms from their drafts after a reload. Stale drafts stay untouched. */
     restore(drafts: Draft[]) {
       for (const form of forms()) {
-        const values = current(drafts, form)?.item.values;
+        const values = current(drafts, form)?.item.form;
         if (values) silently(form, () => fill(form, values));
       }
     },

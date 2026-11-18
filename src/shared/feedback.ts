@@ -7,29 +7,31 @@ export const LIMITS = {
   events: 2000,
   eventsPerReceipt: 100,
   comment: 4000,
-  message: 4000,
+  instruction: 4000,
   text: 50000,
   formKey: 200,
   label: 500,
   labelFields: 100,
 } as const;
 
-export interface Target {
+export interface Source {
   kind: 'file' | 'url';
   value: string;
   root?: string;
   network: boolean;
 }
 export type ReviewTarget = ObjectValue;
-/** Content fields come before `target`, so agents read the feedback first. */
+/** One feedback item. `kind` names the key that holds its content. */
 export interface ReviewItem {
   id: string;
+  kind: 'comment' | 'edit' | 'form';
   comment?: string;
-  replacement?: { before: string; after: string };
-  values?: ObjectValue;
+  edit?: { before: string; after: string };
+  form?: ObjectValue;
   target?: ReviewTarget;
 }
-export type DraftItem = Omit<ReviewItem, 'id'>;
+/** An item as the page sends it. The server adds `id` and `kind`. */
+export type NewItem = Omit<ReviewItem, 'id' | 'kind'>;
 /** Where the human clicked, relative to the target's top-left corner. */
 export interface MarkerPosition {
   x: number;
@@ -53,29 +55,36 @@ export interface Draft {
 export interface Event {
   id: string;
   revision: string;
-  message?: string;
+  instruction?: string;
   items: ReviewItem[];
   status: 'queued' | 'delivered' | 'completed';
   deliveries: number;
 }
+/** What `wait` returns when the human sends feedback. */
+export interface Feedback {
+  status: 'feedback';
+  source: Pick<Source, 'kind' | 'value'>;
+  receipt: string;
+  events: Omit<Event, 'status'>[];
+}
 export interface SessionView {
   id: string;
   title: string;
-  target: Target;
+  source: Source;
   revision: string;
   ended: boolean;
   createdAt: string;
-  agent: 'working' | 'waiting' | 'idle';
+  agent: 'working' | 'connected' | 'idle';
   drafts: Draft[];
-  message: string;
-  /** Text replacements that were sent but not completed. Pages keep previewing them. */
+  instruction: string;
+  /** Text edits that were sent but not completed. Pages keep previewing them. */
   sent: Draft[];
 }
 export interface WorkspaceView extends SessionView {
   surface: { origin: string; frameUrl: string; channel: string };
 }
 export interface Submission {
-  values: ObjectValue;
+  form: ObjectValue;
   comment?: string;
 }
 export interface StageResult {

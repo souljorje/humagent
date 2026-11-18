@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { createRuntime } from '../dist/runtime/server.js';
-import { targetOf, safeFile } from '../dist/runtime/surfaces.js';
+import { sourceOf, safeFile } from '../dist/runtime/surfaces.js';
 import { LIMITS } from '../dist/shared/feedback.js';
 import { fixture } from './fixtures.ts';
 
@@ -12,7 +12,7 @@ const dir = fixture('server');
 const root = path.join(dir, 'artifacts');
 fs.mkdirSync(root);
 let runtime: Awaited<ReturnType<typeof createRuntime>>;
-let targets = 0;
+let sources = 0;
 
 beforeAll(async () => {
   runtime = await createRuntime({ directory: path.join(dir, 'state') });
@@ -48,12 +48,12 @@ async function call(
 
 /** Open a new HTML file. `key` holds the headers that its browser page sends. */
 async function open() {
-  const target = path.join(root, `target-${++targets}.html`);
-  fs.writeFileSync(target, '<!doctype html><h1>Original</h1>');
-  const { status, data } = await call('/api/open', 'POST', { target });
+  const source = path.join(root, `source-${++sources}.html`);
+  fs.writeFileSync(source, '<!doctype html><h1>Original</h1>');
+  const { status, data } = await call('/api/open', 'POST', { source });
   assert.equal(status, 200);
   return {
-    target,
+    source,
     base: `/api/sessions/${data.session}`,
     key: {
       authorization: '',
@@ -62,7 +62,7 @@ async function open() {
   };
 }
 
-test('control routes refuse foreign origins, missing credentials, session keys outside their session, and unsafe targets', async () => {
+test('control routes refuse foreign origins, missing credentials, session keys outside their session, and unsafe sources', async () => {
   const first = await open();
   const second = await open();
   const status = async (...args: Parameters<typeof call>) =>
@@ -84,19 +84,19 @@ test('control routes refuse foreign origins, missing credentials, session keys o
     ['/api/sessions'],
     [`${first.base}/wait`, {}],
     [`${first.base}/ack`, {}],
-    ['/api/open', { target: second.target }],
+    ['/api/open', { source: second.source }],
   ] as [string, unknown?][])
     assert.equal(
       await status(route, data ? 'POST' : 'GET', data, first.key),
       401,
       route,
     );
-  for (const target of [
+  for (const source of [
     'https://localhost:3000',
     'http://example.com',
     'http://user:secret@localhost:3000',
   ])
-    assert.equal(await status('/api/open', 'POST', { target }), 400, target);
+    assert.equal(await status('/api/open', 'POST', { source }), 400, source);
 });
 
 test('the server refuses a stale revision and a receipt from another session', async () => {
@@ -106,35 +106,39 @@ test('the server refuses a stale revision and a receipt from another session', a
   const pending = call(`${first.base}/wait`, 'POST', {});
   for (
     let attempt = 0;
-    (await call(first.base)).data.agent !== 'waiting';
+    (await call(first.base)).data.agent !== 'connected';
     attempt++
   ) {
     assert.ok(attempt < 200, 'Agent must start waiting');
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
-  await call(`${first.base}/message`, 'PUT', { text: 'Review this' });
+  await call(`${first.base}/instruction`, 'PUT', {
+    instruction: 'Review this',
+  });
   const send = () => call(`${first.base}/send`, 'POST', { revision });
   assert.equal((await send()).status, 200);
   const batch = (await pending).data;
   assert.equal(batch.status, 'feedback');
-  assert.deepEqual(batch.target, { kind: 'file', value: first.target });
+  assert.deepEqual(batch.source, { kind: 'file', value: first.source });
   assert.equal(batch.events[0].revision, revision);
 
   const ack = (base: string) =>
     call(`${base}/ack`, 'POST', { receipt: batch.receipt });
   assert.equal((await ack(second.base)).data.error, 'STALE_RECEIPT');
-  fs.writeFileSync(first.target, '<!doctype html><h1>Changed</h1>');
-  await call(`${first.base}/message`, 'PUT', { text: 'Sent too late' });
+  fs.writeFileSync(first.source, '<!doctype html><h1>Changed</h1>');
+  await call(`${first.base}/instruction`, 'PUT', {
+    instruction: 'Sent too late',
+  });
   assert.equal((await send()).data.error, 'STALE_REVISION');
   assert.equal((await ack(first.base)).status, 200);
 });
 
-test('file serving refuses non-HTML targets, hidden files, traversal, and symlink escapes', async () => {
+test('file serving refuses non-HTML sources, hidden files, traversal, and symlink escapes', async () => {
   const page = path.join(root, 'page.html');
   fs.writeFileSync(page, '<!doctype html><h1>Page</h1>');
   assert.equal(await safeFile(root, '/page.html'), page);
   fs.writeFileSync(path.join(root, 'app.js'), 'window.works = true;');
-  await assert.rejects(() => targetOf(path.join(root, 'app.js')), /HTML/);
+  await assert.rejects(() => sourceOf(path.join(root, 'app.js')), /HTML/);
   fs.writeFileSync(path.join(root, '.secret'), 'no');
   fs.writeFileSync(path.join(dir, 'outside.txt'), 'no');
   fs.symlinkSync(path.join(dir, 'outside.txt'), path.join(root, 'escape.txt'));
@@ -170,8 +174,9 @@ test('JSON requests enforce content type, syntax, object shape, item rules, and 
     { target: { selector: 'h1' }, comment: 'x', kind: 'execute' },
     { target: { selector: 'h1' }, comment: ' ' },
     { target: { selector: 'h1' }, comment: 'a'.repeat(LIMITS.comment + 1) },
-    { replacement: { before: 'a', after: 'b' } },
-    { values: 'x' },
+    { edit: { before: 'a', after: 'b' } },
+    { form: 'x' },
+    { target: { selector: 'h1' }, form: {} },
   ])
     assert.equal(
       await error(`${base}/drafts`, 'POST', { revision, item }),

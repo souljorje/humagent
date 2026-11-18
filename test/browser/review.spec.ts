@@ -20,7 +20,7 @@ test('a text edit, a comment, and form choices reach the agent as one event with
   await review.frame.getByRole('radio', { name: /The interactions/ }).check();
   const values = { layout: 'split', button: 'outline', workflow: 'behavior' };
   await expect
-    .poll(() => review.session().drafts.at(-1)?.item.values)
+    .poll(() => review.session().drafts.at(-1)?.item.form)
     .toEqual(values);
   expect(review.session().drafts).toHaveLength(3);
   expect(review.session().events).toHaveLength(0);
@@ -28,20 +28,30 @@ test('a text edit, a comment, and form choices reach the agent as one event with
   await page.reload();
   await review.ready();
   await expect(choice).toBeChecked();
-  await page.locator('#message').fill('Apply these together.');
+  await page.locator('#instruction').fill('Apply these together.');
   await review.connect();
   await page.locator('#send').click();
   const feedback = await review.receive();
   expect(feedback.events).toHaveLength(1);
   const [event] = feedback.events;
-  expect(event.message).toBe('Apply these together.');
+  expect(event.instruction).toBe('Apply these together.');
   expect(event.revision).toBe(review.session().revision);
   expect(event.items).toMatchObject([
-    { replacement: { after: 'Give your agent a clearer plan.' } },
-    { comment: 'Make this button stand out.' },
-    { values },
+    { kind: 'edit', edit: { after: 'Give your agent a clearer plan.' } },
+    { kind: 'comment', comment: 'Make this button stand out.' },
+    {
+      kind: 'form',
+      comment: expect.stringMatching(/^Apply these/),
+      form: values,
+    },
   ]);
-  expect(feedback.target).toEqual({ kind: 'file', value: review.file });
+  // Content comes before `target`. An edit without a note has no `comment`.
+  expect(event.items.map((item) => Object.keys(item).join())).toEqual([
+    'id,kind,edit,target',
+    'id,kind,comment,target',
+    'id,kind,comment,form',
+  ]);
+  expect(feedback.source).toEqual({ kind: 'file', value: review.file });
 
   // The preview stays until the agent acknowledges its receipt.
   await expect(heading).toHaveText('Give your agent a clearer plan.');
@@ -50,15 +60,15 @@ test('a text edit, a comment, and form choices reach the agent as one event with
   expect(fs.readFileSync(review.file, 'utf8')).toBe(source);
 });
 
-test('sending requires a waiting agent, and an ended session accepts no input', async ({
+test('sending requires a connected agent, and an ended session accepts no input', async ({
   page,
   review,
 }) => {
   await review.open();
   const send = page.locator('#send');
   const status = page.locator('#agent-state');
-  await page.locator('#message').fill('Review this');
-  await expect(status).toHaveText('No agent waiting');
+  await page.locator('#instruction').fill('Review this');
+  await expect(status).toHaveText('No agent connected');
   await expect(send).toBeDisabled();
   await send.dispatchEvent('click');
   await expect(page.locator('#error')).toContainText('Connect an agent');
@@ -67,17 +77,17 @@ test('sending requires a waiting agent, and an ended session accepts no input', 
   await review.connect();
   await send.click();
   const feedback = await review.receive();
-  expect(feedback.events[0].message).toBe('Review this');
+  expect(feedback.events[0].instruction).toBe('Review this');
   await expect(status).toHaveText('Agent working');
   await review.acknowledge(feedback);
-  await expect(status).toHaveText('No agent waiting');
+  await expect(status).toHaveText('No agent connected');
   await expect(send).toBeDisabled();
 
   await review.expand(true);
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'End session', exact: true }).click();
   await expect(status).toHaveText('Session ended');
-  await expect(page.locator('#message')).toBeDisabled();
+  await expect(page.locator('#instruction')).toBeDisabled();
 });
 
 test('a server restart keeps drafts, the instruction, and form choices', async ({
@@ -89,16 +99,16 @@ test('a server restart keeps drafts, the instruction, and form choices', async (
   await review.annotate(false);
   const choice = review.frame.getByRole('radio', { name: 'Split' });
   await choice.check();
-  await page.locator('#message').fill('Keep this unsent message.');
+  await page.locator('#instruction').fill('Keep this unsent instruction.');
   await expect
-    .poll(() => review.session().message)
-    .toBe('Keep this unsent message.');
+    .poll(() => review.session().instruction)
+    .toBe('Keep this unsent instruction.');
   await expect.poll(() => review.session().drafts.length).toBe(2);
 
   await review.restart();
   expect(await review.open()).toBe(session);
-  await expect(page.locator('#message')).toHaveValue(
-    'Keep this unsent message.',
+  await expect(page.locator('#instruction')).toHaveValue(
+    'Keep this unsent instruction.',
   );
   await expect(page.locator('.draft')).toHaveCount(2);
   await expect(
@@ -133,7 +143,7 @@ test('the page under review cannot use control routes, learn the session key, or
       {
         method: 'stage',
         id: 'foreign',
-        params: { item: { values: { evil: true } } },
+        params: { item: { form: { evil: true } } },
       },
       location.origin,
     ),
@@ -180,8 +190,8 @@ test('a proxied app keeps its own behavior and accepts comments and SDK submissi
   });
   await new Promise<void>((resolve) => app.listen(0, '127.0.0.1', resolve));
   try {
-    const target = `http://127.0.0.1:${(app.address() as AddressInfo).port}/`;
-    await review.open(target);
+    const source = `http://127.0.0.1:${(app.address() as AddressInfo).port}/`;
+    await review.open(source);
     await review.frame.locator('#counter').click();
     await expect(review.frame.locator('#counter')).toHaveText('Count: 1');
     expect(
@@ -189,16 +199,23 @@ test('a proxied app keeps its own behavior and accepts comments and SDK submissi
     ).toEqual({ v: 42 });
     await review.addComment('#headline', 'Review an existing app.');
     const staged = await review.evaluate(() =>
-      window.humagent.submit({ values: { choice: 'keep' } }),
+      window.humagent.submit({ form: { choice: 'keep' } }),
     );
     expect(staged.status).toBe('draft');
     await review.connect();
     await page.locator('#send').click();
     const feedback = await review.receive();
-    expect(feedback.target.kind).toBe('url');
+    expect(feedback.source.kind).toBe('url');
     expect(feedback.events[0].items).toMatchObject([
-      { target: { id: 'headline' }, comment: 'Review an existing app.' },
-      { values: { choice: 'keep' } },
+      { kind: 'comment', comment: 'Review an existing app.' },
+      { kind: 'form', form: { choice: 'keep' } },
+    ]);
+    expect(feedback.events[0].items[0]).toHaveProperty('target.id', 'headline');
+    // An SDK submission belongs to no form, so it has no target.
+    expect(Object.keys(feedback.events[0].items[1])).toEqual([
+      'id',
+      'kind',
+      'form',
     ]);
   } finally {
     app.closeAllConnections();

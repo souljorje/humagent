@@ -37,7 +37,7 @@ interface Capture {
   el: Element;
   draft?: Draft;
   point: Point;
-  /** The editor proposes a text replacement, not only a comment. */
+  /** The editor proposes a text edit, not only a comment. */
   text?: boolean;
 }
 
@@ -291,7 +291,7 @@ export function createPageReview(bridge: ReviewBridge) {
       return;
     if (!writable || outside()) return;
     reopen(existing && markers.get(existing.item.id));
-    const before = existing?.item.replacement?.before ?? node.data;
+    const before = existing?.item.edit?.before ?? node.data;
     if (!before.trim() || before.length > LIMITS.text) return;
     const target: ReviewTarget = existing?.item.target || {
       ...targetOf(el),
@@ -302,9 +302,9 @@ export function createPageReview(bridge: ReviewBridge) {
     text.open(
       node,
       start,
-      draft ? (existing?.item.replacement?.after.length ?? end) : end,
+      draft ? (existing?.item.edit?.after.length ?? end) : end,
       before,
-      existing?.item.replacement?.after,
+      existing?.item.edit?.after,
     );
     activeInput = text.element!;
     text.element!.onfocus = () => {
@@ -322,7 +322,7 @@ export function createPageReview(bridge: ReviewBridge) {
       );
       return;
     }
-    if (draft.item.replacement) {
+    if (draft.item.edit) {
       const node = text.nodeFor(draft, el);
       if (node) {
         el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -417,7 +417,7 @@ export function createPageReview(bridge: ReviewBridge) {
             target: { ...current.target, coordinates },
             ...($('note').value.trim() ? { comment: $('note').value } : {}),
             ...(current.text && text.value !== current.before
-              ? { replacement: { before: current.before, after: text.value } }
+              ? { edit: { before: current.before, after: text.value } }
               : {}),
           }),
           marker: current.point,

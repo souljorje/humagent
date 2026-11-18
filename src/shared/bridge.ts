@@ -2,7 +2,7 @@
 import type {
   Availability,
   Draft,
-  DraftItem,
+  NewItem,
   DraftLabels,
   MarkerPosition,
   StageResult,
@@ -21,7 +21,7 @@ export interface Presentation {
   /** Top-left corner of the workspace bar, in frame viewport pixels. */
   reviewBar: { x: number; y: number };
   drafts: Draft[];
-  /** Text replacements that the page shows in place of the original text. */
+  /** Text edits that the page shows in place of the original text. */
   previews: Draft[];
   writable: boolean;
 }
@@ -31,7 +31,7 @@ export interface Requests {
   /** A `key` makes this the one draft of a form. */
   stage: {
     params: {
-      item: DraftItem;
+      item: NewItem;
       marker?: MarkerPosition;
       key?: string;
       labels?: DraftLabels;

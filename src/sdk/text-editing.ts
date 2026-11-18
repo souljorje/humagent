@@ -107,8 +107,8 @@ export function createTextEditing(hooks: {
     }
     for (const id of suppressed) if (!wanted.has(id)) suppressed.delete(id);
     for (const draft of drafts) {
-      const replacement = draft.item.replacement;
-      if (!replacement || suppressed.has(draft.item.id)) continue;
+      const edit = draft.item.edit;
+      if (!edit || suppressed.has(draft.item.id)) continue;
       const previous = previews.get(draft.item.id);
       if (
         editing &&
@@ -122,7 +122,7 @@ export function createTextEditing(hooks: {
       const target = previous?.target || hooks.resolve(draft);
       if (!target) continue;
       const node = previous?.node || nodeFor(draft, target);
-      if (!node || (!previous && node.data !== replacement.before)) {
+      if (!node || (!previous && node.data !== edit.before)) {
         suppressed.add(draft.item.id);
         continue;
       }
@@ -130,8 +130,8 @@ export function createTextEditing(hooks: {
         draft,
         node,
         target,
-        before: replacement.before,
-        written: replacement.after,
+        before: edit.before,
+        written: edit.after,
         observer: new MutationObserver((records) =>
           mutations(preview, records),
         ),
@@ -140,12 +140,12 @@ export function createTextEditing(hooks: {
       };
       if (!previous) preview.observer.observe(node, { characterData: true });
       preview.draft = draft;
-      preview.written = replacement.after;
+      preview.written = edit.after;
       previews.set(draft.item.id, preview);
       nodes.set(node, preview);
-      if (node.data !== replacement.after) {
+      if (node.data !== edit.after) {
         preview.writes++;
-        node.data = replacement.after;
+        node.data = edit.after;
       }
     }
   }

@@ -149,7 +149,7 @@
         <form
           aria-labelledby="choices-title"
           data-humagent-id="design-choices"
-          data-humagent-message="Apply these choices to the first screen. Do not publish anything."
+          data-humagent-comment="Apply these choices to the first screen. Do not publish anything."
         >
           <fieldset>
             <legend>Which layout should the first screen use?</legend>
@@ -239,10 +239,11 @@
           updates the page, then lets you know it is done.
         </p>
         <pre aria-label="Simplified example event"><code>{
-  "message": "Keep the tone friendly.",
+  "instruction": "Keep the tone friendly.",
   "items": [
     {
       "id": "1c78…",
+      "kind": "comment",
       "comment": "Make this shorter.",
       "target": {
         "id": "headline",
@@ -252,7 +253,8 @@
     },
     {
       "id": "8579…",
-      "replacement": {
+      "kind": "edit",
+      "edit": {
         "before": "Ship your next idea faster.",
         "after": "Plan and launch in one place."
       },
@@ -265,8 +267,9 @@
     },
     {
       "id": "c6f8…",
+      "kind": "form",
       "comment": "Apply these choices to the first screen.",
-      "values": { "layout": "split", "button": "solid", "workflow": "layout" }
+      "form": { "layout": "split", "button": "solid", "workflow": "layout" }
     }
   ]
 }</code></pre>

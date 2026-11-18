@@ -12,15 +12,15 @@ Use `--json` for command results.
 
 ## Start
 
-The user can name a target, such as `/humagent ./page.html` or `/humagent http://localhost:3000`.
-In Claude Code, the target also appears as `ARGUMENTS:` at the end of this skill.
-With a target, start at once. Do not ask for confirmation.
+The user can name a source, such as `/humagent ./page.html` or `/humagent http://localhost:3000`.
+In Claude Code, the source also appears as `ARGUMENTS:` at the end of this skill.
+With a source, start at once. Do not ask for confirmation.
 
-1. Run `humagent open TARGET --json`.
+1. Run `humagent open SOURCE --json`.
 2. Tell the user that the page is open. Give the returned URL if the browser did not open.
 3. Run `humagent wait SESSION` with the returned session ID, as "Open and wait" describes.
 
-Without a target, use the page from the task. If the task has none, ask the user for a file or localhost URL.
+Without a source, use the page from the task. If the task has none, ask the user for a file or localhost URL.
 
 ## Prepare
 
@@ -30,7 +30,7 @@ Without a target, use the page from the task. If the task has none, ask the user
 4. Do not replace the application's renderer or server.
 
 For structured input, put named controls in a form with a stable, unique `data-humagent-id`.
-Use `data-humagent-message` to tell the agent what the answers mean.
+Use `data-humagent-comment` to tell the agent what the answers mean.
 Give each form an accessible name, such as `aria-labelledby`. Label each control.
 
 Custom pages can add structured feedback through `window.humagent.submit()`.
@@ -40,7 +40,7 @@ See the [SDK guide](https://github.com/souljorje/humagent/blob/main/docs/SDK.md)
 ## Open and wait
 
 ```sh
-humagent open TARGET --json
+humagent open SOURCE --json
 humagent wait SESSION
 ```
 
@@ -60,9 +60,9 @@ If something stops `wait` before it returns a result, run `wait` again at once.
 
 ## Apply input
 
-1. Read every review event in the receipt. Process each event's `message` and ordered `items` together.
-2. Preserve `replacement.before` and `replacement.after` exactly. An empty `replacement.after` proposes deletion.
-3. Interpret `comment` and `values` using the task context. Field presence describes each item.
+1. Read every review event in the receipt. Process each event's `instruction` and ordered `items` together.
+2. Preserve `edit.before` and `edit.after` exactly. An empty `edit.after` proposes deletion.
+3. Interpret `comment` and `form` using the task context. `kind` names each item's content key.
 4. Find the source with `target.url`, `target.selector`, `target.text`, and `target.anchor.quote`.
 
 Each event represents one **Send** action. A receipt can contain several events.
