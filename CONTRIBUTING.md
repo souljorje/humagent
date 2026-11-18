@@ -44,31 +44,12 @@ The archive includes compiled code, browser assets, examples, and all public gui
 Use its absolute path when running npx from another directory. npm installation does not build or download application assets.
 
 Check `npm view humagent version` before you change installation instructions.
+No automated test installs the archive. Use the commands above for that check.
 
 ## Checks
 
-```sh
-bun run test
-```
-
-This runs formatting, lint, the build, types, and a smoke suite of CLI, server, and browser workflows.
-`bun run check` caches successful tasks and build outputs with Turbo. It excludes Chromium.
-Unchanged inputs reuse results from `.turbo/`. Source, configuration, lockfile, and runtime changes invalidate results.
-Run `bun run check --force` to execute every task again. Browser tests always run fresh.
-CI skips tests and releases for changes limited to root Markdown files, `docs/`, or the pull request template.
-Manual and merge-queue checks bypass task results and run the full suite. An unreadable PR diff does the same.
-The Check workflow uses Playwright's prepared browser image. Keep its version aligned with `@playwright/test`.
-
-For browser work, install Chromium once and run Playwright locally:
-
-```sh
-bunx --no-install playwright install chromium
-bun run test:browser:built
-```
-
-`prepublishOnly` runs uncached checks, installs Chromium's headless shell, and runs browser tests before npm publishes.
-Run `npm publish --dry-run` to check that lifecycle without publishing.
-No automated test installs the archive. Use the commands in [Build an archive](#build-an-archive) for that check.
+Run `bun run test` for the full smoke suite.
+See [Development](docs/development.md) for browser setup, individual checks, caching, and CI behavior.
 
 ## Pull requests
 
@@ -83,7 +64,8 @@ No automated test installs the archive. Use the commands in [Build an archive](#
 
 Follow [AGENTS.md](AGENTS.md) for engineering and documentation rules. Use clear sentences and consistent terms.
 
-Keep user guides focused on installation, common use, and troubleshooting. Put maintainer and release steps in this guide.
+Keep user guides focused on installation, common use, and troubleshooting.
+Put testing and CI notes in [Development](docs/development.md). Keep release steps in this guide.
 
 ## Changesets and release
 
@@ -95,6 +77,8 @@ Merging that PR publishes the version automatically if its full checks pass.
 
 `bun run release` uses standard Changesets publishing. Changesets skips versions already on npm.
 For unpublished versions, npm runs `prepublishOnly`, then builds and packs through `prepack`.
+`prepublishOnly` runs uncached checks, installs Chromium's headless shell, and runs browser tests.
+Run `npm publish --dry-run` to check that lifecycle without publishing.
 Failed checks prevent publication. Version PR preparation does not install browsers or run publication hooks.
 
 Version `0.1.0` is on npm. Its notes in `CHANGELOG.md` list the initial features. Changesets add later versions above them.
