@@ -243,6 +243,7 @@
   "items": [
     {
       "id": "1c78…",
+      "kind": "comment",
       "comment": "Make this shorter.",
       "target": {
         "id": "headline",
@@ -252,7 +253,8 @@
     },
     {
       "id": "8579…",
-      "replacement": {
+      "kind": "edit",
+      "edit": {
         "before": "Ship your next idea faster.",
         "after": "Plan and launch in one place."
       },
@@ -265,8 +267,12 @@
     },
     {
       "id": "c6f8…",
-      "comment": "Apply these choices to the first screen.",
-      "values": { "layout": "split", "button": "solid", "workflow": "layout" }
+      "kind": "form",
+      "form": {
+        "instruction": "Apply these choices to the first screen.",
+        "values": { "layout": "split", "button": "solid", "workflow": "layout" }
+      },
+      "target": { "id": "design-choices" }
     }
   ]
 }</code></pre>

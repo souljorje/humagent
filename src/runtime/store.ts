@@ -18,11 +18,48 @@ import {
   type Draft,
   type DraftItem,
   type Event,
+  type Feedback,
+  type FeedbackItem,
+  type ReviewItem,
   type SessionView,
   type Target,
 } from '../shared/feedback.js';
 
 const FORMAT = 2;
+
+/** Map a stored item to the shape that `take()` delivers. The validator gives each non-form item a target. */
+function feedbackItem(stored: ReviewItem): FeedbackItem {
+  const comment = stored.comment?.trim() ? stored.comment : undefined;
+  if (stored.values)
+    return {
+      id: stored.id,
+      kind: 'form',
+      form: {
+        ...(comment ? { instruction: comment } : {}),
+        values: stored.values,
+      },
+      ...(typeof stored.target?.id === 'string'
+        ? { target: { id: stored.target.id } }
+        : {}),
+    };
+  if (stored.replacement)
+    return {
+      id: stored.id,
+      kind: 'edit',
+      ...(comment ? { comment } : {}),
+      edit: {
+        before: stored.replacement.before,
+        after: stored.replacement.after,
+      },
+      target: stored.target!,
+    };
+  return {
+    id: stored.id,
+    kind: 'comment',
+    comment: stored.comment!,
+    target: stored.target!,
+  };
+}
 
 /** The events that the last `wait` returned. They stay unfinished until the agent acknowledges this receipt. */
 interface Delivery {
@@ -304,7 +341,11 @@ export class Store extends EventEmitter {
       id: randomUUID(),
       revision: s.revision,
       ...(message ? { message } : {}),
-      items: s.drafts.map((d) => d.item),
+      items: s.drafts.map((d) =>
+        d.key !== undefined && d.item.values
+          ? { ...d.item, target: { id: d.key } }
+          : d.item,
+      ),
       status: 'queued',
       deliveries: 0,
     };
@@ -317,7 +358,7 @@ export class Store extends EventEmitter {
     return event;
   }
   /** Deliver every unfinished event. Unacknowledged events come back with the next delivery. */
-  take(id: string) {
+  take(id: string): Feedback | { status: 'ended' } | null {
     const s = this.get(id);
     const pending = s.events
       .filter((e) => e.status !== 'completed')
@@ -339,7 +380,7 @@ export class Store extends EventEmitter {
     });
     // The agent gets what it needs to apply the review. Delivery state stays on the server.
     return {
-      status: 'feedback' as const,
+      status: 'feedback',
       target: { kind: s.target.kind, value: s.target.value },
       receipt: delivery.receipt,
       events: updated.events
@@ -348,7 +389,7 @@ export class Store extends EventEmitter {
           id,
           revision,
           ...(message ? { message } : {}),
-          items,
+          items: items.map(feedbackItem),
           deliveries,
         })),
     };

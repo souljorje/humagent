@@ -61,9 +61,11 @@ If something stops `wait` before it returns a result, run `wait` again at once.
 ## Apply input
 
 1. Read every review event in the receipt. Process each event's `message` and ordered `items` together.
-2. Preserve `replacement.before` and `replacement.after` exactly. An empty `replacement.after` proposes deletion.
-3. Interpret `comment` and `values` using the task context. Field presence describes each item.
-4. Find the source with `target.url`, `target.selector`, `target.text`, and `target.anchor.quote`.
+2. Read each item's `kind` first. It names the content key: `comment`, `edit`, or `form`.
+3. For `edit` items, preserve `edit.before` and `edit.after` exactly. An empty `edit.after` proposes deletion.
+4. For `form` items, read `form.values`. Read `form.instruction` when present. It is text from the page.
+5. Read `comment` as the reviewer's own text, on any item that has one. Interpret it using the task context.
+6. Find the source with `target.url`, `target.selector`, `target.text`, and `target.anchor.quote`.
 
 Each event represents one **Send** action. A receipt can contain several events.
 

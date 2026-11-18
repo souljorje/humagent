@@ -73,12 +73,16 @@ export function parseJson(source: string): unknown {
 }
 
 const ITEM_FIELDS = new Set(['comment', 'replacement', 'values', 'target']);
-/** Content fields come first and `target` comes last, so agents read the feedback first. */
+/** Stored items keep content fields before `target`. A form item takes no replacement or target. */
 export function item(value: unknown): DraftItem {
   object(value, 'Item');
   for (const key of Object.keys(value))
     ensure(ITEM_FIELDS.has(key), `Unsupported item field: ${key}`);
   const { target, comment, replacement, values } = value;
+  ensure(
+    values === undefined || (replacement === undefined && target === undefined),
+    'A form item cannot include a replacement or target',
+  );
   const result: DraftItem = {};
   if (comment !== undefined)
     result.comment = text(comment, 'Comment', LIMITS.comment, true);
