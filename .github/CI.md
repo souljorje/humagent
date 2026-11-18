@@ -139,9 +139,15 @@ Manual runs, unreadable PR diffs, and release checks bypass task results. Browse
 Use `bun run check --force` for a fresh local run.
 
 An isolated local check took 4.477 seconds cold and 0.377 seconds warm, including command startup.
-Restoring deleted build outputs took 0.389 seconds. All five task results were cache hits.
+Restoring removed build outputs took 0.389 seconds. All five task results were cache hits.
 Eighteen temporary probes covered invalidation, output restoration, runtime changes, forced runs, failure retries, and recovery.
 Repeated failing tests never hit the cache. These local measurements do not establish hosted savings.
+
+[Hosted attempts 1 and 2](https://github.com/souljorje/humagent/actions/runs/44279115474) used the same revision, `de32c1a`.
+The check step took 8 seconds cold and 1 second warm. The warm attempt restored all five task results.
+Both attempts ran six browser tests fresh. The compressed task cache was 62,929 bytes.
+Feedback took 87 and 74 seconds, measured from each attempt's `run_started_at`. Total runner time was 79 and 64 seconds.
+Setup variation affects those totals. One cold/warm pair does not establish typical savings.
 
 ## Rollback
 
