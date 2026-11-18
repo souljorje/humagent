@@ -182,9 +182,9 @@ export function createForms({ revision, stage, notice }: FormBridge) {
   function save(form: HTMLFormElement) {
     settle(form);
     const { values, labels } = readForm(form);
-    const message = form.dataset.humagentMessage;
+    const comment = form.dataset.humagentComment;
     return stage(
-      { ...(message ? { comment: message } : {}), values },
+      { ...(comment ? { comment } : {}), form: values },
       key(form),
       labels,
     ).then(
@@ -229,7 +229,7 @@ export function createForms({ revision, stage, notice }: FormBridge) {
     /** Refill forms from their drafts after a reload. Stale drafts stay untouched. */
     restore(drafts: Draft[]) {
       for (const form of forms()) {
-        const values = current(drafts, form)?.item.values;
+        const values = current(drafts, form)?.item.form;
         if (values) silently(form, () => fill(form, values));
       }
     },

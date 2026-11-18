@@ -170,9 +170,9 @@ test('JSON requests enforce content type, syntax, object shape, item rules, and 
     { target: { selector: 'h1' }, comment: 'x', kind: 'execute' },
     { target: { selector: 'h1' }, comment: ' ' },
     { target: { selector: 'h1' }, comment: 'a'.repeat(LIMITS.comment + 1) },
-    { replacement: { before: 'a', after: 'b' } },
-    { values: 'x' },
-    { target: { selector: 'h1' }, values: {} },
+    { edit: { before: 'a', after: 'b' } },
+    { form: 'x' },
+    { target: { selector: 'h1' }, form: {} },
   ])
     assert.equal(
       await error(`${base}/drafts`, 'POST', { revision, item }),

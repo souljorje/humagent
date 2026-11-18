@@ -21,15 +21,16 @@ export interface Target {
   network: boolean;
 }
 export type ReviewTarget = ObjectValue;
-/** Content fields come before `target`, so agents read the feedback first. */
+/** One feedback item. `kind` names the key that holds its content. */
 export interface ReviewItem {
   id: string;
+  kind: 'comment' | 'edit' | 'form';
   comment?: string;
-  replacement?: { before: string; after: string };
-  values?: ObjectValue;
+  edit?: { before: string; after: string };
+  form?: ObjectValue;
   target?: ReviewTarget;
 }
-export type DraftItem = Omit<ReviewItem, 'id'>;
+export type DraftItem = Omit<ReviewItem, 'id' | 'kind'>;
 /** Where the human clicked, relative to the target's top-left corner. */
 export interface MarkerPosition {
   x: number;
@@ -58,27 +59,12 @@ export interface Event {
   status: 'queued' | 'delivered' | 'completed';
   deliveries: number;
 }
-/** One delivered item. `kind` names the key that holds its content. Top-level `comment` is the reviewer's text. */
-export type FeedbackItem = { id: string } & (
-  | { kind: 'comment'; comment: string; target: ReviewTarget }
-  | {
-      kind: 'edit';
-      comment?: string;
-      edit: { before: string; after: string };
-      target: ReviewTarget;
-    }
-  | {
-      kind: 'form';
-      form: { instruction?: string; values: ObjectValue };
-      target?: ReviewTarget;
-    }
-);
 /** What `wait` returns when the human sends feedback. */
 export interface Feedback {
   status: 'feedback';
   target: Pick<Target, 'kind' | 'value'>;
   receipt: string;
-  events: (Omit<Event, 'items' | 'status'> & { items: FeedbackItem[] })[];
+  events: Omit<Event, 'status'>[];
 }
 export interface SessionView {
   id: string;
@@ -97,7 +83,7 @@ export interface WorkspaceView extends SessionView {
   surface: { origin: string; frameUrl: string; channel: string };
 }
 export interface Submission {
-  values: ObjectValue;
+  form: ObjectValue;
   comment?: string;
 }
 export interface StageResult {

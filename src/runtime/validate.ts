@@ -1,9 +1,9 @@
 import { cloneJson, type ObjectValue } from '../shared/json.js';
 import {
   LIMITS,
-  type DraftItem,
   type DraftLabels,
   type MarkerPosition,
+  type ReviewItem,
 } from '../shared/feedback.js';
 
 export class Failure extends Error {
@@ -72,40 +72,43 @@ export function parseJson(source: string): unknown {
   }
 }
 
-const ITEM_FIELDS = new Set(['comment', 'replacement', 'values', 'target']);
-/** Stored items keep content fields before `target`. A form item takes no replacement or target. */
-export function item(value: unknown): DraftItem {
+const ITEM_FIELDS = new Set(['comment', 'edit', 'form', 'target']);
+/** Derive `kind` from the content key. A form item takes no edit or target. Blank comments are dropped. */
+export function item(value: unknown, id: string): ReviewItem {
   object(value, 'Item');
   for (const key of Object.keys(value))
     ensure(ITEM_FIELDS.has(key), `Unsupported item field: ${key}`);
-  const { target, comment, replacement, values } = value;
+  const { target, comment, edit, form } = value;
   ensure(
-    values === undefined || (replacement === undefined && target === undefined),
-    'A form item cannot include a replacement or target',
+    form === undefined || (edit === undefined && target === undefined),
+    'A form item cannot include an edit or target',
   );
-  const result: DraftItem = {};
-  if (comment !== undefined)
-    result.comment = text(comment, 'Comment', LIMITS.comment, true);
-  if (replacement !== undefined) {
-    object(replacement, 'Replacement');
-    ensure(target, 'A replacement requires a target');
-    result.replacement = {
-      before: text(replacement.before, 'Original text', LIMITS.text),
-      after: text(replacement.after, 'Replacement', LIMITS.text, true),
+  const kind =
+    form !== undefined ? 'form' : edit !== undefined ? 'edit' : 'comment';
+  const result: ReviewItem = { id, kind };
+  if (comment !== undefined) {
+    const note = text(comment, 'Comment', LIMITS.comment, true);
+    if (note.trim()) result.comment = note;
+  }
+  if (edit !== undefined) {
+    object(edit, 'Edit');
+    ensure(target, 'An edit requires a target');
+    result.edit = {
+      before: text(edit.before, 'Original text', LIMITS.text),
+      after: text(edit.after, 'Replacement', LIMITS.text, true),
     };
   }
-  if (values !== undefined) {
-    object(values, 'Values');
-    result.values = values;
+  if (form !== undefined) {
+    object(form, 'Form');
+    result.form = form;
   }
   if (target !== undefined) {
     object(target, 'Target');
     result.target = target;
   }
   ensure(
-    (result.target && (result.comment?.trim() || result.replacement)) ||
-      result.values,
-    'Each item needs a comment, replacement, or structured decision',
+    (result.target && (result.comment || result.edit)) || result.form,
+    'Each item needs a comment, edit, or form',
   );
   return result;
 }

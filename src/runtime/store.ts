@@ -16,38 +16,13 @@ import { writeJson } from './storage.js';
 import {
   LIMITS,
   type Draft,
-  type DraftItem,
   type Event,
   type Feedback,
-  type FeedbackItem,
-  type ReviewItem,
   type SessionView,
   type Target,
 } from '../shared/feedback.js';
 
-const FORMAT = 2;
-
-/** Give a stored item the shape that the agent receives. */
-function feedbackItem(item: ReviewItem): FeedbackItem {
-  const { id, replacement, values, target } = item;
-  const comment = item.comment?.trim() ? item.comment : undefined;
-  if (values)
-    return {
-      id,
-      kind: 'form',
-      form: { ...(comment ? { instruction: comment } : {}), values },
-      ...(target ? { target } : {}),
-    };
-  if (replacement)
-    return {
-      id,
-      kind: 'edit',
-      ...(comment ? { comment } : {}),
-      edit: replacement,
-      target: target!,
-    };
-  return { id, kind: 'comment', comment: comment!, target: target! };
-}
+const FORMAT = 3;
 
 /** The events that the last `wait` returned. They stay unfinished until the agent acknowledges this receipt. */
 interface Delivery {
@@ -85,7 +60,7 @@ export function sessionView(s: Session, waiting: boolean): SessionView {
       .filter((event) => event.status !== 'completed')
       .flatMap((event) =>
         event.items
-          .filter((entry) => entry.replacement)
+          .filter((entry) => entry.edit)
           .map((entry) => ({ item: entry, revision: event.revision })),
       ),
   };
@@ -234,7 +209,6 @@ export class Store extends EventEmitter {
     const s = this.writable(id);
     object(value);
     current(s, value.revision);
-    const fields = item(value.item);
     const key =
       value.key === undefined
         ? undefined
@@ -250,7 +224,7 @@ export class Store extends EventEmitter {
     const position = marker(value.marker);
     const display = labels(value.labels);
     const draft: Draft = {
-      item: { id: previous?.item.id ?? randomUUID(), ...fields },
+      item: item(value.item, previous?.item.id ?? randomUUID()),
       revision: s.revision,
       ...(position ? { marker: position } : {}),
       ...(key !== undefined ? { key } : {}),
@@ -272,20 +246,19 @@ export class Store extends EventEmitter {
     current(s, value.revision);
     const draft = this.draft(s, draftId);
     current(s, draft.revision);
-    const comment = text(value.comment, 'Comment', LIMITS.comment, true);
-    const { id: _, comment: _comment, ...previous } = draft.item;
-    const changes: DraftItem = { ...previous, ...(comment ? { comment } : {}) };
+    const { id: _, kind: _kind, ...previous } = draft.item;
+    const changes = {
+      ...previous,
+      comment: text(value.comment, 'Comment', LIMITS.comment, true),
+    };
     if (value.after !== undefined) {
-      ensure(previous.replacement, 'This feedback is not a replacement.');
-      changes.replacement = {
-        ...previous.replacement,
+      ensure(previous.edit, 'This feedback is not an edit.');
+      changes.edit = {
+        ...previous.edit,
         after: text(value.after, 'Replacement', LIMITS.text, true),
       };
     }
-    const updated: Draft = {
-      ...draft,
-      item: { id: draftId, ...item(changes) },
-    };
+    const updated: Draft = { ...draft, item: item(changes, draftId) };
     this.commit({
       ...s,
       drafts: s.drafts.map((d) => (d.item.id === draftId ? updated : d)),
@@ -372,13 +345,10 @@ export class Store extends EventEmitter {
       receipt: delivery.receipt,
       events: updated.events
         .filter((e) => ids.has(e.id))
-        .map(({ id, revision, message, items, deliveries }) => ({
-          id,
-          revision,
-          ...(message ? { message } : {}),
-          items: items.map(feedbackItem),
-          deliveries,
-        })),
+        .map((e) => {
+          const { status: _, ...event } = e;
+          return event;
+        }),
     };
   }
   acknowledge(id: string, receipt: unknown) {

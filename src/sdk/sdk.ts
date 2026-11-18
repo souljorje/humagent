@@ -57,7 +57,7 @@ if (window.parent === window.top) {
     return request('stage', {
       item: {
         ...(captured.comment ? { comment: captured.comment } : {}),
-        values: captured.values,
+        form: captured.form,
       },
     });
   }

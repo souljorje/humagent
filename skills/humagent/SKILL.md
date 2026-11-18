@@ -30,7 +30,7 @@ Without a target, use the page from the task. If the task has none, ask the user
 4. Do not replace the application's renderer or server.
 
 For structured input, put named controls in a form with a stable, unique `data-humagent-id`.
-Use `data-humagent-message` to tell the agent what the answers mean.
+Use `data-humagent-comment` to tell the agent what the answers mean.
 Give each form an accessible name, such as `aria-labelledby`. Label each control.
 
 Custom pages can add structured feedback through `window.humagent.submit()`.

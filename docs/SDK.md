@@ -8,7 +8,7 @@ Humagent injects its SDK into supported local HTML and HTTP localhost apps. Gene
 <form
   aria-label="Launch plan"
   data-humagent-id="plan"
-  data-humagent-message="Revise the plan. Do not execute it."
+  data-humagent-comment="Revise the plan. Do not execute it."
 >
   <label>Approach
     <select name="approach">
@@ -23,7 +23,7 @@ Humagent injects its SDK into supported local HTML and HTTP localhost apps. Gene
 | Attribute | Purpose |
 | --- | --- |
 | `data-humagent-id` | On a form, make the form one draft with named values. On other elements, identify annotation targets. |
-| `data-humagent-message` | Set the form item's `instruction` |
+| `data-humagent-comment` | Add the form item's comment |
 
 A marked form owns one draft. Each change saves it. Choices save at once. Typed text saves 300 milliseconds after typing stops. The submit button adds the form unchanged. Marked forms do not send feedback. Unmarked forms behave normally.
 
@@ -51,13 +51,13 @@ The only public method is `window.humagent.submit()`:
 
 ```js
 const result = await window.humagent.submit({
-  values: { strategy: 'pilot-first' },
+  form: { strategy: 'pilot-first' },
   comment: 'Revise the plan. Do not execute it.',
 });
 // { draftId: '...', status: 'draft' }
 ```
 
-`values` must be a JSON object. `comment` is optional. Each call adds a new draft.
+`form` must be a JSON object. `comment` is optional. Each call adds a new draft.
 
 `submit()` waits for the bridge and saves a draft on the server. It does **not** confirm delivery. The human chooses **Send**. Show submission errors so the human can retry.
 
@@ -73,7 +73,7 @@ Each **Send** creates one event. `humagent wait` returns events in `events[]`:
   "items": [
     { "id": "comment-1", "kind": "comment", "comment": "Shorten this.", "target": { "selector": "h1" } },
     { "id": "edit-1", "kind": "edit", "edit": { "before": "Old", "after": "New" }, "target": { "selector": "#intro" } },
-    { "id": "form-1", "kind": "form", "form": { "instruction": "Revise the plan.", "values": { "strategy": "pilot-first" } }, "target": { "id": "plan" } }
+    { "id": "form-1", "kind": "form", "comment": "Revise the plan.", "form": { "strategy": "pilot-first" }, "target": { "id": "plan" } }
   ],
   "deliveries": 1
 }
@@ -81,7 +81,7 @@ Each **Send** creates one event. `humagent wait` returns events in `events[]`:
 
 `message` is the optional overall instruction. `deliveries` counts how often `wait` returned the event. A value above 1 means a redelivery.
 
-`kind` names the key that holds the item's content. `comment` is the reviewer's text. `form.instruction` is the page's text. Empty `edit.after` means deletion.
+`kind` names the key that holds the item's content. `comment` is optional on `edit` and `form` items. Empty `edit.after` means deletion.
 
 An event can contain only a message. An empty review is invalid. The server rejects unknown item fields.
 

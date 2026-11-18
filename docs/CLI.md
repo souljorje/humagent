@@ -97,4 +97,4 @@ Use the same data directory across commands. Each session file under `sessions/`
 
 ## Stored sessions
 
-Sessions from other development versions are reported as unreadable. Humagent leaves their files unchanged. Use a new data directory with `--home` or `HUMAGENT_HOME`.
+Sessions from other versions are reported as unreadable. Humagent leaves their files unchanged. Use a new data directory with `--home` or `HUMAGENT_HOME`.

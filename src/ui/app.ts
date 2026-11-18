@@ -127,7 +127,7 @@ function presentation(view: WorkspaceView): Presentation {
     reviewBar: { x: bar.left - frame.left, y: bar.top - frame.top },
     drafts: view.drafts,
     previews: [...view.drafts, ...view.sent].filter(
-      (draft) => draft.item.replacement && fresh(draft.revision),
+      (draft) => draft.item.edit && fresh(draft.revision),
     ),
     writable: !view.ended,
   };
@@ -237,36 +237,33 @@ function render() {
             'div',
             String(
               draft.labels?.title ??
-                (item.replacement
+                (item.edit
                   ? 'Text edit'
-                  : item.values
+                  : item.form
                     ? 'Form'
                     : item.target?.id || item.target?.tag || 'Comment'),
             ),
             'draft-title',
           ),
         );
-        if (item.replacement) {
+        if (item.edit) {
           const replacement = element('p', '', 'replacement');
           replacement.setAttribute('role', 'group');
           replacement.setAttribute('aria-label', 'Text changes');
           // The diff takes pointer input so it can scroll. A click still opens the editor.
           replacement.onclick = () =>
             li.querySelector<HTMLButtonElement>('.draft-open')?.click();
-          for (const part of textDiff(
-            item.replacement.before,
-            item.replacement.after,
-          ))
+          for (const part of textDiff(item.edit.before, item.edit.after))
             replacement.append(element(DIFF_TAG[part.kind], part.text));
           content.append(replacement);
         }
         if (item.comment) content.append(element('p', item.comment));
-        if (item.values) {
+        if (item.form) {
           const values = element('dl');
           // Forms send readable labels for the bar. SDK calls show raw values.
           const fields =
             draft.labels?.fields ??
-            Object.entries(item.values).map(([label, value]) => ({
+            Object.entries(item.form).map(([label, value]) => ({
               label,
               value: typeof value === 'string' ? value : JSON.stringify(value),
             }));
@@ -518,7 +515,7 @@ const bridge = connectPage({
         ...(key !== undefined ? { key, labels } : {}),
       });
       // A form updates its draft while the human types. Only a new decision opens the bar.
-      if (item.values && (key === undefined || !known)) openTray();
+      if (item.form && (key === undefined || !known)) openTray();
       sent = false;
       error();
       return { draftId, status: 'draft' };
