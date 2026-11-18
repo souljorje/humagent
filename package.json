@@ -43,14 +43,14 @@
     "format": "bun fmt src test tsconfig*.json package.json turbo.json",
     "format:check": "bun fmt --check src test tsconfig*.json package.json turbo.json",
     "typecheck": "tsc -p tsconfig.test.json",
-    "test": "bun run check && bun run test:browser:built",
+    "test": "bun run check test:browser:built",
     "test:browser:built": "playwright test --config test/playwright.config.ts",
     "check": "turbo run format:check lint build typecheck test:fast --output-logs=new-only",
     "test:fast": "bun test ./test/*.test.ts --timeout 15000",
     "prepack": "bun run build",
     "release": "changeset publish",
     "precheck": "mkdir -p .turbo && node --version > .turbo/node-version",
-    "prepublishOnly": "bun run check --force && playwright install --with-deps --only-shell chromium && bun run test:browser:built"
+    "prepublishOnly": "playwright install --with-deps --only-shell chromium && bun run test --force"
   },
   "devDependencies": {
     "@changesets/cli": "3.0.3",

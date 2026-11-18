@@ -5,16 +5,55 @@
   },
   "globalEnv": ["CI", "npm_config_user_agent", "NODE_OPTIONS", "BUN_OPTIONS"],
   "tasks": {
-    "format:check": {},
-    "lint": {},
+    "format:check": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!*.md",
+        "!docs/**",
+        "!.github/PULL_REQUEST_TEMPLATE.md"
+      ]
+    },
+    "lint": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!*.md",
+        "!docs/**",
+        "!.github/PULL_REQUEST_TEMPLATE.md"
+      ]
+    },
     "build": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!*.md",
+        "!docs/**",
+        "!.github/PULL_REQUEST_TEMPLATE.md",
+        "!test/**",
+        "!tsconfig.test.json"
+      ],
       "outputs": ["dist/**"]
     },
     "typecheck": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!*.md",
+        "!docs/**",
+        "!.github/PULL_REQUEST_TEMPLATE.md"
+      ],
       "dependsOn": ["build"]
     },
     "test:fast": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!*.md",
+        "!docs/**",
+        "!.github/PULL_REQUEST_TEMPLATE.md"
+      ],
       "dependsOn": ["build"]
+    },
+    "test:browser:built": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "passThroughEnv": ["PLAYWRIGHT_*", "PWDEBUG"]
     }
   },
   "globalDependencies": [".turbo/node-version"]
