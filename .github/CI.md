@@ -131,7 +131,10 @@ The follow-up adds Turbo as a development dependency, following [d3-maps](https:
 It caches successful formatting, lint, build, type-check, and fast-test tasks. Build hits restore `dist/` before dependent tasks run.
 All repository inputs participate, including unknown files. Platform, kernel, Node, Bun, and declared environment values also affect hashes.
 This conservative configuration reuses identical inputs without selecting affected tests.
-Task data stays under `.local/turbo/`. A `.turbo` link redirects the tool's fixed log location there.
+Task results stay under `.local/turbo/cache/`. Turbo writes its standard logs under `.turbo/`.
+Package commands call Turbo, TypeScript, and Changesets directly. No custom build, check, or release script remains.
+Their build output matches the previous scripts byte-for-byte. An isolated unpublished release dry run passed all 16 tests.
+Seven release-gate probes covered successful validation, published versions, missing archives, missing changelogs, packing failures, and test failures.
 GitHub Actions stores the task cache with a new key for each run attempt, so later results can accumulate.
 Its restore prefix includes the lockfile, Turbo configuration, workflow, OS, and architecture. Turbo checks each restored task hash.
 GitHub branch scopes isolate PR caches. This setup needs no external cache service or credentials.
@@ -151,6 +154,7 @@ Setup variation affects those totals. One cold/warm pair does not establish typi
 
 ## Rollback
 
+Revert package-command and task-cache changes before reverting earlier setup changes.
 Revert the prepared-image commit to restore the single-job, headless-only setup.
 Revert the earlier browser-download commit to restore the original PR setup and diff handling.
 Revert the release-setup commit to restore unconditional browser preparation.

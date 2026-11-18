@@ -8,5 +8,5 @@
     "noUncheckedIndexedAccess": false,
     "types": ["node", "bun"]
   },
-  "include": ["scripts/**/*.ts", "test/**/*.ts", "src/**/*.ts"]
+  "include": ["test/**/*.ts", "src/**/*.ts"]
 }

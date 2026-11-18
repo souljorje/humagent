@@ -11,7 +11,7 @@ Use TypeScript for application code, examples, scripts, and tests. Compile brows
 Published JavaScript must run on Node.js 24+ and Bun 1.4.4+. Keep the Node shebang for npm/npx compatibility.
 Child servers must use the CLI's runtime executable. npm users must not need Bun.
 
-Keep temporary output in `.local/`.
+Keep temporary output in `.local/`, except Turbo's standard `.turbo/` logs.
 
 ## Validation
 

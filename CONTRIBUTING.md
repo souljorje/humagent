@@ -28,7 +28,7 @@ Source files belong to one package:
 - `src/examples/` contains example pages and their TypeScript modules.
 
 All executable source uses TypeScript. The build compiles application and example modules into `dist/`, then copies HTML and CSS.
-Scripts and tests remain in `scripts/` and `test/`. The main check also checks their types.
+Build, check, and release commands live in `package.json`. The main check also checks test types.
 
 ## Build an archive
 
@@ -66,7 +66,7 @@ bunx --no-install playwright install chromium
 bun run test:browser:built
 ```
 
-The release script packs the archive, then runs uncached checks and browser tests.
+`bun run check:release` packs the archive, then runs uncached checks and browser tests for unpublished versions.
 In CI, release browser setup installs only Chromium's headless shell after an unpublished archive passes the main check.
 Run `bun run check:release` locally before a release.
 No automated test installs the archive. Use the commands in [Build an archive](#build-an-archive) for that check.
@@ -94,9 +94,9 @@ Tests, documentation, and internal tooling usually do not need one.
 The [Release workflow](.github/workflows/release.yml) creates a version PR when Changesets reach `main`.
 Merging that PR publishes the version automatically if its full checks pass.
 
-The release script checks for an unpublished version before running expensive tests.
+The release commands check for an unpublished version before running expensive tests.
 It packs once, runs the checks, then publishes that **same tarball**.
-The script does not install the archive. Use `bun run check:release` for a local dry run.
+These commands do not install the archive. Use `bun run check:release` for a local dry run.
 
 Version `0.1.0` is on npm. Its notes in `CHANGELOG.md` list the initial features. Changesets add later versions above them.
 
