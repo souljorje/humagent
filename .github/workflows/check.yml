@@ -25,12 +25,16 @@ jobs:
       - id: changes
         if: github.event_name == 'pull_request'
         run: |
-          changes=$(git diff --name-only --no-renames HEAD^1 HEAD -- . \
+          if ! changes=$(git diff --name-only --no-renames HEAD^1 HEAD -- . \
             ':(top,glob,exclude)*.md' \
             ':(top,glob,exclude)docs/**' \
-            ':(top,exclude).github/PULL_REQUEST_TEMPLATE.md')
-          if [[ -z "$changes" ]]; then
+            ':(top,exclude).github/PULL_REQUEST_TEMPLATE.md'); then
+            echo 'Cannot read the PR diff. Running the full suite.' >> "$GITHUB_STEP_SUMMARY"
+          elif [[ -z "$changes" ]]; then
             echo 'docs_only=true' >> "$GITHUB_OUTPUT"
+            echo 'Only documentation changed. Tests are skipped.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Changes require the full suite.' >> "$GITHUB_STEP_SUMMARY"
           fi
       - if: steps.changes.outputs.docs_only != 'true'
         uses: actions/setup-node@v7
@@ -45,7 +49,7 @@ jobs:
       - if: steps.changes.outputs.docs_only != 'true'
         run: bun run check
       - if: steps.changes.outputs.docs_only != 'true'
-        run: bunx --no-install playwright install --with-deps chromium
+        run: bunx --no-install playwright install --with-deps --only-shell chromium
       - if: steps.changes.outputs.docs_only != 'true'
         run: bun run test:browser:built
       - if: failure()
