@@ -52,9 +52,11 @@ bun run test
 ```
 
 This runs formatting, lint, the build, types, and a smoke suite of CLI, server, and browser workflows.
-`bun run check` runs the checks without Chromium.
+`bun run check` caches successful tasks and build outputs with Turbo. It excludes Chromium.
+Unchanged inputs reuse results from `.local/turbo/`. Source, configuration, lockfile, and runtime changes invalidate results.
+Run `bun run check --force` to execute every task again. Browser tests always run fresh.
 CI skips tests and releases for changes limited to root Markdown files, `docs/`, or the pull request template.
-Manual Check runs always run the full suite. An unreadable PR diff also selects the full suite.
+Manual Check runs bypass task results and run the full suite. An unreadable PR diff does the same.
 The Check workflow uses Playwright's prepared browser image. Keep its version aligned with `@playwright/test`.
 
 For browser work, install Chromium once and run Playwright locally:
@@ -64,7 +66,7 @@ bunx --no-install playwright install chromium
 bun run test:browser:built
 ```
 
-The release script packs the archive, then runs `bun run check` and `bun run test:browser:built`.
+The release script packs the archive, then runs uncached checks and browser tests.
 In CI, release browser setup installs only Chromium's headless shell after an unpublished archive passes the main check.
 Run `bun run check:release` locally before a release.
 No automated test installs the archive. Use the commands in [Build an archive](#build-an-archive) for that check.

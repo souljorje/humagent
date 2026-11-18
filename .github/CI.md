@@ -5,14 +5,14 @@
 The baseline is `75bffda`. The suite has 10 fast tests and six browser tests.
 The baseline uses one `ubuntu-24.04` job for formatting, lint, compilation, types, runtime checks, and browser checks.
 The required status remains `check`, with strict branch protection enabled.
-The application, test inventory, runtime versions, lockfile, and runner size do not change.
+The application, test inventory, runtime versions, and runner size do not change.
 
 | Priority | Decision | Evidence |
 | --- | --- | --- |
 | 1 | Use the version-matched browser image after checking the PR scope. | Repeated Ubuntu package downloads dominate the current baseline. |
 | 2 | Defer release browser setup until an unpublished archive passes the main check. | Version-PR preparation installed browsers without running them. |
 | 3 | Run the full suite when the PR diff is unavailable. | Missing history cannot prove that a change affects only documentation. |
-| Defer | Test selection, sharding, alternate runners, compiler replacement, and caches. | The full smoke suite is small. Dependency installation took 0–1 seconds. |
+| Defer | Test selection, sharding, alternate runners, compiler replacement, and dependency caches. | The full smoke suite is small. Dependency installation took 0–1 seconds. |
 
 Only the existing documentation exemption skips tests. Unknown paths and mixed changes run everything.
 Browser tests consume generated files and load assets through HTTP. A source import graph alone would miss those dependencies.
@@ -20,7 +20,7 @@ Keep the full suite until a broader selection rule has evidence from this reposi
 Keep existing cancellation, frozen installation, failure artifacts, release gates, and version-PR checks.
 
 The `scope` job uses no browser image. Documentation-only changes skip `tests`, and the required `check` verifies that decision.
-For other changes, `tests` uses the prepared image and runs the full suite.
+For other changes, `tests` uses the prepared image and checks all tasks, with result reuse as described below.
 The required `check` runs after both jobs. Failed, cancelled, or unexpectedly skipped tests cannot produce a passing check.
 Manual runs skip scope detection and run all tests.
 
@@ -118,12 +118,30 @@ Here, removing unused setup has stronger evidence than building a selector or ad
 
 Playwright documents [prepared images](https://playwright.dev/docs/docker), [headless-only installation](https://playwright.dev/docs/browsers#chromium-headless-shell), and [browser-cache limitations](https://playwright.dev/docs/ci#caching-browsers).
 PR containers include browser dependencies. Release checks install dependencies when needed.
-No cached build or previous green result replaces current checks.
+Browser tests and release checks always run fresh.
 
 [Bun caches packages locally](https://bun.sh/docs/pm/global-cache), and [setup-bun caches its executable](https://github.com/oven-sh/setup-bun#inputs) by default.
 Playwright reuses installed browsers locally. The CI image already contains browsers.
 An additional dependency cache has little potential benefit because measured CI installation took 0–1 seconds.
 Reconsider it if installation becomes a measurable bottleneck. Keep frozen installation and current checks after cache restoration.
+
+## Task results
+
+The follow-up adds Turbo as a development dependency, following [d3-maps](https://github.com/souljorje/d3-maps/blob/19339fd82c0a665d5e9c86b35196ddeba4660308/.github/actions/setup/action.yml).
+It caches successful formatting, lint, build, type-check, and fast-test tasks. Build hits restore `dist/` before dependent tasks run.
+All repository inputs participate, including unknown files. Platform, kernel, Node, Bun, and declared environment values also affect hashes.
+This conservative configuration reuses identical inputs without selecting affected tests.
+Task data stays under `.local/turbo/`. A `.turbo` link redirects the tool's fixed log location there.
+GitHub Actions stores the task cache with a new key for each run attempt, so later results can accumulate.
+Its restore prefix includes the lockfile, Turbo configuration, workflow, OS, and architecture. Turbo checks each restored task hash.
+GitHub branch scopes isolate PR caches. This setup needs no external cache service or credentials.
+Manual runs, unreadable PR diffs, and release checks bypass task results. Browser tests always execute.
+Use `bun run check --force` for a fresh local run.
+
+An isolated local check took 4.477 seconds cold and 0.377 seconds warm, including command startup.
+Restoring deleted build outputs took 0.389 seconds. All five task results were cache hits.
+Eighteen temporary probes covered invalidation, output restoration, runtime changes, forced runs, failure retries, and recovery.
+Repeated failing tests never hit the cache. These local measurements do not establish hosted savings.
 
 ## Rollback
 
