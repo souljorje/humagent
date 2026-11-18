@@ -24,7 +24,7 @@ Keep secrets outside it because page scripts can read supported sibling assets.
 
 File pages block external resources and connections through Content Security Policy (CSP). `--network` relaxes this policy for trusted files.
 
-App targets require HTTP loopback addresses with fixed hosts and ports. Humagent rejects URL credentials, remote hosts, HTTPS, and redirects outside the selected origin.
+App sources require HTTP loopback addresses with fixed hosts and ports. Humagent rejects URL credentials, remote hosts, HTTPS, and redirects outside the selected origin.
 
 The proxy strips cookies and keeps upstream CSP and frame restrictions. It does not support cookie authentication or guarantee service-worker behavior.
 Absolute URLs, CSP, and WebSocket settings can prevent attachment. Test the intended app.
@@ -37,11 +37,11 @@ v0.1 excludes remote sites, Markdown rendering, rich-text edits, and MCP Apps. C
 
 Keep session URLs private. Their fragments carry a session credential. The workspace moves it to session storage and removes the fragment.
 
-That credential permits input, saved state, event access, and session ending. Only the separate control token permits opening targets, waits, and acknowledgments.
+That credential permits input, saved state, event access, and session ending. Only the separate control token permits opening sources, waits, and acknowledgments.
 Credentials stay outside page frames.
 
 Each session uses a separate file under `sessions/` in the data directory.
-That file stores drafts, the overall instruction, and events. Humagent does not encrypt them.
+That file stores drafts, the instruction, and events. Humagent does not encrypt them.
 Marked forms save their values as the human types. Keep secrets out of marked forms.
 Where supported, the data directory uses `0700`. Control and atomic session files use `0600`.
 

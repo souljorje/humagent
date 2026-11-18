@@ -4,7 +4,7 @@ import path from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 import { gunzipSync, inflateSync, brotliDecompressSync } from 'node:zlib';
 import { ensure, Failure, localUrl } from './validate.js';
-import type { Target } from '../shared/feedback.js';
+import type { Source } from '../shared/feedback.js';
 import type { Store } from './store.js';
 import { browserAsset, noStore } from './assets.js';
 import type { Bootstrap } from '../shared/bridge.js';
@@ -33,15 +33,15 @@ const MIME: Record<string, string> = {
 const SDK_ASSET = /^\/(?:sdk|shared)\/[a-z][a-z0-9-]*\.js$/;
 const digest = (value: string | Buffer) =>
   createHash('sha256').update(value).digest('hex');
-export async function targetOf(
+export async function sourceOf(
   value: string,
   network = false,
-): Promise<Target> {
+): Promise<Source> {
   if (/^https?:/i.test(value)) {
     const url = new URL(value);
     ensure(
       localUrl(url),
-      'Only explicit HTTP localhost/127.0.0.1 targets are supported',
+      'Only explicit HTTP localhost/127.0.0.1 sources are supported',
     );
     url.hostname = '127.0.0.1';
     url.hash = '';
@@ -133,7 +133,7 @@ async function fetchDocument(url: URL): Promise<Buffer> {
           );
           ensure(
             res.headers['content-type']?.includes('text/html'),
-            'Target did not return HTML',
+            'Source did not return HTML',
             'UPSTREAM',
             502,
           );
@@ -150,11 +150,11 @@ async function fetchDocument(url: URL): Promise<Buffer> {
     req.on('error', reject);
   });
 }
-export async function sourceRevision(target: Target) {
+export async function sourceRevision(source: Source) {
   return digest(
-    target.kind === 'file'
-      ? await fs.readFile(target.value)
-      : await fetchDocument(new URL(target.value)),
+    source.kind === 'file'
+      ? await fs.readFile(source.value)
+      : await fetchDocument(new URL(source.value)),
   );
 }
 function initializeFrame(bootstrap: Bootstrap) {
@@ -179,22 +179,22 @@ export async function startSurface(
   id: string,
   parentOrigin: string,
 ): Promise<Surface> {
-  const { target, surfacePath } = store.get(id);
+  const { source, surfacePath } = store.get(id);
   const channel = randomBytes(24).toString('hex');
   let origin = '';
-  const upstreamUrl = target.kind === 'url' ? new URL(target.value) : undefined;
+  const upstreamUrl = source.kind === 'url' ? new URL(source.value) : undefined;
   let currentPath =
     surfacePath ??
     (upstreamUrl
       ? upstreamUrl.pathname + upstreamUrl.search
-      : `/${encodeURIComponent(path.basename(target.value))}`);
+      : `/${encodeURIComponent(path.basename(source.value))}`);
   const upstreamOrigin = upstreamUrl?.origin ?? '';
   const documents = new Map<string, { route: string; revision: string }>();
   let activeDocument: string;
   async function revision() {
-    if (target.kind === 'url') return store.get(id).revision;
+    if (source.kind === 'url') return store.get(id).revision;
     const bytes = await fs.readFile(
-      await safeFile(target.root!, currentPath.split('?')[0]!),
+      await safeFile(source.root!, currentPath.split('?')[0]!),
     );
     const hash = digest(bytes);
     store.setRevision(id, hash);
@@ -212,9 +212,9 @@ export async function startSurface(
       revision: hash,
       documentId,
       sourceUrl:
-        target.kind === 'file'
+        source.kind === 'file'
           ? path.resolve(
-              target.root!,
+              source.root!,
               '.' + decodeURIComponent(route.split('?')[0]!),
             )
           : new URL(route, upstreamOrigin).href,
@@ -254,20 +254,20 @@ export async function startSurface(
         res.writeHead(200, asset.headers);
         return res.end(asset.body);
       }
-      if (target.kind === 'file') {
+      if (source.kind === 'file') {
         ensure(
           ['GET', 'HEAD'].includes(req.method ?? ''),
           'File interfaces are read-only',
           'READ_ONLY',
           405,
         );
-        const page = rawPath === '/' ? `/${path.basename(target.value)}` : '';
-        const file = await safeFile(target.root!, page || rawPath);
+        const page = rawPath === '/' ? `/${path.basename(source.value)}` : '';
+        const file = await safeFile(source.root!, page || rawPath);
         const bytes = await fs.readFile(file);
         ensure(bytes.length <= LIMIT, 'Asset exceeds 8 MiB', 'TOO_LARGE', 413);
         const html = /\.html?$/i.test(file);
-        const net = target.network ? ' http: https: ws: wss:' : '';
-        const policy = `default-src 'none'; script-src 'self' 'unsafe-inline'${net}; style-src 'self' 'unsafe-inline'${net}; img-src 'self' data: blob:${net}; font-src 'self' data:${net}; connect-src ${target.network ? "'self'" + net : "'none'"}; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors ${parentOrigin}`;
+        const net = source.network ? ' http: https: ws: wss:' : '';
+        const policy = `default-src 'none'; script-src 'self' 'unsafe-inline'${net}; style-src 'self' 'unsafe-inline'${net}; img-src 'self' data: blob:${net}; font-src 'self' data:${net}; connect-src ${source.network ? "'self'" + net : "'none'"}; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors ${parentOrigin}`;
         res.writeHead(
           200,
           noStore(MIME[path.extname(file).toLowerCase()]!, {
@@ -355,7 +355,7 @@ export async function startSurface(
   // Forward local dev-server WebSockets (including common HMR) without a WS library.
   server.on('upgrade', (req, socket, head) => {
     if (
-      target.kind !== 'url' ||
+      source.kind !== 'url' ||
       req.headers.host !== new URL(origin).host ||
       req.headers.origin !== origin ||
       !req.url?.startsWith('/') ||
@@ -398,7 +398,7 @@ export async function startSurface(
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   origin = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`;
   const watcher =
-    target.kind === 'file'
+    source.kind === 'file'
       ? setInterval(() => {
           void revision().catch(() => {});
         }, 2000)

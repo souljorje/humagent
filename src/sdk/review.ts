@@ -37,7 +37,7 @@ interface Capture {
   el: Element;
   draft?: Draft;
   point: Point;
-  /** The editor proposes a text replacement, not only a comment. */
+  /** The editor proposes a text edit, not only a comment. */
   text?: boolean;
 }
 

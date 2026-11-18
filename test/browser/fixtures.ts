@@ -109,12 +109,12 @@ async function createReview(page: Page, directory: string) {
     session: () => runtime.store.get(id),
     evaluate: ((...args: Parameters<Frame['evaluate']>) =>
       surface().evaluate(...args)) as Frame['evaluate'],
-    /** Open a target with the review details closed. Return the session ID. */
-    async open(target = file) {
+    /** Open a source with the review details closed. Return the session ID. */
+    async open(source = file) {
       const opened = await api<{ session: string; url: string }>(
         '/api/open',
         'POST',
-        { target },
+        { source },
       );
       id = opened.session;
       key = new URL(opened.url).hash.slice(1);
@@ -130,7 +130,7 @@ async function createReview(page: Page, directory: string) {
       await confirm();
     },
     /** Replace the complete first text node of an element. */
-    async replace(selector: string, replacement: string) {
+    async replace(selector: string, after: string) {
       await annotate();
       await surface().evaluate((selector) => {
         const element = document.querySelector(selector)!;
@@ -140,14 +140,14 @@ async function createReview(page: Page, directory: string) {
         getSelection()!.addRange(range);
         element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
       }, selector);
-      await editor.fill(replacement);
+      await editor.fill(after);
       await confirm();
     },
     /** Start an agent wait. `receive` returns its feedback. */
     async connect() {
       wait = api<Feedback>(`/api/sessions/${id}/wait`, 'POST', {});
       wait.catch(() => {});
-      await expect(page.locator('#agent-state')).toHaveText('Agent listening');
+      await expect(page.locator('#agent-state')).toHaveText('Agent connected');
     },
     async receive() {
       const feedback = await wait!;

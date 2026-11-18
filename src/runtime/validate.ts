@@ -48,7 +48,7 @@ export function text(
   );
   return value;
 }
-/** Targets must be explicit HTTP loopback addresses without credentials. */
+/** Sources must be explicit HTTP loopback addresses without credentials. */
 export function localUrl(url: URL) {
   return (
     url.protocol === 'http:' &&
@@ -94,8 +94,8 @@ export function item(value: unknown, id: string): ReviewItem {
     object(edit, 'Edit');
     ensure(target, 'An edit requires a target');
     result.edit = {
-      before: text(edit.before, 'Original text', LIMITS.text),
-      after: text(edit.after, 'Replacement', LIMITS.text, true),
+      before: text(edit.before, 'Edit before', LIMITS.text),
+      after: text(edit.after, 'Edit after', LIMITS.text, true),
     };
   }
   if (form !== undefined) {

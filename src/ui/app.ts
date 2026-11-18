@@ -10,7 +10,7 @@ import { inputStyles } from '../shared/input-styles.js';
 
 type Controls = Record<string, HTMLElement> & {
   frame: HTMLIFrameElement;
-  message: HTMLTextAreaElement;
+  instruction: HTMLTextAreaElement;
   send: HTMLButtonElement;
   annotate: HTMLButtonElement;
   end: HTMLButtonElement;
@@ -31,7 +31,7 @@ let session: WorkspaceView | undefined,
   sending = false,
   sent = false,
   manuallyToggled = false,
-  messageTimer: ReturnType<typeof setTimeout> | undefined,
+  instructionTimer: ReturnType<typeof setTimeout> | undefined,
   lastPresentation = '',
   /** The source revision that last reloaded the page on its own. */
   reloadedFor = '';
@@ -39,9 +39,9 @@ const available = new Map<string, boolean>();
 const AGENT_STATUS = {
   ended: 'Session ended',
   offline: 'Connection unavailable',
-  waiting: 'Agent listening',
+  connected: 'Agent connected',
   working: 'Agent working',
-  idle: 'No agent waiting',
+  idle: 'No agent connected',
 };
 const DIFF_TAG = { remove: 'del', add: 'ins', same: 'span' } as const;
 
@@ -180,9 +180,10 @@ function renderChanged(element: HTMLElement, value: unknown, draw: () => void) {
     next?.focus({ preventScroll: true });
   }
 }
-function resizeMessage() {
-  $('message').style.height = 'auto';
-  $('message').style.height = `${Math.min(136, $('message').scrollHeight)}px`;
+function resizeInstruction() {
+  $('instruction').style.height = 'auto';
+  $('instruction').style.height =
+    `${Math.min(136, $('instruction').scrollHeight)}px`;
 }
 function render() {
   const agent = connected && !session?.ended && session?.agent !== 'idle';
@@ -203,7 +204,7 @@ function render() {
   // Unfinished input blocks it. App pages keep the button: their HTML can differ on each request.
   if (
     changed &&
-    view.target.kind === 'file' &&
+    view.source.kind === 'file' &&
     !editorDirty &&
     reloadedFor !== view.revision
   ) {
@@ -247,15 +248,15 @@ function render() {
           ),
         );
         if (item.edit) {
-          const replacement = element('p', '', 'replacement');
-          replacement.setAttribute('role', 'group');
-          replacement.setAttribute('aria-label', 'Text changes');
+          const edit = element('p', '', 'edit');
+          edit.setAttribute('role', 'group');
+          edit.setAttribute('aria-label', 'Text changes');
           // The diff takes pointer input so it can scroll. A click still opens the editor.
-          replacement.onclick = () =>
+          edit.onclick = () =>
             li.querySelector<HTMLButtonElement>('.draft-open')?.click();
           for (const part of textDiff(item.edit.before, item.edit.after))
-            replacement.append(element(DIFF_TAG[part.kind], part.text));
-          content.append(replacement);
+            edit.append(element(DIFF_TAG[part.kind], part.text));
+          content.append(edit);
         }
         if (item.comment) content.append(element('p', item.comment));
         if (item.form) {
@@ -321,10 +322,13 @@ function render() {
       }
     },
   );
-  if (messageTimer === undefined && document.activeElement !== $('message'))
-    $('message').value = view.message;
-  $('message').disabled = !mutable;
-  resizeMessage();
+  if (
+    instructionTimer === undefined &&
+    document.activeElement !== $('instruction')
+  )
+    $('instruction').value = view.instruction;
+  $('instruction').disabled = !mutable;
+  resizeInstruction();
   showSendState(sending ? 'Sending…' : sent ? 'Sent' : 'Send');
   $('send').setAttribute('aria-busy', String(sending));
   $('send').disabled =
@@ -333,7 +337,7 @@ function render() {
     editorDirty ||
     !mutable ||
     !fresh(page?.revision) ||
-    (!view.drafts.length && !$('message').value.trim()) ||
+    (!view.drafts.length && !$('instruction').value.trim()) ||
     view.drafts.some((d) => !fresh(d.revision));
   $('send').dataset.tooltip = agent
     ? 'Send the review to your agent'
@@ -346,10 +350,12 @@ function render() {
   }
 }
 
-function saveMessage() {
-  clearTimeout(messageTimer);
-  messageTimer = undefined;
-  return write('message', 'PUT', { text: $('message').value }).then(
+function saveInstruction() {
+  clearTimeout(instructionTimer);
+  instructionTimer = undefined;
+  return write('instruction', 'PUT', {
+    instruction: $('instruction').value,
+  }).then(
     () => {
       $('draft-status').textContent = 'Saved.';
     },
@@ -359,12 +365,12 @@ function saveMessage() {
     },
   );
 }
-$('message').oninput = () => {
+$('instruction').oninput = () => {
   sent = false;
-  resizeMessage();
-  clearTimeout(messageTimer);
-  messageTimer = setTimeout(() => {
-    saveMessage().catch((e) => error(errorMessage(e)));
+  resizeInstruction();
+  clearTimeout(instructionTimer);
+  instructionTimer = setTimeout(() => {
+    saveInstruction().catch((e) => error(errorMessage(e)));
   }, 300);
   render();
 };
@@ -376,7 +382,7 @@ $('send').onclick = async () => {
   clearTimeout(sentTimer);
   render();
   try {
-    if (messageTimer !== undefined) await saveMessage();
+    if (instructionTimer !== undefined) await saveInstruction();
     if (editorDirty)
       throw new Error('Save or cancel your feedback before sending.');
     await write('send', 'POST', { revision: page?.revision });
@@ -560,7 +566,7 @@ const bridge = connectPage({
   },
 });
 window.addEventListener('beforeunload', (event) => {
-  if (messageTimer === undefined && !editorDirty) return;
+  if (instructionTimer === undefined && !editorDirty) return;
   event.preventDefault();
   event.returnValue = '';
 });

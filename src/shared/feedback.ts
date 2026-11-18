@@ -7,14 +7,14 @@ export const LIMITS = {
   events: 2000,
   eventsPerReceipt: 100,
   comment: 4000,
-  message: 4000,
+  instruction: 4000,
   text: 50000,
   formKey: 200,
   label: 500,
   labelFields: 100,
 } as const;
 
-export interface Target {
+export interface Source {
   kind: 'file' | 'url';
   value: string;
   root?: string;
@@ -55,7 +55,7 @@ export interface Draft {
 export interface Event {
   id: string;
   revision: string;
-  message?: string;
+  instruction?: string;
   items: ReviewItem[];
   status: 'queued' | 'delivered' | 'completed';
   deliveries: number;
@@ -63,21 +63,21 @@ export interface Event {
 /** What `wait` returns when the human sends feedback. */
 export interface Feedback {
   status: 'feedback';
-  target: Pick<Target, 'kind' | 'value'>;
+  source: Pick<Source, 'kind' | 'value'>;
   receipt: string;
   events: Omit<Event, 'status'>[];
 }
 export interface SessionView {
   id: string;
   title: string;
-  target: Target;
+  source: Source;
   revision: string;
   ended: boolean;
   createdAt: string;
-  agent: 'working' | 'waiting' | 'idle';
+  agent: 'working' | 'connected' | 'idle';
   drafts: Draft[];
-  message: string;
-  /** Text replacements that were sent but not completed. Pages keep previewing them. */
+  instruction: string;
+  /** Text edits that were sent but not completed. Pages keep previewing them. */
   sent: Draft[];
 }
 export interface WorkspaceView extends SessionView {
