@@ -75,10 +75,6 @@ Tests, documentation, and internal tooling usually do not need one.
 The [Release workflow](.github/workflows/release.yml) creates a version PR when Changesets reach `main`.
 Merging that PR publishes the version automatically if its full checks pass.
 
-Store a fine-grained GitHub token in the `RELEASE_GITHUB_TOKEN` repository Actions secret.
-Limit it to this repository with Contents and Pull requests read/write permissions.
-Changesets uses this token so version-PR checks start automatically. Replace the secret when the token expires.
-
 `bun run release` uses standard Changesets publishing. Changesets skips versions already on npm.
 For unpublished versions, npm runs `prepublishOnly`, then builds and packs through `prepack`.
 `prepublishOnly` runs uncached checks, installs Chromium's headless shell, and runs browser tests.
