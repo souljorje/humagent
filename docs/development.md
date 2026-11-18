@@ -24,6 +24,7 @@ Test files and `tsconfig.test.json` do not invalidate the build.
 Browser tests never reuse cached results.
 
 Formatting, lint, and build can run together. Type checks, fast tests, and browser tests run together after the build.
+Local checks finish independent tasks after failures and show full logs. CI stops at the first test failure and cancels remaining tasks.
 `tsconfig.json` emits the package. `tsconfig.test.json` checks tests against generated declarations, including browser globals, without emitting files.
 
 ## Test coverage
