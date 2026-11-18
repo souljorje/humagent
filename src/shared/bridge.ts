@@ -2,7 +2,7 @@
 import type {
   Availability,
   Draft,
-  DraftItem,
+  NewItem,
   DraftLabels,
   MarkerPosition,
   StageResult,
@@ -31,7 +31,7 @@ export interface Requests {
   /** A `key` makes this the one draft of a form. */
   stage: {
     params: {
-      item: DraftItem;
+      item: NewItem;
       marker?: MarkerPosition;
       key?: string;
       labels?: DraftLabels;

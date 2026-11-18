@@ -43,14 +43,13 @@ test('a text edit, a comment, and form choices reach the agent as one event with
       kind: 'form',
       comment: expect.stringMatching(/^Apply these/),
       form: values,
-      target: { id: 'design-choices' },
     },
   ]);
   // Content comes before `target`. An edit without a note has no `comment`.
   expect(event.items.map((item) => Object.keys(item).join())).toEqual([
     'id,kind,edit,target',
     'id,kind,comment,target',
-    'id,kind,comment,form,target',
+    'id,kind,comment,form',
   ]);
   expect(feedback.target).toEqual({ kind: 'file', value: review.file });
 

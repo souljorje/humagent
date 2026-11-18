@@ -2,7 +2,7 @@ import type { Json, ObjectValue } from '../shared/json.js';
 import {
   LIMITS,
   type Draft,
-  type DraftItem,
+  type NewItem,
   type DraftLabels,
 } from '../shared/feedback.js';
 import { errorMessage } from '../shared/errors.js';
@@ -141,7 +141,7 @@ function fill(form: HTMLFormElement, values: ObjectValue) {
 
 interface FormBridge {
   revision: string;
-  stage(item: DraftItem, key: string, labels: DraftLabels): Promise<unknown>;
+  stage(item: NewItem, key: string, labels: DraftLabels): Promise<unknown>;
   notice(message: string): void;
 }
 /** Each form with `data-humagent-id` is one live draft. Choices save at once, typed text shortly after typing stops. */

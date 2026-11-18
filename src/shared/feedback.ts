@@ -30,7 +30,8 @@ export interface ReviewItem {
   form?: ObjectValue;
   target?: ReviewTarget;
 }
-export type DraftItem = Omit<ReviewItem, 'id' | 'kind'>;
+/** An item as the page sends it. The server adds `id` and `kind`. */
+export type NewItem = Omit<ReviewItem, 'id' | 'kind'>;
 /** Where the human clicked, relative to the target's top-left corner. */
 export interface MarkerPosition {
   x: number;

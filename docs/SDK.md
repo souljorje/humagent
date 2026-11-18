@@ -29,7 +29,7 @@ A marked form owns one draft. Each change saves it. Choices save at once. Typed 
 
 Send delivers the values that the form shows. A reload refills the form from its draft. Deleting the draft in the bar resets the form to its HTML defaults. After a source revision change, the next form change replaces the stale draft.
 
-The `data-humagent-id` value is the draft key. Give each marked form a stable and unique value. The form item has no marker on the page.
+The `data-humagent-id` value is the draft key. Give each marked form a stable and unique value. The form item has no target and no marker on the page.
 
 The bar shows readable text. The title comes from `aria-label` or `aria-labelledby`, otherwise from `data-humagent-id`. Each field shows its label or fieldset legend and the visible text of its answer. The agent receives only field names and values.
 
@@ -73,7 +73,7 @@ Each **Send** creates one event. `humagent wait` returns events in `events[]`:
   "items": [
     { "id": "comment-1", "kind": "comment", "comment": "Shorten this.", "target": { "selector": "h1" } },
     { "id": "edit-1", "kind": "edit", "edit": { "before": "Old", "after": "New" }, "target": { "selector": "#intro" } },
-    { "id": "form-1", "kind": "form", "comment": "Revise the plan.", "form": { "strategy": "pilot-first" }, "target": { "id": "plan" } }
+    { "id": "form-1", "kind": "form", "comment": "Revise the plan.", "form": { "strategy": "pilot-first" } }
   ],
   "deliveries": 1
 }

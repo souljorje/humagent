@@ -302,10 +302,7 @@ export class Store extends EventEmitter {
       id: randomUUID(),
       revision: s.revision,
       ...(message ? { message } : {}),
-      // A marked form has no page target, so its key identifies it.
-      items: s.drafts.map((d) =>
-        d.key ? { ...d.item, target: { id: d.key } } : d.item,
-      ),
+      items: s.drafts.map((d) => d.item),
       status: 'queued',
       deliveries: 0,
     };
@@ -345,10 +342,13 @@ export class Store extends EventEmitter {
       receipt: delivery.receipt,
       events: updated.events
         .filter((e) => ids.has(e.id))
-        .map((e) => {
-          const { status: _, ...event } = e;
-          return event;
-        }),
+        .map(({ id, revision, message, items, deliveries }) => ({
+          id,
+          revision,
+          ...(message ? { message } : {}),
+          items,
+          deliveries,
+        })),
     };
   }
   acknowledge(id: string, receipt: unknown) {
