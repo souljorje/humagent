@@ -1,0 +1,21 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "remoteCache": {
+    "enabled": false
+  },
+  "globalEnv": ["CI", "npm_config_user_agent", "NODE_OPTIONS", "BUN_OPTIONS"],
+  "tasks": {
+    "format:check": {},
+    "lint": {},
+    "build": {
+      "outputs": ["dist/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["build"]
+    },
+    "test:fast": {
+      "dependsOn": ["build"]
+    }
+  },
+  "globalDependencies": [".turbo/node-version"]
+}

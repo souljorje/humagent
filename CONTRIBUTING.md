@@ -16,6 +16,8 @@ bun run build
 bun dist/cli/index.js demo
 ```
 
+Bun reuses its local package cache automatically. Playwright also reuses installed browsers.
+
 Source files belong to one package:
 
 - `src/cli/` contains commands and process startup.
@@ -26,7 +28,7 @@ Source files belong to one package:
 - `src/examples/` contains example pages and their TypeScript modules.
 
 All executable source uses TypeScript. The build compiles application and example modules into `dist/`, then copies HTML and CSS.
-Scripts and tests remain in `scripts/` and `test/`. The main check also checks their types.
+Build, check, and release commands live in `package.json`. The main check also checks test types.
 
 ## Build an archive
 
@@ -38,32 +40,16 @@ bun pm pack --ignore-scripts --destination .local
 npx --yes --package ./.local/humagent-0.1.0.tgz humagent --version
 ```
 
-The archive includes compiled code, browser assets, examples, the agent skill, and all public guides.
+The archive includes compiled code, browser assets, examples, and all public guides.
 Use its absolute path when running npx from another directory. npm installation does not build or download application assets.
 
 Check `npm view humagent version` before you change installation instructions.
+No automated test installs the archive. Use the commands above for that check.
 
 ## Checks
 
-```sh
-bun run test
-```
-
-This runs formatting, lint, the build, types, and a smoke suite of CLI, server, and browser workflows.
-`bun run check` runs the checks without Chromium.
-CI skips tests and releases for changes limited to root Markdown files, `docs/`, or the pull request template.
-Manual workflow runs always run checks.
-
-For browser work, install Chromium once and run Playwright locally:
-
-```sh
-bunx --no-install playwright install chromium
-bun run test:browser:built
-```
-
-The release script packs the archive, then runs `bun run check` and `bun run test:browser:built`.
-Run `bun run check:release` locally before a release.
-No automated test installs the archive. Use the commands in [Build an archive](#build-an-archive) for that check.
+Run `bun run test` for the full smoke suite.
+See [Development](docs/development.md) for browser setup, individual checks, caching, and CI behavior.
 
 ## Pull requests
 
@@ -72,13 +58,14 @@ No automated test installs the archive. Use the commands in [Build an archive](#
 - List the checks that you ran.
 - Note any remaining limits.
 - Require all Check workflow jobs to pass before merging.
-- Do not commit archives, test output, or `.local/`.
+- Do not commit archives, test output, `.local/`, or `.turbo/`.
 
 ## Documentation
 
 Follow [AGENTS.md](AGENTS.md) for engineering and documentation rules. Use clear sentences and consistent terms.
 
-Keep user guides focused on installation, common use, and troubleshooting. Put maintainer and release steps in this guide.
+Keep user guides focused on installation, common use, and troubleshooting.
+Put testing and CI notes in [Development](docs/development.md). Keep release steps in this guide.
 
 ## Changesets and release
 
@@ -88,9 +75,11 @@ Tests, documentation, and internal tooling usually do not need one.
 The [Release workflow](.github/workflows/release.yml) creates a version PR when Changesets reach `main`.
 Merging that PR publishes the version automatically if its full checks pass.
 
-The release script checks for an unpublished version before running expensive tests.
-It packs once, runs the checks, then publishes that **same tarball**.
-The script does not install the archive. Use `bun run check:release` for a local dry run.
+`bun run release` uses standard Changesets publishing. Changesets skips versions already on npm.
+For unpublished versions, npm runs `prepublishOnly`, then builds and packs through `prepack`.
+`prepublishOnly` runs uncached checks, installs Chromium's headless shell, and runs browser tests.
+Run `npm publish --dry-run` to check that lifecycle without publishing.
+Failed checks prevent publication. Version PR preparation does not install browsers or run publication hooks.
 
 Version `0.1.0` is on npm. Its notes in `CHANGELOG.md` list the initial features. Changesets add later versions above them.
 

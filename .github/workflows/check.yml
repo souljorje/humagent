@@ -3,6 +3,8 @@ name: Check
 on:
   pull_request:
     branches: [main]
+  merge_group:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -13,44 +15,75 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  scope:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 3
+    outputs:
+      docs_only: ${{ steps.changes.outputs.code == 'false' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 2
           persist-credentials: false
-      # Compare the PR merge commit with its base, keeping the required check green.
       - id: changes
-        if: github.event_name == 'pull_request'
-        run: |
-          changes=$(git diff --name-only --no-renames HEAD^1 HEAD -- . \
-            ':(top,glob,exclude)*.md' \
-            ':(top,glob,exclude)docs/**' \
-            ':(top,exclude).github/PULL_REQUEST_TEMPLATE.md')
-          if [[ -z "$changes" ]]; then
-            echo 'docs_only=true' >> "$GITHUB_OUTPUT"
-          fi
-      - if: steps.changes.outputs.docs_only != 'true'
-        uses: actions/setup-node@v7
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
-          node-version: '24'
-      - if: steps.changes.outputs.docs_only != 'true'
-        uses: oven-sh/setup-bun@v2
+          # Use the checked-out merge commit, without API file limits or extra permissions.
+          token: ''
+          base: ${{ github.event.pull_request.base.sha }}
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '!*.md'
+              - '!docs/**'
+              - '!.github/PULL_REQUEST_TEMPLATE.md'
+  tests:
+    needs: scope
+    if: ${{ !cancelled() && (needs.scope.result != 'success' || needs.scope.outputs.docs_only != 'true') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container:
+      # Keep this version aligned with @playwright/test in package.json.
+      image: mcr.microsoft.com/playwright:v1.65.1-noble-amd64
+      options: --ipc=host
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          bun-version: '1.4.4'
-      - if: steps.changes.outputs.docs_only != 'true'
-        run: bun install --frozen-lockfile
-      - if: steps.changes.outputs.docs_only != 'true'
-        run: bun run check
-      - if: steps.changes.outputs.docs_only != 'true'
-        run: bunx --no-install playwright install --with-deps chromium
-      - if: steps.changes.outputs.docs_only != 'true'
-        run: bun run test:browser:built
+          persist-credentials: false
+      - name: Install Bun bootstrap dependency
+        run: apt-get update && apt-get install -y --no-install-recommends unzip
+      - uses: ./.github/actions/setup
+        with:
+          cache: ${{ github.event_name == 'pull_request' }}
+      - run: bun run check
+        env:
+          TURBO_FORCE: ${{ github.event_name == 'workflow_dispatch' || needs.scope.result != 'success' }}
+      - run: bun run test:browser:built
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-results
           path: .local/playwright-results/
           retention-days: 7
+
+  check:
+    needs: [scope, tests]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Require tests or a confirmed documentation-only change
+        env:
+          SCOPE: ${{ needs.scope.result }}
+          DOCS_ONLY: ${{ needs.scope.outputs.docs_only }}
+          TESTS: ${{ needs.tests.result }}
+        run: |
+          if [[ "$SCOPE" == success && "$DOCS_ONLY" == true && "$TESTS" == skipped ]]; then
+            echo 'Documentation-only change. No test container was started.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            [[ "$TESTS" == success ]]
+          fi

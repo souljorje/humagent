@@ -64,6 +64,7 @@ Generate an interactive page:
 - [CLI](docs/CLI.md)
 - [SDK](docs/SDK.md)
 - [Security](docs/SECURITY.md)
+- [Development](docs/development.md)
 - [Contributing](CONTRIBUTING.md)
 - [Edit the demo video](assets/humagent-film/README.md)
 
