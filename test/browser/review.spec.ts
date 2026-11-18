@@ -20,7 +20,7 @@ test('a text edit, a comment, and form choices reach the agent as one event with
   await review.frame.getByRole('radio', { name: /The interactions/ }).check();
   const values = { layout: 'split', button: 'outline', workflow: 'behavior' };
   await expect
-    .poll(() => review.session().drafts.at(-1)?.item.values)
+    .poll(() => review.session().drafts.at(-1)?.item.form)
     .toEqual(values);
   expect(review.session().drafts).toHaveLength(3);
   expect(review.session().events).toHaveLength(0);
@@ -37,9 +37,19 @@ test('a text edit, a comment, and form choices reach the agent as one event with
   expect(event.message).toBe('Apply these together.');
   expect(event.revision).toBe(review.session().revision);
   expect(event.items).toMatchObject([
-    { replacement: { after: 'Give your agent a clearer plan.' } },
-    { comment: 'Make this button stand out.' },
-    { values },
+    { kind: 'edit', edit: { after: 'Give your agent a clearer plan.' } },
+    { kind: 'comment', comment: 'Make this button stand out.' },
+    {
+      kind: 'form',
+      comment: expect.stringMatching(/^Apply these/),
+      form: values,
+    },
+  ]);
+  // Content comes before `target`. An edit without a note has no `comment`.
+  expect(event.items.map((item) => Object.keys(item).join())).toEqual([
+    'id,kind,edit,target',
+    'id,kind,comment,target',
+    'id,kind,comment,form',
   ]);
   expect(feedback.target).toEqual({ kind: 'file', value: review.file });
 
@@ -133,7 +143,7 @@ test('the page under review cannot use control routes, learn the session key, or
       {
         method: 'stage',
         id: 'foreign',
-        params: { item: { values: { evil: true } } },
+        params: { item: { form: { evil: true } } },
       },
       location.origin,
     ),
@@ -189,7 +199,7 @@ test('a proxied app keeps its own behavior and accepts comments and SDK submissi
     ).toEqual({ v: 42 });
     await review.addComment('#headline', 'Review an existing app.');
     const staged = await review.evaluate(() =>
-      window.humagent.submit({ values: { choice: 'keep' } }),
+      window.humagent.submit({ form: { choice: 'keep' } }),
     );
     expect(staged.status).toBe('draft');
     await review.connect();
@@ -197,8 +207,15 @@ test('a proxied app keeps its own behavior and accepts comments and SDK submissi
     const feedback = await review.receive();
     expect(feedback.target.kind).toBe('url');
     expect(feedback.events[0].items).toMatchObject([
-      { target: { id: 'headline' }, comment: 'Review an existing app.' },
-      { values: { choice: 'keep' } },
+      { kind: 'comment', comment: 'Review an existing app.' },
+      { kind: 'form', form: { choice: 'keep' } },
+    ]);
+    expect(feedback.events[0].items[0]).toHaveProperty('target.id', 'headline');
+    // An SDK submission belongs to no form, so it has no target.
+    expect(Object.keys(feedback.events[0].items[1])).toEqual([
+      'id',
+      'kind',
+      'form',
     ]);
   } finally {
     app.closeAllConnections();

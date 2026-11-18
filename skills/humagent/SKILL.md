@@ -30,7 +30,7 @@ Without a target, use the page from the task. If the task has none, ask the user
 4. Do not replace the application's renderer or server.
 
 For structured input, put named controls in a form with a stable, unique `data-humagent-id`.
-Use `data-humagent-message` to tell the agent what the answers mean.
+Use `data-humagent-comment` to tell the agent what the answers mean.
 Give each form an accessible name, such as `aria-labelledby`. Label each control.
 
 Custom pages can add structured feedback through `window.humagent.submit()`.
@@ -61,8 +61,8 @@ If something stops `wait` before it returns a result, run `wait` again at once.
 ## Apply input
 
 1. Read every review event in the receipt. Process each event's `message` and ordered `items` together.
-2. Preserve `replacement.before` and `replacement.after` exactly. An empty `replacement.after` proposes deletion.
-3. Interpret `comment` and `values` using the task context. Field presence describes each item.
+2. Preserve `edit.before` and `edit.after` exactly. An empty `edit.after` proposes deletion.
+3. Interpret `comment` and `form` using the task context. `kind` names each item's content key.
 4. Find the source with `target.url`, `target.selector`, `target.text`, and `target.anchor.quote`.
 
 Each event represents one **Send** action. A receipt can contain several events.

@@ -3,13 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRuntime } from '../../dist/runtime/server.js';
+import type { Feedback } from '../../dist/shared/feedback.js';
 import { fixture } from '../fixtures.ts';
-
-type Runtime = Awaited<ReturnType<typeof createRuntime>>;
-type Feedback = Extract<
-  NonNullable<ReturnType<Runtime['store']['take']>>,
-  { status: 'feedback' }
->;
 
 /** One server, one copy of the demo page, and the actions of a reviewer and an agent. */
 export const test = base.extend<{
