@@ -69,7 +69,7 @@ Each **Send** creates one event. `humagent wait` returns events in `events[]`:
 {
   "id": "event-id",
   "revision": "source-revision",
-  "message": "Keep changes small.",
+  "instruction": "Keep changes small.",
   "items": [
     { "id": "comment-1", "kind": "comment", "comment": "Shorten this.", "target": { "selector": "h1" } },
     { "id": "edit-1", "kind": "edit", "edit": { "before": "Old", "after": "New" }, "target": { "selector": "#intro" } },
@@ -79,11 +79,11 @@ Each **Send** creates one event. `humagent wait` returns events in `events[]`:
 }
 ```
 
-`message` is the optional overall instruction. `deliveries` counts how often `wait` returned the event. A value above 1 means a redelivery.
+`instruction` is optional and applies to the whole event. `deliveries` counts how often `wait` returned the event. A value above 1 means a redelivery.
 
 `kind` names the key that holds the item's content. `comment` is optional on `edit` and `form` items. Empty `edit.after` means deletion.
 
-An event can contain only a message. An empty review is invalid. The server rejects unknown item fields.
+An event can contain only an instruction. An empty review is invalid. The server rejects unknown item fields.
 
 ### Validation limits
 
@@ -93,8 +93,8 @@ An event can contain only a message. An empty review is invalid. The server reje
 | JSON nesting | Fewer than 24 levels |
 | Drafts per session | 100 |
 | Events per session | 2,000 |
-| Comment / overall instruction | 4,000 / 4,000 characters |
-| Each replacement string | 50,000 characters |
+| Comment / instruction | 4,000 / 4,000 characters |
+| Each edit string | 50,000 characters |
 | Form key | 200 characters |
 | Bar label text | 500 characters |
 
@@ -118,7 +118,7 @@ Stale feedback cannot be silently rebound. See [refresh and recovery](USAGE.md#r
 
 The server owns drafts and delivery. The SDK owns targeting and temporary editors. It sends each request once.
 
-New events require a listening or working agent. Stored events remain available after disconnection or session ending.
+New events require a connected or working agent. Stored events remain available after disconnection or session ending.
 
 Sent local previews remain until receipt acknowledgment. Cleanup cannot overwrite application changes or save rendered DOM into source.
 
@@ -128,9 +128,9 @@ The workspace uses these routes with the session credential. Each write returns 
 | --- | --- |
 | `GET /api/sessions/:id` | None |
 | `POST /api/sessions/:id/drafts` | `{ item, revision, marker?, key?, labels? }`. A known `key` replaces that form's draft. |
-| `PATCH /api/sessions/:id/drafts/:draftId` | `{ revision, comment, after?, marker? }` |
+| `PATCH /api/sessions/:id/drafts/:draftId` | `{ revision, comment, after? }` |
 | `DELETE /api/sessions/:id/drafts/:draftId` | None |
-| `PUT /api/sessions/:id/message` | `{ text }` |
+| `PUT /api/sessions/:id/instruction` | `{ instruction }` |
 | `POST /api/sessions/:id/send` | `{ revision }` |
 | `POST /api/sessions/:id/surface` | `{ documentId }` |
 | `POST /api/sessions/:id/end` | `{}` |

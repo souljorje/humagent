@@ -9,7 +9,7 @@ import { Store, sessionView } from './store.js';
 import { version } from './version.js';
 import { ensure, Failure, object, parseJson } from './validate.js';
 import {
-  targetOf,
+  sourceOf,
   sourceRevision,
   startSurface,
   type Surface,
@@ -136,7 +136,7 @@ export async function createRuntime(options: RuntimeOptions) {
     const panel = await surfaces.get(id);
     ensure(
       panel,
-      'Session is not attached. Open its target again.',
+      'Session is not attached. Open its source again.',
       'NOT_ATTACHED',
       409,
     );
@@ -238,9 +238,9 @@ export async function createRuntime(options: RuntimeOptions) {
     store.removeDraft(id, c.req.param('draft'));
     return reply(id);
   });
-  app.put(`${sessionPath}/message`, async (c) => {
+  app.put(`${sessionPath}/instruction`, async (c) => {
     const id = c.req.param('id');
-    store.setMessage(id, (await body(c.req.raw)).text);
+    store.setInstruction(id, (await body(c.req.raw)).instruction);
     return reply(id);
   });
   app.post(`${sessionPath}/send`, async (c) => {
@@ -311,10 +311,10 @@ export async function createRuntime(options: RuntimeOptions) {
 
   app.post('/api/open', async (c) => {
     const value = await body(c.req.raw);
-    ensure(typeof value.target === 'string', 'target is required');
-    const target = await targetOf(value.target, value.network === true);
-    if (target.kind === 'file') {
-      const relative = path.relative(target.root!, directory);
+    ensure(typeof value.source === 'string', 'source is required');
+    const source = await sourceOf(value.source, value.network === true);
+    if (source.kind === 'file') {
+      const relative = path.relative(source.root!, directory);
       ensure(
         relative.startsWith('..') || path.isAbsolute(relative),
         'Use an artifact directory that does not contain Humagent private state',
@@ -322,16 +322,16 @@ export async function createRuntime(options: RuntimeOptions) {
         403,
       );
     }
-    const revision = await sourceRevision(target);
-    const s = store.open(target, revision);
+    const revision = await sourceRevision(source);
+    const s = store.open(source, revision);
     await surface(s.id);
     return json(200, {
       session: s.id,
       url: `${origin}/?session=${s.id}#${s.viewKey}`,
-      target: s.target,
+      source: s.source,
       note:
-        target.kind === 'file'
-          ? `Only supported files in ${target.root} are served. Source is read-only.`
+        source.kind === 'file'
+          ? `Only supported files in ${source.root} are served. Source is read-only.`
           : 'Trusted local app proxy. Cookies/authenticated apps are not supported in v0.1.',
     });
   });

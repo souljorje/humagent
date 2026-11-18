@@ -21,7 +21,7 @@ export interface Presentation {
   /** Top-left corner of the workspace bar, in frame viewport pixels. */
   reviewBar: { x: number; y: number };
   drafts: Draft[];
-  /** Text replacements that the page shows in place of the original text. */
+  /** Text edits that the page shows in place of the original text. */
   previews: Draft[];
   writable: boolean;
 }

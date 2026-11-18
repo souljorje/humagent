@@ -19,7 +19,7 @@ import {
   type Event,
   type Feedback,
   type SessionView,
-  type Target,
+  type Source,
 } from '../shared/feedback.js';
 
 const FORMAT = 3;
@@ -32,14 +32,14 @@ interface Delivery {
 export interface Session {
   id: string;
   title: string;
-  target: Target;
+  source: Source;
   viewKey: string;
   revision: string;
   surfacePath?: string;
   ended: boolean;
   createdAt: string;
   drafts: Draft[];
-  message: string;
+  instruction: string;
   events: Event[];
   delivery?: Delivery;
   acknowledged: string[];
@@ -49,13 +49,13 @@ export function sessionView(s: Session, waiting: boolean): SessionView {
   return {
     id: s.id,
     title: s.title,
-    target: s.target,
+    source: s.source,
     revision: s.revision,
     ended: s.ended,
     createdAt: s.createdAt,
-    agent: s.delivery ? 'working' : waiting ? 'waiting' : 'idle',
+    agent: s.delivery ? 'working' : waiting ? 'connected' : 'idle',
     drafts: s.drafts,
-    message: s.message,
+    instruction: s.instruction,
     sent: s.events
       .filter((event) => event.status !== 'completed')
       .flatMap((event) =>
@@ -69,7 +69,7 @@ export function sessionView(s: Session, waiting: boolean): SessionView {
 function readSession(saved: unknown, id: string): Session {
   object(saved);
   const s = saved.session as unknown as Session | undefined;
-  const target = s?.target;
+  const source = s?.source;
   ensure(
     saved.format === FORMAT &&
       s?.id === id &&
@@ -78,16 +78,16 @@ function readSession(saved: unknown, id: string): Session {
       typeof s.viewKey === 'string' &&
       typeof s.createdAt === 'string' &&
       typeof s.ended === 'boolean' &&
-      typeof s.message === 'string' &&
+      typeof s.instruction === 'string' &&
       Array.isArray(s.drafts) &&
       Array.isArray(s.events) &&
       Array.isArray(s.acknowledged) &&
-      !!target &&
-      typeof target.value === 'string' &&
-      typeof target.network === 'boolean' &&
-      (target.kind === 'url'
-        ? localUrl(new URL(target.value))
-        : target.kind === 'file' && typeof target.root === 'string') &&
+      !!source &&
+      typeof source.value === 'string' &&
+      typeof source.network === 'boolean' &&
+      (source.kind === 'url'
+        ? localUrl(new URL(source.value))
+        : source.kind === 'file' && typeof source.root === 'string') &&
       (s.surfacePath === undefined ||
         (typeof s.surfacePath === 'string' &&
           s.surfacePath.startsWith('/') &&
@@ -165,12 +165,12 @@ export class Store extends EventEmitter {
     if (!draft) throw new Failure(404, 'NOT_FOUND', 'Feedback not found');
     return draft;
   }
-  open(target: Target, revision: string) {
+  open(source: Source, revision: string) {
     const existing = this.list().find(
       (s) =>
         !s.ended &&
-        s.target.value === target.value &&
-        s.target.network === target.network,
+        s.source.value === source.value &&
+        s.source.network === source.network,
     );
     if (existing) return existing;
     let id: string;
@@ -180,16 +180,16 @@ export class Store extends EventEmitter {
     return this.commit({
       id,
       title:
-        target.kind === 'file'
-          ? path.basename(target.value)
-          : new URL(target.value).pathname,
-      target,
+        source.kind === 'file'
+          ? path.basename(source.value)
+          : new URL(source.value).pathname,
+      source,
       viewKey: randomBytes(32).toString('hex'),
       revision,
       ended: false,
       createdAt: new Date().toISOString(),
       drafts: [],
-      message: '',
+      instruction: '',
       events: [],
       acknowledged: [],
     });
@@ -255,7 +255,7 @@ export class Store extends EventEmitter {
       ensure(previous.edit, 'This feedback is not an edit.');
       changes.edit = {
         ...previous.edit,
-        after: text(value.after, 'Replacement', LIMITS.text, true),
+        after: text(value.after, 'Edit after', LIMITS.text, true),
       };
     }
     const updated: Draft = { ...draft, item: item(changes, draftId) };
@@ -272,20 +272,17 @@ export class Store extends EventEmitter {
       drafts: s.drafts.filter((d) => d.item.id !== draftId),
     });
   }
-  setMessage(id: string, value: unknown) {
+  setInstruction(id: string, value: unknown) {
     const s = this.writable(id);
-    const message = text(value, 'Instruction', LIMITS.message, true);
-    if (s.message !== message) this.commit({ ...s, message });
+    const instruction = text(value, 'Instruction', LIMITS.instruction, true);
+    if (s.instruction !== instruction) this.commit({ ...s, instruction });
   }
   /** Turn the current drafts and instruction into one event. */
   send(id: string, revision: unknown) {
     const s = this.writable(id);
     current(s, revision);
-    const message = s.message.trim() ? s.message : undefined;
-    ensure(
-      s.drafts.length || message,
-      'Add feedback or an overall instruction',
-    );
+    const instruction = s.instruction.trim() ? s.instruction : undefined;
+    ensure(s.drafts.length || instruction, 'Add feedback or an instruction');
     ensure(
       s.drafts.every((d) => d.revision === s.revision),
       'Some feedback belongs to another revision. Inspect the page, then recreate or remove stale items.',
@@ -301,7 +298,7 @@ export class Store extends EventEmitter {
     const event: Event = {
       id: randomUUID(),
       revision: s.revision,
-      ...(message ? { message } : {}),
+      ...(instruction ? { instruction } : {}),
       items: s.drafts.map((d) => d.item),
       status: 'queued',
       deliveries: 0,
@@ -309,7 +306,7 @@ export class Store extends EventEmitter {
     this.commit({
       ...s,
       drafts: [],
-      message: '',
+      instruction: '',
       events: [...s.events, event],
     });
     return event;
@@ -338,14 +335,14 @@ export class Store extends EventEmitter {
     // The agent gets what it needs to apply the review. Delivery state stays on the server.
     return {
       status: 'feedback',
-      target: { kind: s.target.kind, value: s.target.value },
+      source: { kind: s.source.kind, value: s.source.value },
       receipt: delivery.receipt,
       events: updated.events
         .filter((e) => ids.has(e.id))
-        .map(({ id, revision, message, items, deliveries }) => ({
+        .map(({ id, revision, instruction, items, deliveries }) => ({
           id,
           revision,
-          ...(message ? { message } : {}),
+          ...(instruction ? { instruction } : {}),
           items,
           deliveries,
         })),

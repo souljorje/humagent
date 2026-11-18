@@ -231,15 +231,15 @@ function sessionRoute(argument: string | undefined) {
   );
   return `/api/sessions/${argument}`;
 }
-async function openTarget(target: string) {
+async function openSource(source: string) {
   const result = (await request(await service(), '/api/open', 'POST', {
-    target,
+    source,
     network: flags.has('network'),
   })) as { url: string; session: string; note: string };
   if (!flags.has('no-open')) openBrowser(result.url);
   await output(
     result,
-    `Open this private URL in your browser:\n${result.url}\n\nSession: ${result.session}\nSource: ${target}\n\nAsk your agent to run:\n  humagent wait ${result.session}\n\n${result.note}\nNo agent is connected until it starts waiting.`,
+    `Open this private URL in your browser:\n${result.url}\n\nSession: ${result.session}\nSource: ${source}\n\nAsk your agent to run:\n  humagent wait ${result.session}\n\n${result.note}\nNo agent is connected until it starts waiting.`,
   );
 }
 interface Command {
@@ -259,9 +259,9 @@ const commands: Record<string, Command> = {
         'Specify an HTML file or localhost URL. Example: humagent open ./page.html',
       );
       const url = /^https?:/i.test(argument);
-      const target = url ? argument : path.resolve(argument);
-      ensure(url || fs.existsSync(target), `File not found: ${target}`);
-      await openTarget(target);
+      const source = url ? argument : path.resolve(argument);
+      ensure(url || fs.existsSync(source), `File not found: ${source}`);
+      await openSource(source);
     },
   },
   demo: {
@@ -274,7 +274,7 @@ const commands: Record<string, Command> = {
           new URL(`../examples/${file}`, import.meta.url),
           path.join(destination, file),
         );
-      await openTarget(path.join(destination, 'plan.html'));
+      await openSource(path.join(destination, 'plan.html'));
     },
   },
   wait: {
@@ -325,7 +325,7 @@ const commands: Record<string, Command> = {
         ...(live
           ? await request(live, '/api/sessions')
           : {
-              note: 'The server is stopped. Use open to resume a saved target.',
+              note: 'The server is stopped. Use open to resume a saved source.',
             }),
       });
     },

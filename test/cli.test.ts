@@ -62,7 +62,7 @@ for (const runtime of ['bun', 'node'])
       const pending = run('wait', opened.session);
       for (
         let attempt = 0;
-        (await run('status', opened.session)).agent !== 'waiting';
+        (await run('status', opened.session)).agent !== 'connected';
         attempt++
       )
         assert.ok(attempt < 50, 'Agent must start waiting');
@@ -75,14 +75,16 @@ for (const runtime of ['bun', 'node'])
           },
           body: JSON.stringify(data),
         });
-      await browser('message', 'PUT', { text: 'Check this interface.' });
+      await browser('instruction', 'PUT', {
+        instruction: 'Check this interface.',
+      });
       const sent = await browser('send', 'POST', {
         revision: snapshot.revision,
       });
       assert.equal(sent.status, 200);
       const batch = await pending;
       assert.equal(batch.status, 'feedback');
-      assert.equal(batch.events[0].message, 'Check this interface.');
+      assert.equal(batch.events[0].instruction, 'Check this interface.');
       assert.equal(batch.events[0].revision, snapshot.revision);
 
       // An unacknowledged event survives a restart. Only its newest receipt is valid.
@@ -115,10 +117,10 @@ test('the demo opens the editable plan and keeps local edits on the next run', a
       await (await fetch(snapshot.surface.frameUrl)).text(),
       /Show your agent what you mean/,
     );
-    fs.appendFileSync(snapshot.target.value, '\n<!-- Local demo edit -->');
+    fs.appendFileSync(snapshot.source.value, '\n<!-- Local demo edit -->');
     assert.equal((await run('demo', '--no-open')).session, opened.session);
     assert.match(
-      fs.readFileSync(snapshot.target.value, 'utf8'),
+      fs.readFileSync(snapshot.source.value, 'utf8'),
       /Local demo edit/,
     );
   } finally {

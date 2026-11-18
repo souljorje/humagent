@@ -37,8 +37,8 @@ humagent ack SESSION --receipt RECEIPT
 
 Use the session ID from `open`. `wait` returns every unfinished event with a new receipt.
 
-Each **Send** action creates one event with an optional `message` and ordered `items`. See the [event format](SDK.md#event-format).
-One receipt can cover several review events. Process each event's `message` and `items` together.
+Each **Send** action creates one event with an optional `instruction` and ordered `items`. See the [event format](SDK.md#event-format).
+One receipt can cover several review events. Process each event's `instruction` and `items` together.
 
 `wait` blocks until the user sends feedback or ends the session. It has no time limit.
 The server sends a space every 5 seconds to keep the connection open. The CLI prints only the result.
@@ -76,19 +76,19 @@ humagent server --port N
 | `HUMAGENT_PORT` | Server port, or `0` for a free port |
 
 The server selects a free loopback port at each start unless `--port` or `HUMAGENT_PORT` sets one.
-After a restart, run `open` with the same target again. It reuses the saved session and returns the new URL.
+After a restart, run `open` with the same source again. It reuses the saved session and returns the new URL.
 Use the same data directory across commands. Each session file under `sessions/` keeps drafts and events.
 
 ## Troubleshooting
 
 | Problem | Action |
 | --- | --- |
-| No agent listening | Ask the agent to run `wait`. New sends require a listening or working agent. |
+| No agent connected | Ask the agent to run `wait`. New sends require a connected or working agent. |
 | Feedback remains a draft | Choose Send from the floating bar. Forms and SDK calls only stage feedback. |
 | Agent turn ended | Send the agent a new message. |
 | Browser did not open | Open the printed URL on the same computer. |
 | Older server running | Run `humagent stop`. Repeat `open`. |
-| Server restarted | Repeat `open` with the same target. Use the new URL. |
+| Server restarted | Repeat `open` with the same source. Use the new URL. |
 | Source changed | Follow [refresh and recovery](USAGE.md#refresh-and-recovery) and inspect [revision rules](SDK.md#revisions). |
 | App cannot connect | Check its HTML route and [attachment limits](SECURITY.md#network). |
 | Stored session is unreadable | See [stored sessions](#stored-sessions). |

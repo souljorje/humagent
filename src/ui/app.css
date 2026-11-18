@@ -151,7 +151,7 @@ button:focus-visible {
   align-items: center;
   padding: 8px;
 }
-.bar-controls #message {
+.bar-controls #instruction {
   flex: 1;
   margin-inline: 6px;
 }
@@ -235,7 +235,7 @@ button:focus-visible {
 #copy-command:focus-visible {
   outline-offset: -3px;
 }
-/* No agent: amber. Listening: green. Working: blue. Offline: red. Ended: gray. */
+/* No agent: amber. Connected: green. Working: blue. Offline: red. Ended: gray. */
 #agent-indicator {
   width: 6px;
   height: 6px;
@@ -244,7 +244,7 @@ button:focus-visible {
   flex-shrink: 0;
   transition: background 200ms;
 }
-#agent-indicator[data-state='waiting'] {
+#agent-indicator[data-state='connected'] {
   background: #4ade80;
 }
 #agent-indicator[data-state='working'] {
@@ -343,7 +343,7 @@ button:focus-visible {
   color: var(--muted);
 }
 /* The diff scrolls on its own. A click on it opens the editor like the rest of the row. */
-.draft .replacement {
+.draft .edit {
   pointer-events: auto;
   margin: 6px 0 0;
   font-size: 13px;
@@ -353,20 +353,20 @@ button:focus-visible {
   max-height: 100px;
   overflow: auto;
 }
-.draft:has(.draft-open:not(:disabled)) .replacement {
+.draft:has(.draft-open:not(:disabled)) .edit {
   cursor: pointer;
 }
-.replacement span,
-.replacement del {
+.edit span,
+.edit del {
   color: var(--muted);
 }
-.replacement ins {
+.edit ins {
   text-decoration: none;
   background: #ffffff12;
   border-radius: 3px;
   box-decoration-break: clone;
 }
-.replacement del + ins {
+.edit del + ins {
   margin-inline-start: 0.25em;
 }
 dl {
@@ -431,7 +431,7 @@ dd {
   .bar-controls {
     padding: 6px;
   }
-  .bar-controls #message {
+  .bar-controls #instruction {
     margin-inline: 3px;
   }
   .icon {
