@@ -10,6 +10,10 @@ Include the affected version, a reproduction, and the possible impact. Do not in
 
 The maintainer reviews the report and coordinates a fix. Test the latest release before you report a problem.
 
+## CI dependencies
+
+External GitHub Actions use fixed commit hashes. Dependabot proposes grouped updates each week.
+
 ## Files and isolation
 
 Pages use sandboxed frames on separate loopback origins. Frames permit scripts and forms, but not top navigation or popups.
