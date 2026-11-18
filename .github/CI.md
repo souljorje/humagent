@@ -9,11 +9,13 @@ Manual runs, merge-queue runs, and failed scope detection bypass cached results.
 Turbo uses its standard `.turbo/` directory. All repository inputs participate in task hashes.
 `precheck` records the actual Node version. Bun's package-manager identity supplies its version, platform, and architecture.
 The build must finish before type checks and fast tests because they import generated modules.
+The build config checks source and emits the package. The test config checks tests against generated declarations, including browser globals.
 
 Check and Release share one setup action for Node, Bun, frozen installation, and the task cache.
 Cache keys include OS, architecture, runtime versions, lockfile, Turbo configuration, and commit.
 The restore prefix omits the commit so new commits can reuse matching tasks. Identical reruns avoid duplicate uploads.
 GitHub branch scopes isolate PR caches. Release runs can populate the default-branch cache for later PRs.
+External actions use commit hashes. Dependabot groups weekly updates for workflows and the shared setup action.
 
 ## What transfers from d3-maps
 
@@ -57,6 +59,15 @@ The [OpenClaw article](https://vincent.build/openclaw-ci-cost-reduction/) motiva
 Its [implementation](https://github.com/openclaw/openclaw/blob/a7d05c7af04aa17ac57c994da238d0c60f058ca6/.github/workflows/ci.yml) serves a different workload. Its selection rules and savings do not transfer unchanged.
 
 ## Verification and rollback
+
+### Formatter measurement
+
+On macOS arm64, 30 alternating checks followed five warmups per formatter.
+Bun 1.4.4 took 9.18 ms median, versus 143.49 ms for oxfmt 0.75.0, on the same 44 files.
+Both produced identical output, including an unformatted fixture. Commands now use `bun fmt`, with options in `bunfig.toml`.
+These measurements include process startup and use a warm filesystem. They do not predict Linux CI performance.
+
+### Commands
 
 Run `bun run check --force` and `bun run test:browser:built` for fresh validation.
 Use `npm publish --dry-run` to exercise publication hooks without publishing.
