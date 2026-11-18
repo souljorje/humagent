@@ -41,7 +41,6 @@ npx --yes --package ./.local/humagent-0.1.0.tgz humagent --version
 The archive includes compiled code, browser assets, examples, the agent skill, and all public guides.
 Use its absolute path when running npx from another directory. npm installation does not build or download application assets.
 
-Version 0.1.0 is not published to npm yet. The README shows the npm install that a first release enables.
 Check `npm view humagent version` before you change installation instructions.
 
 ## Checks
@@ -95,13 +94,7 @@ The release script checks for an unpublished version before running expensive te
 It packs once, runs the checks, then publishes that **same tarball**.
 The script does not install the archive. Use `bun run check:release` for a local dry run.
 
-**First release:** Publish `0.1.0` manually after verification:
+Version `0.1.0` is on npm. Its notes in `CHANGELOG.md` list the initial features. Changesets add later versions above them.
 
-```sh
-bunx --no-install playwright install --with-deps chromium
-bun run check:release
-npm publish .local/release/packages/humagent-0.1.0.tgz --access public
-```
-
-Then configure npm trusted publishing for repository `souljorje/humagent` and workflow `release.yml`.
+Automated publication needs npm trusted publishing for repository `souljorje/humagent` and workflow `release.yml`.
 Do not set a GitHub environment name. The workflow combines version PRs and publication.
