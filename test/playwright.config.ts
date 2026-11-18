@@ -6,6 +6,7 @@ export default defineConfig({
   fullyParallel: true,
   workers: 2,
   forbidOnly: !!process.env.CI,
+  maxFailures: process.env.CI ? 1 : 0,
   timeout: 30000,
   expect: { timeout: 10000 },
   outputDir: fileURLToPath(
