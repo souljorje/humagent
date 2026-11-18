@@ -18,26 +18,24 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     outputs:
-      docs_only: ${{ steps.changes.outputs.docs_only }}
+      docs_only: ${{ steps.changes.outputs.code == 'false' }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 2
           persist-credentials: false
-      # Compare the PR merge commit with its base before pulling the test image.
       - id: changes
-        run: |
-          if ! changes=$(git diff --name-only --no-renames HEAD^1 HEAD -- . \
-            ':(top,glob,exclude)*.md' \
-            ':(top,glob,exclude)docs/**' \
-            ':(top,exclude).github/PULL_REQUEST_TEMPLATE.md'); then
-            echo 'Cannot read the PR diff. Running the full suite.' >> "$GITHUB_STEP_SUMMARY"
-          elif [[ -z "$changes" ]]; then
-            echo 'docs_only=true' >> "$GITHUB_OUTPUT"
-            echo 'Only documentation changed. Tests are skipped.' >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'Changes require the full suite.' >> "$GITHUB_STEP_SUMMARY"
-          fi
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          # Use the checked-out merge commit, without API file limits or extra permissions.
+          token: ''
+          base: ${{ github.event.pull_request.base.sha }}
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '!*.md'
+              - '!docs/**'
+              - '!.github/PULL_REQUEST_TEMPLATE.md'
   tests:
     needs: scope
     if: ${{ !cancelled() && (needs.scope.result != 'success' || needs.scope.outputs.docs_only != 'true') }}

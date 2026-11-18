@@ -24,6 +24,10 @@ For other changes, `tests` uses the prepared image and runs the full suite.
 The required `check` runs after both jobs. Failed, cancelled, or unexpectedly skipped tests cannot produce a passing check.
 Manual runs skip scope detection and run all tests.
 
+The scope job uses pinned [dorny/paths-filter](https://github.com/dorny/paths-filter/tree/ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d) with Git and the existing documentation rules.
+It compares the checked-out merge commit against the event's base revision, including both paths of renames.
+Git avoids API file limits and additional token permissions. Detection failures still select the full suite.
+
 The image requires `unzip` for Bun setup. Its tag must match the pinned Playwright version.
 It downloads 965.8 MiB of compressed layers, more than the baseline's 327.2 MiB of browser archives.
 This trades additional transfer and small orchestration jobs for less repeated environment preparation.
@@ -76,6 +80,7 @@ The hosted candidate runs the same 10 fast tests and six browser tests as the ba
 Thirteen temporary file-rule checks covered documentation, mixed changes, unknown paths, configuration, deletions, renames, missing history, and multi-commit PRs.
 Missing history, unknown paths, and code moved into documentation selected the full suite.
 Twelve result-gate cases covered passing tests, documentation skips, missing results, failures, cancellations, and manual runs.
+The replacement action passed 14 temporary scenarios, including deletions, renames, multi-commit changes, and detection failure.
 
 An isolated unpublished-version release dry run passed all 16 tests with `CI=true`.
 Deliberate type errors and browser failures each stopped that dry run.
@@ -114,6 +119,11 @@ Here, removing unused setup has stronger evidence than building a selector or ad
 Playwright documents [prepared images](https://playwright.dev/docs/docker), [headless-only installation](https://playwright.dev/docs/browsers#chromium-headless-shell), and [browser-cache limitations](https://playwright.dev/docs/ci#caching-browsers).
 PR containers include browser dependencies. Release checks install dependencies when needed.
 No cached build or previous green result replaces current checks.
+
+[Bun caches packages locally](https://bun.sh/docs/pm/global-cache), and [setup-bun caches its executable](https://github.com/oven-sh/setup-bun#inputs) by default.
+Playwright reuses installed browsers locally. The CI image already contains browsers.
+An additional dependency cache has little potential benefit because measured CI installation took 0–1 seconds.
+Reconsider it if installation becomes a measurable bottleneck. Keep frozen installation and current checks after cache restoration.
 
 ## Rollback
 

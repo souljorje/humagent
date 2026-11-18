@@ -16,6 +16,8 @@ bun run build
 bun dist/cli/index.js demo
 ```
 
+Bun reuses its local package cache automatically. Playwright also reuses installed browsers.
+
 Source files belong to one package:
 
 - `src/cli/` contains commands and process startup.
