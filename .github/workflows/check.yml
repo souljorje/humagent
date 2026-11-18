@@ -13,17 +13,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  scope:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 3
+    outputs:
+      docs_only: ${{ steps.changes.outputs.docs_only }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 2
           persist-credentials: false
-      # Compare the PR merge commit with its base, keeping the required check green.
+      # Compare the PR merge commit with its base before pulling the test image.
       - id: changes
-        if: github.event_name == 'pull_request'
         run: |
           if ! changes=$(git diff --name-only --no-renames HEAD^1 HEAD -- . \
             ':(top,glob,exclude)*.md' \
@@ -36,25 +38,54 @@ jobs:
           else
             echo 'Changes require the full suite.' >> "$GITHUB_STEP_SUMMARY"
           fi
-      - if: steps.changes.outputs.docs_only != 'true'
-        uses: actions/setup-node@v7
+  tests:
+    needs: scope
+    if: ${{ !cancelled() && (needs.scope.result != 'success' || needs.scope.outputs.docs_only != 'true') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container:
+      # Keep this version aligned with @playwright/test in package.json.
+      image: mcr.microsoft.com/playwright:v1.65.1-noble-amd64
+      options: --ipc=host
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - if: steps.changes.outputs.docs_only != 'true'
-        uses: oven-sh/setup-bun@v2
+      - name: Install Bun bootstrap dependency
+        run: apt-get update && apt-get install -y --no-install-recommends unzip
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.4'
-      - if: steps.changes.outputs.docs_only != 'true'
-        run: bun install --frozen-lockfile
-      - if: steps.changes.outputs.docs_only != 'true'
-        run: bun run check
-      - if: steps.changes.outputs.docs_only != 'true'
-        run: bunx --no-install playwright install --with-deps --only-shell chromium
-      - if: steps.changes.outputs.docs_only != 'true'
-        run: bun run test:browser:built
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run test:browser:built
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-results
           path: .local/playwright-results/
           retention-days: 7
+
+  check:
+    needs: [scope, tests]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Require tests or a confirmed documentation-only change
+        env:
+          SCOPE: ${{ needs.scope.result }}
+          DOCS_ONLY: ${{ needs.scope.outputs.docs_only }}
+          TESTS: ${{ needs.tests.result }}
+        run: |
+          if [[ "$SCOPE" == success && "$DOCS_ONLY" == true && "$TESTS" == skipped ]]; then
+            echo 'Documentation-only change. No test container was started.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            [[ "$TESTS" == success ]]
+          fi
