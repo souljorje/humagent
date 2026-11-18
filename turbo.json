@@ -5,16 +5,34 @@
   },
   "globalEnv": ["CI", "npm_config_user_agent", "NODE_OPTIONS", "BUN_OPTIONS"],
   "tasks": {
-    "format:check": {},
-    "lint": {},
+    "format:check": {
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!docs/**"]
+    },
+    "lint": {
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!docs/**"]
+    },
     "build": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md",
+        "!docs/**",
+        "!test/**",
+        "!tsconfig.test.json"
+      ],
       "outputs": ["dist/**"]
     },
     "typecheck": {
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!docs/**"],
       "dependsOn": ["build"]
     },
     "test:fast": {
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!docs/**"],
       "dependsOn": ["build"]
+    },
+    "test:browser:built": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "passThroughEnv": ["PLAYWRIGHT_*", "PWDEBUG"]
     }
   },
   "globalDependencies": [".turbo/node-version"]

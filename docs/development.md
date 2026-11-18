@@ -15,13 +15,15 @@ bunx --no-install playwright install chromium
 | `bun run format` | Format source and tests with Bun. Options live in `bunfig.toml`. |
 | `bun run check` | Run formatting checks, lint, build, type checks, and fast tests. |
 | `bun run test:browser:built` | Run browser tests against an existing build. |
-| `bun run test` | Run the main check, then browser tests. |
+| `bun run test` | Run all checks, including browser tests, through Turbo. |
 | `bun run check --force` | Run every main-check task without cached results. |
 
 Turbo caches successful tasks and build outputs in `.turbo/`. Source, configuration, lockfile, and runtime changes invalidate results.
+Markdown files and `docs/` do not invalidate results.
+Test files and `tsconfig.test.json` do not invalidate the build.
 Browser tests never reuse cached results.
 
-Formatting, lint, and build can run together. Test type checks and fast tests wait for the build.
+Formatting, lint, and build can run together. Type checks, fast tests, and browser tests run together after the build.
 `tsconfig.json` emits the package. `tsconfig.test.json` checks tests against generated declarations, including browser globals, without emitting files.
 
 ## Test coverage
@@ -37,7 +39,7 @@ The [Check workflow](../.github/workflows/check.yml) has three jobs:
 | Job | Purpose |
 | --- | --- |
 | `scope` | Detect documentation-only PRs before starting the test container. |
-| `tests` | Run the main check, then browser tests in the Playwright container. |
+| `tests` | Run all checks through Turbo in the Playwright container. |
 | `check` | Report the required merge status after successful tests or a documentation-only skip from `scope`. |
 
 PRs limited to root Markdown files, `docs/`, or the pull request template skip tests. Those paths also skip automatic releases.
