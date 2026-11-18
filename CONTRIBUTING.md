@@ -40,7 +40,7 @@ bun pm pack --ignore-scripts --destination .local
 npx --yes --package ./.local/humagent-0.1.0.tgz humagent --version
 ```
 
-The archive includes compiled code, browser assets, examples, the agent skill, and all public guides.
+The archive includes compiled code, browser assets, examples, and all public guides.
 Use its absolute path when running npx from another directory. npm installation does not build or download application assets.
 
 Check `npm view humagent version` before you change installation instructions.
@@ -53,10 +53,10 @@ bun run test
 
 This runs formatting, lint, the build, types, and a smoke suite of CLI, server, and browser workflows.
 `bun run check` caches successful tasks and build outputs with Turbo. It excludes Chromium.
-Unchanged inputs reuse results from `.local/turbo/`. Source, configuration, lockfile, and runtime changes invalidate results.
+Unchanged inputs reuse results from `.turbo/`. Source, configuration, lockfile, and runtime changes invalidate results.
 Run `bun run check --force` to execute every task again. Browser tests always run fresh.
 CI skips tests and releases for changes limited to root Markdown files, `docs/`, or the pull request template.
-Manual Check runs bypass task results and run the full suite. An unreadable PR diff does the same.
+Manual and merge-queue checks bypass task results and run the full suite. An unreadable PR diff does the same.
 The Check workflow uses Playwright's prepared browser image. Keep its version aligned with `@playwright/test`.
 
 For browser work, install Chromium once and run Playwright locally:
@@ -66,9 +66,8 @@ bunx --no-install playwright install chromium
 bun run test:browser:built
 ```
 
-`bun run check:release` packs the archive, then runs uncached checks and browser tests for unpublished versions.
-In CI, release browser setup installs only Chromium's headless shell after an unpublished archive passes the main check.
-Run `bun run check:release` locally before a release.
+`prepublishOnly` runs uncached checks, installs Chromium's headless shell, and runs browser tests before npm publishes.
+Run `npm publish --dry-run` to check that lifecycle without publishing.
 No automated test installs the archive. Use the commands in [Build an archive](#build-an-archive) for that check.
 
 ## Pull requests
@@ -78,7 +77,7 @@ No automated test installs the archive. Use the commands in [Build an archive](#
 - List the checks that you ran.
 - Note any remaining limits.
 - Require all Check workflow jobs to pass before merging.
-- Do not commit archives, test output, or `.local/`.
+- Do not commit archives, test output, `.local/`, or `.turbo/`.
 
 ## Documentation
 
@@ -94,9 +93,9 @@ Tests, documentation, and internal tooling usually do not need one.
 The [Release workflow](.github/workflows/release.yml) creates a version PR when Changesets reach `main`.
 Merging that PR publishes the version automatically if its full checks pass.
 
-The release commands check for an unpublished version before running expensive tests.
-It packs once, runs the checks, then publishes that **same tarball**.
-These commands do not install the archive. Use `bun run check:release` for a local dry run.
+`bun run release` uses standard Changesets publishing. Changesets skips versions already on npm.
+For unpublished versions, npm runs `prepublishOnly`, then builds and packs through `prepack`.
+Failed checks prevent publication. Version PR preparation does not install browsers or run publication hooks.
 
 Version `0.1.0` is on npm. Its notes in `CHANGELOG.md` list the initial features. Changesets add later versions above them.
 

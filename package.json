@@ -23,6 +23,7 @@
   },
   "files": [
     "dist",
+    "!dist/examples/*.d.ts",
     "docs",
     "CONTRIBUTING.md",
     "AGENTS.md",
@@ -37,20 +38,19 @@
   "scripts": {
     "changeset": "changeset",
     "version:packages": "changeset version && bun install --lockfile-only --ignore-scripts",
-    "build": "rm -rf dist && bun ./node_modules/typescript/bin/tsc -p tsconfig.json && cp src/ui/*.html src/ui/*.css dist/ui/ && cp src/examples/*.html src/examples/*.css dist/examples/ && rm dist/examples/*.d.ts && chmod 755 dist/cli/index.js",
-    "lint": "bunx --bun --no-install oxlint src test",
-    "format": "bunx --bun --no-install oxfmt src test tsconfig*.json package.json turbo.json",
-    "format:check": "bunx --bun --no-install oxfmt --check src test tsconfig*.json package.json turbo.json",
-    "typecheck": "bun ./node_modules/typescript/bin/tsc -p tsconfig.tools.json",
+    "build": "rm -rf dist && tsc && cp src/ui/*.{html,css} dist/ui/ && cp src/examples/*.{html,css} dist/examples/",
+    "lint": "oxlint src test",
+    "format": "oxfmt src test tsconfig*.json package.json turbo.json",
+    "format:check": "oxfmt --check src test tsconfig*.json package.json turbo.json",
+    "typecheck": "tsc -p tsconfig.tools.json",
     "test": "bun run check && bun run test:browser:built",
     "test:browser:built": "playwright test --config test/playwright.config.ts",
-    "check": "HUMAGENT_CHECK_RUNTIME=\"$(node -p '[process.platform,process.arch,require(\"os\").release(),process.version].join(\"/\")')/$(bun --version)\" turbo run format:check lint build typecheck test:fast --output-logs=new-only",
+    "check": "turbo run format:check lint build typecheck test:fast --output-logs=new-only",
     "test:fast": "bun test ./test/*.test.ts --timeout 15000",
     "prepack": "bun run build",
-    "check:release": "bun run release:pack && (test ! -f \".local/release/packages/$npm_package_name-$npm_package_version.tgz\" || bun run release:verify)",
-    "release": "test -f CHANGELOG.md && bun run check:release && (test -f \".local/release/packages/$npm_package_name-$npm_package_version.tgz\" || test \"$(npm view \"$npm_package_name@$npm_package_version\" version)\" = \"$npm_package_version\") && changeset publish --from-pack-dir .local/release",
-    "release:pack": "rm -rf .local/release && changeset pack --out-dir .local/release",
-    "release:verify": "bun run check --force && (test -z \"$CI\" || playwright install --with-deps --only-shell chromium) && bun run test:browser:built"
+    "release": "changeset publish",
+    "precheck": "mkdir -p .turbo && node --version > .turbo/node-version",
+    "prepublishOnly": "bun run check --force && playwright install --with-deps --only-shell chromium && bun run test:browser:built"
   },
   "devDependencies": {
     "@changesets/cli": "3.0.3",
