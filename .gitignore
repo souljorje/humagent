@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .local/
+.turbo
 *.tgz
 .DS_Store
 *.tar.gz

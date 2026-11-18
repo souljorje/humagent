@@ -43,7 +43,7 @@ if (!existsSync(archive)) {
       'Publish the initial version manually before enabling automated releases.',
     );
 
-  run(['run', 'check']);
+  run(['run', 'check', '--force']);
   // Version PRs and already published versions do not need browser setup.
   if (process.env.CI)
     run([

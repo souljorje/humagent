@@ -1,0 +1,18 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "cacheDir": ".local/turbo/cache",
+  "globalEnv": ["CI", "HUMAGENT_CHECK_RUNTIME", "NODE_OPTIONS", "BUN_OPTIONS"],
+  "tasks": {
+    "format:check": {},
+    "lint": {},
+    "build": {
+      "outputs": ["dist/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["build"]
+    },
+    "test:fast": {
+      "dependsOn": ["build"]
+    }
+  }
+}

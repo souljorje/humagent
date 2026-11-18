@@ -61,7 +61,17 @@ jobs:
         with:
           bun-version: '1.4.4'
       - run: bun install --frozen-lockfile
+      - name: Restore task results
+        if: github.event_name == 'pull_request'
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .local/turbo/cache
+          key: tasks-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock', 'turbo.json', '.github/workflows/check.yml') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            tasks-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock', 'turbo.json', '.github/workflows/check.yml') }}-
       - run: bun run check
+        env:
+          TURBO_FORCE: ${{ github.event_name == 'workflow_dispatch' || needs.scope.result != 'success' }}
       - run: bun run test:browser:built
       - if: failure()
         uses: actions/upload-artifact@v4
