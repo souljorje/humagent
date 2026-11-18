@@ -6,48 +6,27 @@
   "globalEnv": ["CI", "npm_config_user_agent", "NODE_OPTIONS", "BUN_OPTIONS"],
   "tasks": {
     "format:check": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!*.md",
-        "!docs/**",
-        "!.github/PULL_REQUEST_TEMPLATE.md"
-      ]
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!docs/**"]
     },
     "lint": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!*.md",
-        "!docs/**",
-        "!.github/PULL_REQUEST_TEMPLATE.md"
-      ]
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!docs/**"]
     },
     "build": {
       "inputs": [
         "$TURBO_DEFAULT$",
-        "!*.md",
+        "!**/*.md",
         "!docs/**",
-        "!.github/PULL_REQUEST_TEMPLATE.md",
         "!test/**",
         "!tsconfig.test.json"
       ],
       "outputs": ["dist/**"]
     },
     "typecheck": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!*.md",
-        "!docs/**",
-        "!.github/PULL_REQUEST_TEMPLATE.md"
-      ],
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!docs/**"],
       "dependsOn": ["build"]
     },
     "test:fast": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!*.md",
-        "!docs/**",
-        "!.github/PULL_REQUEST_TEMPLATE.md"
-      ],
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!docs/**"],
       "dependsOn": ["build"]
     },
     "test:browser:built": {
