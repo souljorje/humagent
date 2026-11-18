@@ -1,6 +1,6 @@
 {
   "name": "humagent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Comment on, rewrite, and answer local pages and apps, then send your AI agent one structured review.",
   "type": "module",
   "license": "MIT",
