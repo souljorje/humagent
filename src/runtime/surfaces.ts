@@ -297,6 +297,13 @@ export async function startSurface(
         { method: req.method, headers, timeout: 15000 },
         async (response) => {
           try {
+            const eventStream =
+              response.headers['content-type']
+                ?.split(';')[0]
+                ?.trim()
+                .toLowerCase() === 'text/event-stream';
+            // Keep the initial timeout, but allow an established event stream to stay silent.
+            if (eventStream) upstream.setTimeout(0);
             const out = { ...response.headers };
             for (const h of [
               'connection',
@@ -328,6 +335,7 @@ export async function startSurface(
               res.end(decorated(body, url.pathname + url.search));
             } else {
               res.writeHead(response.statusCode ?? 502, out);
+              if (eventStream) res.flushHeaders();
               response.pipe(res);
             }
           } catch (error) {

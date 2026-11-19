@@ -175,8 +175,23 @@ test('a proxied app keeps its own behavior and accepts comments and SDK submissi
   page,
   review,
 }) => {
+  let events: http.ServerResponse;
+  let streamClosed!: () => void;
+  const closed = new Promise<void>((resolve) => {
+    streamClosed = resolve;
+  });
   const app = http.createServer((request, response) => {
-    if (request.url === '/api/value')
+    if (request.url === '/events') {
+      events = response;
+      response.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+      });
+      response.flushHeaders();
+      response.on('close', streamClosed);
+    } else if (request.url === '/events/release') {
+      events.write('data: delivered\n\n');
+      response.end();
+    } else if (request.url === '/api/value')
       response.setHeader('content-type', 'application/json').end('{"v":42}');
     else if (request.url === '/app.js')
       response
@@ -200,6 +215,27 @@ test('a proxied app keeps its own behavior and accepts comments and SDK submissi
     expect(
       await review.evaluate(async () => (await fetch('/api/value')).json()),
     ).toEqual({ v: 42 });
+    // Open must arrive before any event data. Closing the browser stream releases upstream.
+    expect(
+      await review.evaluate(
+        () =>
+          new Promise<string>((resolve, reject) => {
+            const stream = new EventSource('/events');
+            stream.onopen = () => {
+              void fetch('/events/release').catch(reject);
+            };
+            stream.onmessage = (event) => {
+              stream.close();
+              resolve(event.data);
+            };
+            stream.onerror = () => {
+              stream.close();
+              reject(new Error('Event stream disconnected'));
+            };
+          }),
+      ),
+    ).toBe('delivered');
+    await closed;
     await review.addComment('#headline', 'Review an existing app.');
     const staged = await review.evaluate(() =>
       window.humagent.submit({ form: { choice: 'keep' } }),
