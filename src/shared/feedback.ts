@@ -74,7 +74,7 @@ export interface SessionView {
   revision: string;
   ended: boolean;
   createdAt: string;
-  agent: 'working' | 'connected' | 'idle';
+  agent: 'sent' | 'working' | 'connected' | 'idle';
   drafts: Draft[];
   instruction: string;
   /** Text edits that were sent but not completed. Pages keep previewing them. */

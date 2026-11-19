@@ -54,6 +54,7 @@ test('a text edit, a comment, and form choices reach the agent as one event with
   expect(feedback.source).toEqual({ kind: 'file', value: review.file });
 
   // The preview stays until the agent acknowledges its receipt.
+  await review.acknowledge(feedback, true);
   await expect(heading).toHaveText('Give your agent a clearer plan.');
   await review.acknowledge(feedback);
   await expect(heading).toHaveText(headline!);
@@ -78,6 +79,8 @@ test('sending requires a connected agent, and an ended session accepts no input'
   await send.click();
   const feedback = await review.receive();
   expect(feedback.events[0].instruction).toBe('Review this');
+  await expect(status).toHaveText('Feedback sent');
+  await review.acknowledge(feedback, true);
   await expect(status).toHaveText('Agent working');
   await review.acknowledge(feedback);
   await expect(status).toHaveText('No agent connected');

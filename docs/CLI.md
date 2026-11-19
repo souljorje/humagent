@@ -32,6 +32,8 @@ Update it with `npx skills update humagent`.
 
 ```sh
 humagent wait SESSION
+humagent ack SESSION --receipt RECEIPT --start
+# Apply and check the review.
 humagent ack SESSION --receipt RECEIPT
 ```
 
@@ -45,16 +47,17 @@ The server sends a space every 5 seconds to keep the connection open. The CLI pr
 
 | Result | Action |
 | --- | --- |
-| `feedback` | Read the events. Apply authorized changes. Acknowledge the receipt. |
+| `feedback` | Run `ack --start`. Apply authorized changes. Complete the receipt with `ack`. |
 | `ended` | Stop waiting. Reopen only on request. |
 | `interrupted` | The server stopped. `wait` starts it again, so run `wait` only when the review continues. |
 
-`ack --receipt` completes only the events of that receipt. Use the receipt from the latest `wait`.
+`ack --start` changes **Feedback sent** to **Agent working**. It keeps events and previews unfinished.
+`ack` without `--start` completes only the receipt's events. Use the receipt from the latest `wait`.
 
-Events stay unfinished until their receipt is acknowledged. The next `wait` returns them again. Check event IDs before you repeat consequential actions.
+Events stay unfinished until completion acknowledgment. The next `wait` returns them again. Check event IDs before you repeat consequential actions.
 
 Agent harnesses can stop long commands. If `wait` stops before a result, run it again. Unacknowledged events stay queued.
-In Claude Code, run `wait` as a background task. Claude Code wakes the agent when the command exits.
+Use background waiting only when the harness automatically resumes the agent on completion. Otherwise, keep the agent turn active.
 
 ## Server and storage
 
@@ -83,7 +86,7 @@ Use the same data directory across commands. Each session file under `sessions/`
 
 | Problem | Action |
 | --- | --- |
-| No agent connected | Ask the agent to run `wait`. New sends require a connected or working agent. |
+| No agent connected | Ask the agent to run `wait`. |
 | Feedback remains a draft | Choose Send from the floating bar. Forms and SDK calls only stage feedback. |
 | Agent turn ended | Send the agent a new message. |
 | Browser did not open | Open the printed URL on the same computer. |

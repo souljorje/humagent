@@ -19,6 +19,7 @@ Start here:
 
 Agent commands:
   humagent wait <session>                Wait until the user sends feedback
+  humagent ack <session> --receipt id --start  Confirm work has started
   humagent ack <session> --receipt id    Complete the events of a receipt
 
 Session commands:
@@ -42,7 +43,14 @@ Humagent does not run a model or change source files.
 The agent must run wait to receive browser input.
 Install the agent skill separately: npx skills add souljorje/humagent
 `;
-const booleanFlags = new Set(['no-open', 'network', 'help', 'version', 'json']);
+const booleanFlags = new Set([
+  'no-open',
+  'network',
+  'help',
+  'version',
+  'json',
+  'start',
+]);
 const flags = new Map<string, string>();
 const positional: string[] = [];
 let directory = '';
@@ -290,15 +298,20 @@ const commands: Record<string, Command> = {
     },
   },
   ack: {
-    flags: ['receipt'],
+    flags: ['receipt', 'start'],
     argument: true,
     async run(argument) {
       const route = sessionRoute(argument);
       ensure(flags.get('receipt'), '--receipt is required.');
       await output(
-        await request(await service(), `${route}/ack`, 'POST', {
-          receipt: flags.get('receipt'),
-        }),
+        await request(
+          await service(),
+          `${route}/ack${flags.has('start') ? '/start' : ''}`,
+          'POST',
+          {
+            receipt: flags.get('receipt'),
+          },
+        ),
       );
     },
   },
