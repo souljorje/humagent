@@ -1,5 +1,16 @@
 # humagent
 
+## 0.3.0
+
+### Minor Changes
+
+- 05f0f9f: Show “Feedback sent” until the agent confirms work with `ack --start`.
+  Keep completion acknowledgment separate so unfinished feedback and text previews remain available.
+
+### Patch Changes
+
+- 05f0f9f: Add a copyable agent command to the demo's Connect step.
+
 ## 0.2.0
 
 ### Minor Changes
