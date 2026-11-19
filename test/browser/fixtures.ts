@@ -154,8 +154,10 @@ async function createReview(page: Page, directory: string) {
       expect(feedback.status).toBe('feedback');
       return feedback;
     },
-    acknowledge: (feedback: Feedback) =>
-      api(`/api/sessions/${id}/ack`, 'POST', { receipt: feedback.receipt }),
+    acknowledge: (feedback: Feedback, start = false) =>
+      api(`/api/sessions/${id}/ack${start ? '/start' : ''}`, 'POST', {
+        receipt: feedback.receipt,
+      }),
     async restart() {
       await runtime.close();
       runtime = await createRuntime({ directory: state });

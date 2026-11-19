@@ -273,6 +273,11 @@ export async function createRuntime(options: RuntimeOptions) {
     store.acknowledge(id, (await body(c.req.raw)).receipt);
     return json(200, view(id));
   });
+  app.post(`${sessionPath}/ack/start`, async (c) => {
+    const id = c.req.param('id');
+    store.acknowledge(id, (await body(c.req.raw)).receipt, true);
+    return json(200, view(id));
+  });
   app.post(`${sessionPath}/wait`, async (c) => {
     await body(c.req.raw);
     const id = c.req.param('id');

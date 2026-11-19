@@ -118,9 +118,9 @@ Stale feedback cannot be silently rebound. See [refresh and recovery](USAGE.md#r
 
 The server owns drafts and delivery. The SDK owns targeting and temporary editors. It sends each request once.
 
-New events require a connected or working agent. Stored events remain available after disconnection or session ending.
+New events require a waiting agent or unfinished feedback. Stored events remain available after disconnection or session ending.
 
-Sent local previews remain until receipt acknowledgment. Cleanup cannot overwrite application changes or save rendered DOM into source.
+Sent local previews remain until completion acknowledgment. Cleanup cannot overwrite application changes or save rendered DOM into source.
 
 The workspace uses these routes with the session credential. Each write returns the current session.
 

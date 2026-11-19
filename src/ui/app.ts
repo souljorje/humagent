@@ -40,6 +40,7 @@ const AGENT_STATUS = {
   ended: 'Session ended',
   offline: 'Connection unavailable',
   connected: 'Agent connected',
+  sent: 'Feedback sent',
   working: 'Agent working',
   idle: 'No agent connected',
 };

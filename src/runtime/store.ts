@@ -28,6 +28,7 @@ const FORMAT = 3;
 interface Delivery {
   receipt: string;
   eventIds: string[];
+  started?: boolean;
 }
 export interface Session {
   id: string;
@@ -53,7 +54,13 @@ export function sessionView(s: Session, waiting: boolean): SessionView {
     revision: s.revision,
     ended: s.ended,
     createdAt: s.createdAt,
-    agent: s.delivery ? 'working' : waiting ? 'connected' : 'idle',
+    agent: s.delivery?.started
+      ? 'working'
+      : s.events.some((event) => event.status !== 'completed')
+        ? 'sent'
+        : waiting
+          ? 'connected'
+          : 'idle',
     drafts: s.drafts,
     instruction: s.instruction,
     sent: s.events
@@ -95,6 +102,8 @@ function readSession(saved: unknown, id: string): Session {
           !s.surfacePath.includes('\\'))),
     'Unsupported or corrupt session',
   );
+  // A previous process cannot confirm that the agent is still working.
+  if (s.delivery) s.delivery.started = false;
   return s;
 }
 /** Stale input is never rebound to a newer page revision. */
@@ -348,7 +357,7 @@ export class Store extends EventEmitter {
         })),
     };
   }
-  acknowledge(id: string, receipt: unknown) {
+  acknowledge(id: string, receipt: unknown, start = false) {
     const s = this.get(id);
     if (typeof receipt === 'string' && s.acknowledged.includes(receipt))
       return s;
@@ -358,6 +367,10 @@ export class Store extends EventEmitter {
       'STALE_RECEIPT',
       409,
     );
+    if (start)
+      return s.delivery!.started
+        ? s
+        : this.commit({ ...s, delivery: { ...s.delivery!, started: true } });
     const ids = new Set(s.delivery!.eventIds);
     return this.commit({
       ...s,

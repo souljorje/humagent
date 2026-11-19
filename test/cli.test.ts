@@ -86,16 +86,46 @@ for (const runtime of ['bun', 'node'])
       assert.equal(batch.status, 'feedback');
       assert.equal(batch.events[0].instruction, 'Check this interface.');
       assert.equal(batch.events[0].revision, snapshot.revision);
+      assert.equal((await run('status', opened.session)).agent, 'sent');
+      for (let i = 0; i < 2; i++)
+        assert.equal(
+          (
+            await run(
+              'ack',
+              opened.session,
+              '--receipt',
+              batch.receipt,
+              '--start',
+            )
+          ).agent,
+          'working',
+        );
 
       // An unacknowledged event survives a restart. Only its newest receipt is valid.
       await stop();
       const resumed = await run('open', source, '--no-open');
       assert.equal(resumed.session, opened.session);
+      assert.equal((await run('status', opened.session)).agent, 'sent');
       const redelivered = await run('wait', opened.session);
       assert.equal(redelivered.events[0].id, batch.events[0].id);
       assert.equal(redelivered.events[0].deliveries, 2);
       await assert.rejects(() =>
         run('ack', opened.session, '--receipt', batch.receipt),
+      );
+      await assert.rejects(() =>
+        run('ack', opened.session, '--receipt', batch.receipt, '--start'),
+      );
+      assert.equal(
+        (
+          await run(
+            'ack',
+            opened.session,
+            '--receipt',
+            redelivered.receipt,
+            '--start',
+          )
+        ).agent,
+        'working',
       );
       await run('ack', opened.session, '--receipt', redelivered.receipt);
       assert.equal((await run('status', opened.session)).agent, 'idle');

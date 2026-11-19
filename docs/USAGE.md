@@ -15,10 +15,13 @@ Start from your agent with `/humagent ./page.html` or `/humagent http://localhos
 
 To connect an agent to a page that is already open, expand the floating bar. Copy its `humagent wait SESSION` command to your agent chat.
 
-**Agent connected** means a `wait` command is running. **Agent working** means the agent has events that it did not acknowledge yet. **No agent connected** means neither is true.
-The status dot is green while an agent is connected and blue while it works. It is amber with no agent, red without a connection, and gray after the session ends.
+**Agent connected** means a `wait` command is running. **Feedback sent** means unfinished feedback awaits the agent's start acknowledgment.
+**Agent working** means the agent confirmed work with `ack --start`. This confirms intent, not a live connection.
+**No agent connected** means no command is waiting and no feedback remains unfinished. A server restart clears the working status.
+The status dot is green while an agent waits and blue after start acknowledgment.
+It is amber before acknowledgment or without an agent, red without a server connection, and gray after the session ends.
 
-New sends require an agent that is connected or working. Accepted feedback remains stored if the agent disconnects.
+New sends require a waiting agent or unfinished feedback. Accepted feedback remains stored if the agent disconnects.
 
 ## Comment and edit
 
@@ -49,12 +52,12 @@ Expand the bar to inspect drafts, connection status, and errors. Hover a draft t
 | Draft | Saved on the server, not sent |
 | Sending | The server turns all drafts and the instruction into one event |
 | Queued | The server stored the event |
-| Delivered | The agent received the event and did not acknowledge it yet |
-| Completed | The agent acknowledged the receipt |
+| Delivered | A `wait` command received the event |
+| Completed | The agent confirmed completion with `ack` |
 
 A failed send keeps the drafts. The workspace then reads the current server state again.
 
-Sent drafts and markers leave the list. Local text previews remain until acknowledgment or a source revision change. Cleanup must not overwrite application changes.
+Sent drafts and markers leave the list. Local text previews remain until completion acknowledgment or a source revision change. Cleanup must not overwrite application changes.
 
 The agent reports results in its own chat. Acknowledgment does not grant permission for additional actions.
 
