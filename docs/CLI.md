@@ -18,6 +18,8 @@ Keep the page and its assets in one directory. Humagent serves supported files f
 
 The demo opens an editable plan under `demos/VERSION/plan` in the data directory. It preserves existing files.
 
+Proxied event streams stay open while idle after their headers arrive. Other proxied HTTP responses keep a 15-second idle timeout.
+
 ## Agent skill
 
 The package does not include the skill. Install it with the [skills CLI](https://github.com/vercel-labs/skills):
