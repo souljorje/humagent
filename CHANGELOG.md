@@ -1,5 +1,11 @@
 # humagent
 
+## 0.3.1
+
+### Patch Changes
+
+- 5d2fe9d: Keep proxied server-sent event streams open while idle and forward their headers immediately.
+
 ## 0.3.0
 
 ### Minor Changes
