@@ -4,21 +4,33 @@ See the [README](../README.md#install) for installation. Use `humagent --help` f
 
 Use `--json` for JSON results. Piped results also use JSON.
 
-## Pages
+## Agent loop
 
 ```sh
-humagent open ./page.html
-humagent open http://127.0.0.1:3000/path
+humagent ./page.html
+humagent http://127.0.0.1:3000/path
+# Apply and check the feedback.
+humagent ./page.html --done RECEIPT
+```
+
+`humagent SOURCE` opens the source, or reuses its session, and waits for feedback. The first call opens the browser.
+It prints the private URL on the error stream. The result adds the session ID to the feedback.
+
+`--done RECEIPT` completes that receipt, then waits again. Repeat this command until the session ends.
+
+Keep the page and its assets in one directory. Humagent serves supported files from that directory. See [network restrictions](SECURITY.md#network).
+Use `--no-open` to open the URL yourself.
+Use `--no-wait` to exit after the command opens the page or completes the receipt.
+
+Proxied event streams stay open while idle after their headers arrive. Other proxied HTTP responses keep a 15-second idle timeout.
+
+## Demo
+
+```sh
 humagent demo
 ```
 
-`open` starts the server and returns a session ID and private URL. Use `--no-open` to open the URL yourself.
-
-Keep the page and its assets in one directory. Humagent serves supported files from that directory. See [network restrictions](SECURITY.md#network).
-
 The demo opens an editable plan under `demos/VERSION/plan` in the data directory. It preserves existing files.
-
-Proxied event streams stay open while idle after their headers arrive. Other proxied HTTP responses keep a 15-second idle timeout.
 
 ## Agent skill
 
@@ -32,33 +44,22 @@ Update it with `npx skills update humagent`.
 
 ## Receive input
 
-```sh
-humagent wait SESSION
-humagent ack SESSION --receipt RECEIPT --start
-# Apply and check the review.
-humagent ack SESSION --receipt RECEIPT
-```
+Each **Send** action delivers one feedback with an optional `instruction` and ordered `reviews`. See the [feedback format](SDK.md#feedback-format).
+One receipt can cover several feedback entries. Process the `instruction` and `reviews` of each entry together.
 
-Use the session ID from `open`. `wait` returns every unfinished event with a new receipt.
-
-Each **Send** action creates one event with an optional `instruction` and ordered `items`. See the [event format](SDK.md#event-format).
-One receipt can cover several review events. Process each event's `instruction` and `items` together.
-
-`wait` blocks until the user sends feedback or ends the session. It has no time limit.
+The command blocks until the human sends feedback or ends the session. It has no time limit.
 The server sends a space every 5 seconds to keep the connection open. The CLI prints only the result.
 
 | Result | Action |
 | --- | --- |
-| `feedback` | Run `ack --start`. Apply authorized changes. Complete the receipt with `ack`. |
+| `feedback` | Apply authorized changes. Then run the command with `--done RECEIPT`. |
 | `ended` | Stop waiting. Reopen only on request. |
-| `interrupted` | The server stopped. `wait` starts it again, so run `wait` only when the review continues. |
+| `interrupted` | The server stopped. The command starts it again, so run it only when the work continues. |
 
-`ack --start` changes **Feedback sent** to **Agent working**. It keeps events and previews unfinished.
-`ack` without `--start` completes only the receipt's events. Use the receipt from the latest `wait`.
+Delivered feedback shows **Agent working** in the bar. The status stays until the agent completes the receipt.
+Feedback stays unfinished until completion. The next wait returns it again with a new receipt. Check feedback IDs before you repeat consequential actions.
 
-Events stay unfinished until completion acknowledgment. The next `wait` returns them again. Check event IDs before you repeat consequential actions.
-
-Agent harnesses can stop long commands. If `wait` stops before a result, run it again. Unacknowledged events stay queued.
+Agent harnesses can stop long commands. If the command stops before a result, run it again. Unfinished feedback stays queued.
 Use background waiting only when the harness automatically resumes the agent on completion. Otherwise, keep the agent turn active.
 
 ## Server and storage
@@ -72,7 +73,7 @@ humagent server --port N
 
 `status` reports the runtime, package files, server, and sessions. `status SESSION` reports one session. With a stopped server it reports the runtime instead. It never starts a stopped server.
 
-`end` rejects new input but keeps queued events available. `stop` retains saved sessions.
+`end` rejects new input but keeps queued feedback available. `stop` retains saved sessions.
 
 | Setting | Meaning |
 | --- | --- |
@@ -81,19 +82,19 @@ humagent server --port N
 | `HUMAGENT_PORT` | Server port, or `0` for a free port |
 
 The server selects a free loopback port at each start unless `--port` or `HUMAGENT_PORT` sets one.
-After a restart, run `open` with the same source again. It reuses the saved session and returns the new URL.
-Use the same data directory across commands. Each session file under `sessions/` keeps drafts and events.
+After a restart, run `humagent SOURCE` again. It reuses the saved session and prints the new URL.
+Use the same data directory across commands. Each session file under `sessions/` keeps pending reviews and feedback.
 
 ## Troubleshooting
 
 | Problem | Action |
 | --- | --- |
-| No agent connected | Ask the agent to run `wait`. |
-| Feedback remains a draft | Choose Send from the floating bar. Forms and SDK calls only stage feedback. |
+| No agent connected | Start `/humagent SOURCE` in your agent chat. |
+| Feedback stays pending | Open the bar and choose Send. Forms and SDK calls only save pending reviews. |
 | Agent turn ended | Send the agent a new message. |
 | Browser did not open | Open the printed URL on the same computer. |
-| Older server running | Run `humagent stop`. Repeat `open`. |
-| Server restarted | Repeat `open` with the same source. Use the new URL. |
+| Older server running | Run `humagent stop`. Run `humagent SOURCE` again. |
+| Server restarted | Run `humagent SOURCE` again. Use the new URL. |
 | Source changed | Follow [refresh and recovery](USAGE.md#refresh-and-recovery) and inspect [revision rules](SDK.md#revisions). |
 | App cannot connect | Check its HTML route and [attachment limits](SECURITY.md#network). |
 | Stored session is unreadable | See [stored sessions](#stored-sessions). |

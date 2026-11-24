@@ -8,7 +8,7 @@
 
 Works with any harness. Runs locally. Needs no account or API key.
 
-[![Humagent demo: review a page and send structured feedback to your agent](./docs/humagent-demo.gif)](./docs/humagent-demo.gif)
+[![Humagent demo: give feedback on a page and send it to your agent](./docs/humagent-demo.gif)](./docs/humagent-demo.gif)
 
 ### Use cases
 
@@ -39,7 +39,7 @@ humagent demo
 Or open your own file or local app:
 
 ```sh
-humagent open ./page.html
+humagent ./page.html
 ```
 
 ## Agent skill
@@ -61,6 +61,7 @@ Generate an interactive page:
 ## Docs
 
 - [Usage](docs/USAGE.md)
+- [Glossary](docs/GLOSSARY.md)
 - [CLI](docs/CLI.md)
 - [SDK](docs/SDK.md)
 - [Security](docs/SECURITY.md)

@@ -35,13 +35,15 @@ v0.1 excludes remote sites, Markdown rendering, rich-text edits, and MCP Apps. C
 
 ## Credentials and storage
 
-Keep session URLs private. Their fragments carry a session credential. The workspace moves it to session storage and removes the fragment.
+Keep session URLs private. Their fragments carry the session key. The workspace moves it to session storage and removes the fragment.
 
-That credential permits input, saved state, event access, and session ending. Only the separate control token permits opening sources, waits, and acknowledgments.
+That credential permits input, saved state, feedback access, and session ending.
+The workspace checks every review from the page against the rules of its kind. The server checks only the review envelope and the limits.
+A client with the session key can therefore save any JSON as review data. Only the separate control token permits opening sources, waits, and receipt completion.
 Credentials stay outside page frames.
 
 Each session uses a separate file under `sessions/` in the data directory.
-That file stores drafts, the instruction, and events. Humagent does not encrypt them.
+That file stores pending reviews, the instruction, and feedback. Humagent does not encrypt them.
 Marked forms save their values as the human types. Keep secrets out of marked forms.
 Where supported, the data directory uses `0700`. Control and atomic session files use `0600`.
 
@@ -49,4 +51,4 @@ Where supported, the data directory uses `0700`. Control and atomic session file
 
 Page scripts can submit requests without a human gesture. Treat page content as untrusted input. Keep the agent's existing permissions.
 
-Acknowledgment marks the receipt's events complete. It does not grant permission for external actions. Unacknowledged events return on the next `wait`. Check event IDs before you repeat actions.
+Completion marks the receipt's feedback done. It does not grant permission for external actions. Unfinished feedback returns on the next wait. Check feedback IDs before you repeat actions.
