@@ -37,12 +37,14 @@ Rendering code builds Humagent's own DOM from a model and reports input through 
 A plugin is one module in `src/plugins/` that exports one object. Its `kind` is the review kind.
 
 ```ts
-export const flag = definePlugin({
+import type { Plugin } from '../shared/plugin.js';
+
+export const flag: Plugin = {
   kind: 'flag',
   contract: { target: true, validate: () => undefined },
   page(host) { /* behavior in the page */ return {}; },
   workspace: { card: { title: () => 'Flag' } },
-});
+};
 ```
 
 | Member | Purpose |
