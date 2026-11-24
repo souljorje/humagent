@@ -33,7 +33,7 @@ Give each form an accessible name, such as `aria-labelledby`. Label each control
 
 Custom pages can add structured feedback through `window.humagent.submit()`.
 Forms and `submit()` add pending reviews. The user chooses **Send** to deliver all pending reviews as one feedback.
-See the [SDK guide](https://github.com/souljorje/humagent/blob/main/docs/SDK.md) for details.
+See the [reference guide](https://github.com/souljorje/humagent/blob/main/docs/reference.md) for details.
 
 ## Feedback loop
 

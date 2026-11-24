@@ -16,7 +16,6 @@ Change the glossary first when a name changes.
 | feedback | Everything that one Send delivers to the agent: the instruction and the reviews that were pending. |
 | review | One piece of feedback, such as a comment, a text edit, or form values. |
 | comment | The human's text on one review. A review of kind `comment` has only this text. |
-| saved review | A review as the server stores it, with its revision, key, and local data. The agent receives only the review. |
 | kind | The type of a review. One plugin defines each kind. |
 | target | The page element that a review refers to. |
 | pending | Not sent. A review is pending until the human chooses Send. |

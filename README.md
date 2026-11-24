@@ -8,7 +8,7 @@
 
 Works with any harness. Runs locally. Needs no account or API key.
 
-[![Humagent demo: give feedback on a page and send it to your agent](./docs/humagent-demo.gif)](./docs/humagent-demo.gif)
+[![Humagent demo: give feedback on a page and send it to your agent](https://raw.githubusercontent.com/souljorje/humagent/main/assets/humagent-demo.gif)](https://github.com/souljorje/humagent/blob/main/assets/humagent-demo.gif)
 
 ### Use cases
 
@@ -60,13 +60,12 @@ Generate an interactive page:
 
 ## Docs
 
-- [Usage](docs/USAGE.md)
-- [Glossary](docs/GLOSSARY.md)
-- [CLI](docs/CLI.md)
-- [SDK](docs/SDK.md)
-- [Security](docs/SECURITY.md)
-- [Development](docs/development.md)
-- [Contributing](CONTRIBUTING.md)
+- [Usage](docs/usage.md): annotate, edit, send, recover
+- [Reference](docs/reference.md): commands, page API, feedback format
+- [Glossary](docs/GLOSSARY.md): names used in code, documents, and the interface
+- [Development](docs/development.md): checks, architecture, plugins, release
+- [Contributing](CONTRIBUTING.md): local setup
+- [Security](SECURITY.md): trust model and limits
 - [Edit the demo video](assets/humagent-film/README.md)
 
 ## Contribute

@@ -1,68 +1,61 @@
 # Engineering
 
+Humagent adds a feedback layer to local pages. A human annotates a page. An agent applies the feedback. The agent completes a receipt.
+
 Preserve application behavior. Keep task-specific requests as data, not backend handlers.
 
-## Architecture
+## Map
 
-Keep the transport free of review kinds. Put each kind in one plugin module under `src/plugins/`.
-See [Add a plugin](docs/development.md#add-a-plugin).
+| Path | Contains |
+| --- | --- |
+| `src/cli/` | Commands and startup |
+| `src/server/` | Server, sessions, storage, page serving |
+| `src/ui/` | Workspace state, bar, page bridge |
+| `src/sdk/` | Injected page host: bridge, targeting, overlay |
+| `src/plugins/` | One review kind per module |
+| `src/shared/` | Contracts, validation, helpers |
+| `src/examples/` | Example pages |
+| `test/` | CLI, server, and browser tests |
 
-## Terms
+## Invariants
 
-Use the terms in the [glossary](docs/GLOSSARY.md) in code, documents, and the interface.
-Change the glossary first when you rename a thing.
+- Keep the transport free of review kinds. One module in `src/plugins/` defines each kind.
+- The server stores `data` as JSON. It checks the envelope and the limits only.
+- Include the target and the revision in each interaction. Never reassign stale input.
+- Keep input until the agent completes its receipt.
+- Never serialize a running application's DOM into source. Keep credentials outside frames.
+- Follow the agent's existing permissions for consequential actions.
 
 ## Runtime
 
-Use Bun 1.4.4 for development, dependencies, builds, and tests. Keep `bun.lock` and frozen installation in CI.
+- Use Bun 1.4.4 for installs, builds, and tests. Keep `bun.lock` frozen in CI.
+- Use TypeScript everywhere. Compile browser code to native JavaScript modules.
+- Support Node.js 24+ and Bun 1.4.4+ in published code. npm users must not need Bun.
+- Keep temporary output in `.local/`, except `.turbo/`.
 
-Use TypeScript for application code, examples, scripts, and tests. Compile browser code to native JavaScript modules.
+## Checks
 
-Published JavaScript must run on Node.js 24+ and Bun 1.4.4+. Keep the Node shebang for npm/npx compatibility.
-Child servers must use the CLI's runtime executable. npm users must not need Bun.
+- Run `bun run check` after each increment.
+- Run `bun run test:browser:built` for browser, SDK, or test changes.
+- Keep the suite a smoke suite. Test each workflow once, through the browser or the CLI.
+- Extend a test before you add a test. Keep coverage for permissions, revisions, receipts, persistence, and runtime.
+- Report the checks that you ran. Do not claim unexecuted checks passed.
+- See [Development](docs/development.md#checks) for browser setup, caching, and CI.
 
-Keep temporary output in `.local/`, except Turbo's standard `.turbo/` directory.
+## Names
 
-## Validation
-
-Run `bun run check` after each coding increment.
-For browser, SDK, or test changes, run `bun run test:browser:built` after the main check. CI runs both unless only documentation changes.
-
-Keep the tests a smoke suite. Test each user workflow one time. Use the browser or the CLI for that test.
-Extend an existing test before you add a test. Remove duplicate or obsolete coverage.
-Do not add a unit test for behavior that a workflow test covers.
-Keep at least one check for each of permission, revision, receipt, persistence, and runtime.
-Prefer request cancellation and explicit response gates over fixed delays.
-
-Follow [release instructions](CONTRIBUTING.md#changesets-and-release) for versioning and publication.
-Before a release, check the archive with the [archive commands](CONTRIBUTING.md#build-an-archive).
-
-Report executed checks and limits. Do not claim unexecuted tests passed.
-
-## Data and permissions
-
-Include target and revision in each interaction. Keep input until the agent completes its receipt. Do not reassign stale input to another target.
-
-Never serialize a running application's DOM into source. Keep control credentials outside frames. Follow the agent's existing permissions for consequential actions.
-
-## Attribution
-
-Limit dependencies. Keep upstream names, authors, source references, and complete license notices only in the root README.
-
-Include that README in every package. Link helper headers to its notices. Check source and package contents.
+Use the [glossary](docs/GLOSSARY.md). Change the glossary first when a name changes.
 
 ## Documentation
 
-Use the [ASD-STE100 skill](https://github.com/danyuchn/asd-ste100-skill/blob/master/SKILL.md).
-Use strict rules for procedures and agent instructions, and prose rules for explanations.
-
-Keep instructions within 20 words per sentence and descriptions within 25. Use one instruction per sentence, active voice, and consistent terms.
-
-Remove repetition and obvious statements. Define necessary terms. Do not use semicolons in prose.
-Preserve conditions, numbers, scope, and uncertainty. Do not claim dictionary compliance or untested compatibility.
+- Write for an agent first and a human second.
+- Describe what exists and what constrains it. Leave mechanics to code.
+- Keep one fact in one file. Link to the owner of each other fact.
+- Keep procedures under 20 words per sentence. Keep descriptions under 25.
+- Use active voice and one instruction per sentence. Do not use semicolons in prose.
+- Follow the [ASD-STE100 skill](https://github.com/danyuchn/asd-ste100-skill/blob/master/SKILL.md).
+- Keep upstream names, authors, source references, and license notices only in the root README. Include that README in each package.
 
 ## Release
 
-Ship compiled JavaScript, browser assets, and examples. The skill installs separately with `npx skills`. Installation must not run build or download scripts.
-
-Do not publish, merge, deploy, or expose local ports without authorization.
+Follow [Development](docs/development.md#release). Do not publish, merge, deploy, or expose local ports without authorization.
