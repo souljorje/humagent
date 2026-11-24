@@ -7,7 +7,7 @@ import type {
   PagePlugin,
   WorkspacePlugin,
 } from '../shared/plugin.js';
-import { element } from '../shared/dom.js';
+import { createElement } from '../shared/dom.js';
 import { errorMessage } from '../shared/errors.js';
 import { ensure, object, text as limited } from '../shared/validate.js';
 
@@ -294,10 +294,9 @@ function showStatus(form: HTMLFormElement, message: string) {
   let output = form.querySelector<HTMLElement>('[data-humagent-form-status]');
   if (!output && !message) return;
   if (!output) {
-    output = document.createElement('output');
+    output = createElement('output', { role: 'status' });
     output.dataset.humagentFormStatus = '';
     output.dataset.humagentUi = '';
-    output.setAttribute('role', 'status');
     form.append(output);
   }
   output.textContent = message;
@@ -310,7 +309,7 @@ const card: WorkspacePlugin['card'] = {
   body(saved) {
     const data = formOf(saved);
     if (!data) return;
-    const values = element('dl');
+    const values = createElement('dl');
     // Forms send readable labels for the bar. SDK calls show raw values.
     const fields =
       labelsOf(saved.local)?.fields ??
@@ -319,7 +318,10 @@ const card: WorkspacePlugin['card'] = {
         value: typeof value === 'string' ? value : JSON.stringify(value),
       }));
     for (const { label, value } of fields)
-      values.append(element('dt', label), element('dd', value));
+      values.append(
+        createElement('dt', { textContent: label }),
+        createElement('dd', { textContent: value }),
+      );
     return values;
   },
   styles: `

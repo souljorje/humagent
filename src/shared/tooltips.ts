@@ -1,3 +1,4 @@
+import { createElement } from './dom.js';
 import { materialStyles } from './material-styles.js';
 
 /** Tooltips stay outside clipped panels. Disabled buttons retain a keyboard focus target. */
@@ -30,11 +31,12 @@ export function installTooltips(root: Document | ShadowRoot) {
     @media(prefers-reduced-motion:reduce){.control-tooltip{transition:none}}
   `);
   root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
-  const tooltip = document.createElement('div');
-  tooltip.className = 'control-tooltip glass-surface';
-  tooltip.id = `tooltip-${crypto.randomUUID()}`;
-  tooltip.role = 'tooltip';
-  tooltip.hidden = true;
+  const tooltip = createElement('div', {
+    className: 'control-tooltip glass-surface',
+    id: `tooltip-${crypto.randomUUID()}`,
+    role: 'tooltip',
+    hidden: true,
+  });
   container.append(tooltip);
   let active: HTMLElement | null = null;
   let timer: ReturnType<typeof setTimeout>;
@@ -103,8 +105,7 @@ export function installTooltips(root: Document | ShadowRoot) {
     if (button.classList.contains('marker')) return;
     let wrapper = button.parentElement!;
     if (!wrapper.classList.contains('tooltip-anchor')) {
-      wrapper = document.createElement('span');
-      wrapper.className = 'tooltip-anchor';
+      wrapper = createElement('span', { className: 'tooltip-anchor' });
       button.before(wrapper);
       wrapper.append(button);
     }

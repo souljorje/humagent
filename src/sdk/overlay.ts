@@ -1,5 +1,5 @@
 /** The page overlay: comment panel, markers, highlight, and keyboard hint. It draws a model and reports input. */
-import { autosize, clickPoint, setText } from '../shared/dom.js';
+import { autosize, clickPoint, createElement, setText } from '../shared/dom.js';
 import { cssVariables } from '../shared/css-variables.js';
 import { icon } from '../shared/icons.js';
 import { inputStyles } from '../shared/input-styles.js';
@@ -54,7 +54,7 @@ export interface OverlayActions {
 }
 
 export function createOverlayView(actions: OverlayActions) {
-  const host = document.createElement('div');
+  const host = createElement('div');
   host.dataset.humagentUi = '';
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.innerHTML = `<style>
@@ -175,8 +175,9 @@ export function createOverlayView(actions: OverlayActions) {
     if (el.style.transform !== transform) el.style.transform = transform;
   }
   function createMarker(id: string) {
-    const marker = document.createElement('button');
-    marker.className = 'marker glass-surface';
+    const marker = createElement('button', {
+      className: 'marker glass-surface',
+    });
     marker.dataset.reviewId = id;
     marker.onpointerdown = (event) => {
       if (event.button !== 0 || !event.isPrimary) return;

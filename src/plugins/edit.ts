@@ -7,7 +7,7 @@ import type {
   PagePlugin,
   WorkspacePlugin,
 } from '../shared/plugin.js';
-import { element } from '../shared/dom.js';
+import { createElement } from '../shared/dom.js';
 import { object, text } from '../shared/validate.js';
 import { editOf, type EditData } from './edit/data.js';
 import { createEditor } from './edit/editor.js';
@@ -131,13 +131,16 @@ const card: WorkspacePlugin['card'] = {
   body(saved, tools) {
     const data = editOf(saved);
     if (!data) return;
-    const diff = element('p', '', 'edit');
-    diff.setAttribute('role', 'group');
-    diff.setAttribute('aria-label', 'Text changes');
-    // The diff takes pointer input so it can scroll. A click still opens the editor.
-    diff.onclick = tools.open;
+    const diff = createElement('p', {
+      className: 'edit',
+      role: 'group',
+      ariaLabel: 'Text changes',
+      onclick: tools.open,
+    });
     for (const part of textDiff(data.before, data.after))
-      diff.append(element(DIFF_TAG[part.kind], part.text));
+      diff.append(
+        createElement(DIFF_TAG[part.kind], { textContent: part.text }),
+      );
     return diff;
   },
   // The diff scrolls on its own. A click on it opens the editor like the rest of the row.

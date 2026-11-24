@@ -1,4 +1,5 @@
 /** The inline text editor: one editable span in place of a text node. It reports input and makes no requests. */
+import { createElement } from '../../shared/dom.js';
 import { caretAtPoint } from './text-hit.js';
 
 const lf = (value = '') => value.replace(/\r\n/g, '\n');
@@ -13,19 +14,20 @@ export function createEditor(
   initial: string,
   actions: { input(): void; confirm(): void; cancel(): void },
 ) {
-  const element = document.createElement('span');
-  element.dataset.humagentUi = '';
-  element.dataset.humagentText = '';
   // Native plaintext-only editing forces pre-wrap, exposing HTML indentation.
   // Preserve application whitespace and handle plain-text input below.
-  element.contentEditable = 'true';
-  element.setAttribute('role', 'textbox');
-  element.setAttribute('aria-label', 'Edit text');
-  element.setAttribute('aria-multiline', 'true');
-  element.spellcheck = false;
+  const element = createElement('span', {
+    contentEditable: 'true',
+    role: 'textbox',
+    ariaLabel: 'Edit text',
+    ariaMultiLine: 'true',
+    spellcheck: false,
+    textContent: initial,
+  });
+  element.dataset.humagentUi = '';
+  element.dataset.humagentText = '';
   element.style.cssText =
     'display:inline;white-space:inherit;outline:none;cursor:text;min-width:1ch;';
-  element.textContent = initial;
   if (!initial) element.style.display = 'inline-block';
   element.addEventListener('input', (event) => {
     event.stopPropagation();
@@ -42,14 +44,14 @@ export function createEditor(
     range.deleteContents();
     const fragment = document.createDocumentFragment();
     for (const [index, line] of value.split('\n').entries()) {
-      if (index) fragment.append(document.createElement('br'));
+      if (index) fragment.append(createElement('br'));
       fragment.append(document.createTextNode(line));
     }
     const last = fragment.lastChild as Text;
     range.insertNode(fragment);
     // A trailing line break needs a following node, or the browser does not show the new line.
     if (!element.querySelector('[data-humagent-placeholder]')) {
-      const end = document.createElement('br');
+      const end = createElement('br');
       end.dataset.humagentPlaceholder = '';
       element.append(end);
     }

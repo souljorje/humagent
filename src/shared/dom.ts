@@ -1,15 +1,11 @@
 /** Helpers for rendering code, which builds Humagent's own DOM. */
 
-/** Create an element with text and a class. */
-export function element<K extends keyof HTMLElementTagNameMap>(
+/** Create an HTML element with optional DOM properties. */
+export function createElement<K extends keyof HTMLElementTagNameMap>(
   tag: K,
-  text = '',
-  className?: string,
-) {
-  const el = document.createElement(tag);
-  el.textContent = text;
-  if (className) el.className = className;
-  return el;
+  properties?: Partial<HTMLElementTagNameMap[K]>,
+): HTMLElementTagNameMap[K] {
+  return Object.assign(document.createElement(tag), properties);
 }
 /** Write text only when it changes, so live regions do not announce it again. */
 export function setText(el: Element, text: string) {

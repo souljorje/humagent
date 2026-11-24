@@ -6,7 +6,12 @@ import type {
   BarModel,
   BarView,
 } from './workspace.js';
-import { adoptStyles, autosize, element, setText } from '../shared/dom.js';
+import {
+  adoptStyles,
+  autosize,
+  createElement,
+  setText,
+} from '../shared/dom.js';
 import { icon } from '../shared/icons.js';
 import { installTooltips } from '../shared/tooltips.js';
 import { inputStyles } from '../shared/input-styles.js';
@@ -43,7 +48,10 @@ export function createBar(
     $('send').dataset.state = label;
     const name =
       label === 'Sending…' ? 'spinner' : label === 'Sent' ? 'check' : 'send';
-    $('send').innerHTML = `${icon(name)}<span class="sr-only">${label}</span>`;
+    $('send').innerHTML = icon(name);
+    $('send').append(
+      createElement('span', { className: 'sr-only', textContent: label }),
+    );
   }
   showSendState('Send');
   installTooltips(document);
@@ -123,36 +131,47 @@ export function createBar(
     ] of current.pending.entries()) {
       const review = saved.review;
       const card = plugins.get(review.kind)?.workspace?.card;
-      const li = element('li', '', 'review');
+      const li = createElement('li', { className: 'review' });
       li.dataset.reviewId = review.id;
       li.dataset.stale = String(stale);
-      const content = element('div', '', 'review-content');
+      const content = createElement('div', { className: 'review-content' });
       li.append(content);
       content.append(
-        element('div', card?.title(saved) ?? review.kind, 'review-title'),
+        createElement('div', {
+          className: 'review-title',
+          textContent: card?.title(saved) ?? review.kind,
+        }),
       );
       const body = card?.body?.(saved, {
         open: () =>
           li.querySelector<HTMLButtonElement>('.review-open')?.click(),
       });
       if (body) content.append(body);
-      if (review.comment) content.append(element('p', review.comment));
+      if (review.comment)
+        content.append(createElement('p', { textContent: review.comment }));
       const status = stale
         ? 'Stale revision. Recreate or remove this review.'
         : unavailable
           ? 'Target unavailable. Inspect or remove this review.'
           : '';
-      if (status) content.append(element('p', status, 'review-status'));
+      if (status)
+        content.append(
+          createElement('p', {
+            className: 'review-status',
+            textContent: status,
+          }),
+        );
       if (review.target) {
-        const open = element('button');
-        open.disabled = !mutable || !!status;
-        open.onclick = () => {
-          $('frame').focus();
-          actions.open(review.id);
-        };
-        open.className = 'review-open';
-        open.setAttribute('aria-label', `Edit review ${index + 1}`);
-        open.setAttribute('aria-haspopup', 'dialog');
+        const open = createElement('button', {
+          className: 'review-open',
+          disabled: !mutable || !!status,
+          ariaLabel: `Edit review ${index + 1}`,
+          ariaHasPopup: 'dialog',
+          onclick() {
+            $('frame').focus();
+            actions.open(review.id);
+          },
+        });
         open.dataset.tooltip = status || 'Edit review';
         li.prepend(open);
         li.onpointerenter = () => actions.highlight(review.id);
@@ -166,13 +185,15 @@ export function createBar(
             actions.highlight();
         });
       }
-      const remove = element('button');
-      remove.disabled = !mutable;
-      remove.onclick = () => actions.remove(saved);
-      remove.className = 'review-remove';
-      remove.innerHTML = icon('trash');
-      remove.setAttribute('aria-label', `Delete review ${index + 1}`);
-      li.append(remove);
+      li.append(
+        createElement('button', {
+          className: 'review-remove',
+          disabled: !mutable,
+          ariaLabel: `Delete review ${index + 1}`,
+          innerHTML: icon('trash'),
+          onclick: () => actions.remove(saved),
+        }),
+      );
       $('pending').append(li);
     }
   }
