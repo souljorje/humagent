@@ -2,6 +2,16 @@
 
 Preserve application behavior. Keep task-specific requests as data, not backend handlers.
 
+## Architecture
+
+Keep the transport free of review kinds. Put each kind in one plugin module under `src/plugins/`.
+See [Add a plugin](docs/development.md#add-a-plugin).
+
+## Terms
+
+Use the terms in the [glossary](docs/GLOSSARY.md) in code, documents, and the interface.
+Change the glossary first when you rename a thing.
+
 ## Runtime
 
 Use Bun 1.4.4 for development, dependencies, builds, and tests. Keep `bun.lock` and frozen installation in CI.
@@ -31,7 +41,7 @@ Report executed checks and limits. Do not claim unexecuted tests passed.
 
 ## Data and permissions
 
-Include target and revision in each interaction. Keep input until receipt-specific acknowledgment. Do not reassign stale input to another target.
+Include target and revision in each interaction. Keep input until the agent completes its receipt. Do not reassign stale input to another target.
 
 Never serialize a running application's DOM into source. Keep control credentials outside frames. Follow the agent's existing permissions for consequential actions.
 

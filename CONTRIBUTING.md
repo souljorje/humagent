@@ -21,10 +21,11 @@ Bun reuses its local package cache automatically. Playwright also reuses install
 Source files belong to one package:
 
 - `src/cli/` contains commands and process startup.
-- `src/runtime/` contains the server, sessions, persistence, and surface serving.
-- `src/ui/` contains the browser interface.
-- `src/sdk/` contains the injected bridge, forms, and element targeting.
-- `src/shared/` contains common contracts, validation, and browser-safe helpers.
+- `src/server/` contains the server, sessions, persistence, and page serving.
+- `src/ui/` contains the workspace: logic, the bar, and the bridge to the page.
+- `src/sdk/` contains the injected page host: bridge, element targeting, and the overlay.
+- `src/plugins/` contains one module for each kind of feedback review. See [Add a plugin](docs/development.md#add-a-plugin).
+- `src/shared/` contains common contracts, plugin interfaces, validation, and browser-safe helpers.
 - `src/examples/` contains example pages and their TypeScript modules.
 
 All executable source uses TypeScript. The build compiles application and example modules into `dist/`, then copies HTML and CSS.
