@@ -43,7 +43,7 @@ export const flag: Plugin = {
   kind: 'flag',
   contract: { target: true, validate: () => undefined },
   page(host) { /* behavior in the page */ return {}; },
-  workspace: { card: { title: () => 'Flag' } },
+  card: { title: () => 'Flag' },
 };
 ```
 
@@ -51,7 +51,9 @@ export const flag: Plugin = {
 | --- | --- |
 | `contract` | Data rules. The workspace applies them before it saves a review. `validate` checks the whole review and returns its `data`. `local` checks the local data of a pending review. |
 | `page` | Behavior in the page. It saves pending reviews through the page host. It can register a tool with element targeting. Page authors mark its elements with `host.attribute`, which is `data-humagent-<kind>`. |
-| `workspace` | The pending review in the bar: `discardOnPage`, and the `card` that draws it. |
+| `card` | Sets the title, optional body, and styles of a pending review in the bar. |
+
+The page receives `discard` before the workspace removes a keyed review on the current revision. Forms use it to cancel pending saves and reset their controls.
 
 1. Write the module. The interfaces are in `src/shared/plugin.ts`.
 2. Add the plugin to `src/plugins/index.ts`. The order is the order in which targeting asks tools.

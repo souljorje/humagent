@@ -5,7 +5,7 @@ import type {
   Plugin,
   PageHost,
   PagePlugin,
-  WorkspacePlugin,
+  ReviewCard,
 } from '../shared/plugin.js';
 import { createElement } from '../shared/dom.js';
 import { errorMessage } from '../shared/errors.js';
@@ -305,7 +305,7 @@ function showStatus(form: HTMLFormElement, message: string) {
 
 const labelsOf = (local: unknown) => (local as FormLocal | undefined)?.labels;
 
-const card: WorkspacePlugin['card'] = {
+const card: ReviewCard = {
   title: (saved) => labelsOf(saved.local)?.title ?? 'Form',
   body(saved) {
     const data = formOf(saved);
@@ -347,9 +347,5 @@ export const form: Plugin = {
     },
   },
   page,
-  workspace: {
-    // The page resets the form of a keyed pending review before the pending review is removed.
-    discardOnPage: (saved) => saved.key !== undefined,
-    card,
-  },
+  card,
 };

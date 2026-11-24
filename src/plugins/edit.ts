@@ -5,7 +5,7 @@ import type {
   Hit,
   PageHost,
   PagePlugin,
-  WorkspacePlugin,
+  ReviewCard,
 } from '../shared/plugin.js';
 import { createElement } from '../shared/dom.js';
 import { object, text } from '../shared/validate.js';
@@ -126,16 +126,15 @@ function page(host: PageHost): PagePlugin {
 }
 
 const DIFF_TAG = { remove: 'del', add: 'ins', same: 'span' } as const;
-const card: WorkspacePlugin['card'] = {
+const card: ReviewCard = {
   title: () => 'Text edit',
-  body(saved, tools) {
+  body(saved) {
     const data = editOf(saved);
     if (!data) return;
     const diff = createElement('p', {
       className: 'edit',
       role: 'group',
       ariaLabel: 'Text changes',
-      onclick: tools.open,
     });
     for (const part of textDiff(data.before, data.after))
       diff.append(
@@ -180,5 +179,5 @@ export const edit: Plugin = {
     },
   },
   page,
-  workspace: { card },
+  card,
 };

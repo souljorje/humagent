@@ -62,9 +62,7 @@ export function createBar(
     document,
     [
       inputStyles,
-      ...[...plugins.values()].map(
-        (plugin) => plugin.workspace?.card.styles ?? '',
-      ),
+      ...[...plugins.values()].map((plugin) => plugin.card?.styles),
     ].join('\n'),
   );
 
@@ -136,7 +134,7 @@ export function createBar(
       { saved, stale, unavailable },
     ] of current.pending.entries()) {
       const review = saved.review;
-      const card = plugins.get(review.kind)?.workspace?.card;
+      const card = plugins.get(review.kind)?.card;
       const li = createElement('li', {
         className: 'review',
         dataset: { reviewId: review.id, stale: String(stale) },
@@ -149,10 +147,7 @@ export function createBar(
           textContent: card?.title(saved) ?? review.kind,
         }),
       );
-      const body = card?.body?.(saved, {
-        open: () =>
-          li.querySelector<HTMLButtonElement>('.review-open')?.click(),
-      });
+      const body = card?.body?.(saved);
       if (body) content.append(body);
       if (review.comment)
         content.append(createElement('p', { textContent: review.comment }));
@@ -181,6 +176,7 @@ export function createBar(
           },
         });
         li.prepend(open);
+        content.onclick = () => open.click();
         li.onpointerenter = () => actions.highlight(review.id);
         li.onpointerleave = () => actions.highlight();
         li.addEventListener('focusin', () => actions.highlight(review.id));

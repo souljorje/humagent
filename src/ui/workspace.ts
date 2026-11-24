@@ -294,10 +294,8 @@ export function createWorkspace(
       bridge.post('highlight', reviewId ? { reviewId } : {}),
     remove(saved) {
       const reviewId = saved.review.id;
-      if (
-        plugins.get(saved.review.kind)?.workspace?.discardOnPage?.(saved) &&
-        fresh(saved.revision)
-      )
+      // A keyed review can have a pending save on the page. Let the page cancel it first.
+      if (saved.key !== undefined && fresh(saved.revision))
         bridge.post('discard', { reviewId, revision: saved.revision });
       else
         removeReview(reviewId, saved.revision).catch((e) =>

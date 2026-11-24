@@ -337,7 +337,7 @@ test('a proxied app keeps its own behavior and accepts comments and SDK submissi
       name: 'Edit review 1',
       exact: true,
     });
-    await reopen.click();
+    await page.getByRole('group', { name: 'Text changes' }).click();
     const editor = counter.getByRole('textbox', { name: 'Edit text' });
     await expect(editor).toHaveText('Count visitors');
     await editor.press('Escape');

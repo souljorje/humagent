@@ -26,23 +26,13 @@ export interface Contract {
   local?(value: unknown): Json | undefined;
 }
 
-/** What a pending review card gives to the plugin that draws its content. */
-export interface CardTools {
-  /** Open the pending review's editor on the page, like a press on the card. */
-  open(): void;
-}
 /** The pending review of one kind in the workspace bar. */
-export interface WorkspacePlugin {
-  /** Whether the page cleans up before the pending review is removed. */
-  discardOnPage?(saved: SavedReview): boolean;
-  /** How the pending review looks. Rendering only. */
-  card: {
-    title(saved: SavedReview): string;
-    /** Draw the pending review's content. The card shows it between the title and the comment. */
-    body?(saved: SavedReview, tools: CardTools): Node | undefined;
-    /** CSS for the body. The bar adopts it once. */
-    styles?: string;
-  };
+export interface ReviewCard {
+  title(saved: SavedReview): string;
+  /** Draw content between the title and the comment. */
+  body?(saved: SavedReview): Node | undefined;
+  /** CSS for the body. The bar adopts it once. */
+  styles?: string;
 }
 
 /** What the human pointed at. One of `saved`, `range`, `point`, or `keyboard` says how. */
@@ -141,7 +131,7 @@ export interface PagePlugin {
   /** The first presentation after the page attaches. */
   init?(view: PluginView): void;
   present?(view: PluginView): void;
-  /** The human deletes this pending review in the bar. Clean up the page. The host then removes the pending review. */
+  /** Clean up a keyed pending review before the host removes it from this revision. */
   discard?(saved: SavedReview): void;
   /** Members of `window.humagent`. */
   api?: Partial<PageMethods>;
@@ -154,5 +144,5 @@ export interface Plugin {
   contract: Contract;
   /** Behavior in the page. The host calls it one time for each page document. */
   page?(host: PageHost): PagePlugin;
-  workspace?: WorkspacePlugin;
+  card?: ReviewCard;
 }

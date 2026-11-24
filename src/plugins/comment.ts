@@ -20,10 +20,8 @@ export const comment: Plugin = {
       build: (comment) => (comment.trim() ? { comment } : undefined),
     },
   }),
-  workspace: {
-    card: {
-      title: ({ review }) =>
-        String(review.target?.id || review.target?.tag || 'Comment'),
-    },
+  card: {
+    title: ({ review }) =>
+      String(review.target?.id || review.target?.tag || 'Comment'),
   },
 };
