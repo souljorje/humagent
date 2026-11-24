@@ -6,7 +6,7 @@ import { prepareEdit, prepareSave } from './reviews.js';
 import { createSession } from './session.js';
 import { connectPage } from './page-bridge.js';
 import { errorMessage } from '../shared/errors.js';
-import { effect, signal } from '../shared/signal.js';
+import { createBar } from './bar.js';
 
 export type AgentStatus =
   'ended' | 'offline' | 'connected' | 'sent' | 'working' | 'idle';
@@ -59,59 +59,48 @@ export interface BarActions {
   /** The bar moved or changed size. */
   layout(): void;
 }
-/** What the logic asks of the bar view. */
-export interface BarView {
-  frame: HTMLIFrameElement;
-  update(model: BarModel): void;
-  /** Top-left corner of the bar, in frame viewport pixels. */
-  barPosition(): { x: number; y: number };
-  /** Load a page in the frame. Pending reviews stay in the bar. */
-  load(url: string): void;
-  focusToggle(): void;
-}
-
-/**
- * The server owns all feedback. The workspace shows its latest view.
- * State that the bar shows lives in signals. One effect draws the bar after any of them changes.
- */
-export function createWorkspace(
+/** Connect the workspace bar to the page and the session. */
+export async function startWorkspace(
   id: string,
   plugins: ReadonlyMap<string, Plugin>,
 ) {
   const server = createSession(id, update);
-  let view!: BarView;
-  let bridge!: ReturnType<typeof connectPage>;
-  const session = signal<WorkspaceView | undefined>(undefined);
-  /** The page document attached to the server, after its handshake. */
-  const page = signal<{ documentId: string; revision: string } | undefined>(
-    undefined,
-  );
-  const connected = signal(false);
-  const annotating = signal(false);
-  const editorDirty = signal(false);
-  const sending = signal(false);
-  const sent = signal(false);
-  /** The typed instruction is not saved yet. */
-  const instructionPending = signal(false);
-  const instructionStatus = signal('');
-  const message = signal('');
-  const bridgeStatus = signal('Connecting');
-  const connecting = signal(true);
-  const scrollbars = signal({ right: 0, bottom: 0 });
-  const available = signal(new Map<string, boolean>());
-  // Not shown in the bar, so no effect depends on these.
+  const state = {
+    session: undefined as WorkspaceView | undefined,
+    page: undefined as Pick<PageMessage, 'documentId' | 'revision'> | undefined,
+    connected: false,
+    annotating: false,
+    editorDirty: false,
+    sending: false,
+    sent: false,
+    instructionStatus: '',
+    error: '',
+    bridgeStatus: 'Connecting',
+    connecting: true,
+    scrollbars: { right: 0, bottom: 0 },
+  };
+  const available = new Map<string, boolean>();
   let attaching: string | undefined,
     instruction = '',
     instructionTimer: ReturnType<typeof setTimeout> | undefined,
     lastPresentation = '',
     /** The source revision that last reloaded the page on its own. */
     reloadedFor = '';
-  /** Draw the bar now. `start` replaces it with the effect. */
-  let render = () => {};
-
-  /** Show an error above the bar. Without a message, clear the error. */
-  function fail(text = '') {
-    message.set(text);
+  let queued = false;
+  function setState(changes: Partial<typeof state>) {
+    Object.assign(state, changes);
+    scheduleDraw();
+  }
+  function scheduleDraw() {
+    if (queued) return;
+    queued = true;
+    queueMicrotask(() => {
+      queued = false;
+      draw();
+    });
+  }
+  function fail(error: string) {
+    setState({ error });
   }
   async function write<T extends object = object>(
     action: string,
@@ -127,9 +116,8 @@ export function createWorkspace(
     try {
       await server.read();
     } catch (e) {
-      if (connected() || !session()) fail(errorMessage(e));
-      connected.set(false);
-      bridgeStatus.set('Disconnected');
+      if (state.connected || !state.session) fail(errorMessage(e));
+      setState({ connected: false, bridgeStatus: 'Disconnected' });
     }
   }
   function removeReview(reviewId: string, revision: string) {
@@ -139,20 +127,21 @@ export function createWorkspace(
     );
   }
   function update(next: WorkspaceView) {
-    const previous = session();
-    session.set(next);
-    connected.set(true);
+    const previous = state.session;
+    setState({ session: next, connected: true });
     if (!previous) view.load(next.page.frameUrl);
     else if (previous.page.origin !== next.page.origin) {
       attaching = undefined;
-      page.set(undefined);
-      fail('The service restarted. Refresh the page to reconnect.');
+      setState({
+        page: undefined,
+        error: 'The service restarted. Refresh the page to reconnect.',
+      });
     }
   }
 
   /** Whether a revision matches both the server and the attached page. */
   const fresh = (revision?: string) =>
-    revision === session()?.revision && revision === page()?.revision;
+    revision === state.session?.revision && revision === state.page?.revision;
   function presentation(current: WorkspaceView): Presentation {
     return {
       bar: view.barPosition(),
@@ -164,22 +153,22 @@ export function createWorkspace(
     };
   }
   function model(): BarModel {
-    const current = session();
-    const attached = page();
+    const current = state.session;
+    const attached = state.page;
     const mutable = !!current && !current.ended;
-    const agent = connected() && mutable && current.agent !== 'idle';
+    const agent = state.connected && mutable && current.agent !== 'idle';
     const pending = (current?.pending ?? []).map((saved) => {
       const stale = !fresh(saved.revision);
       return {
         saved,
         stale,
-        unavailable: !stale && available().get(saved.review.id) === false,
+        unavailable: !stale && available.get(saved.review.id) === false,
       };
     });
     return {
       status: current?.ended
         ? 'ended'
-        : !connected()
+        : !state.connected
           ? 'offline'
           : (current?.agent ?? 'idle'),
       agent,
@@ -188,34 +177,34 @@ export function createWorkspace(
       changed:
         !!attached && !!current && attached.revision !== current.revision,
       pending,
-      annotating: annotating(),
-      editorDirty: editorDirty(),
-      send: sending() ? 'Sending…' : sent() ? 'Sent' : 'Send',
+      annotating: state.annotating,
+      editorDirty: state.editorDirty,
+      send: state.sending ? 'Sending…' : state.sent ? 'Sent' : 'Send',
       sendable:
-        !sending() &&
+        !state.sending &&
         agent &&
-        !editorDirty() &&
+        !state.editorDirty &&
         fresh(attached?.revision) &&
         !pending.some((saved) => saved.stale),
-      instructionPending: instructionPending(),
-      instructionStatus: instructionStatus(),
-      error: message(),
-      bridgeStatus: bridgeStatus(),
-      connecting: connecting(),
-      scrollbars: scrollbars(),
+      instructionPending: instructionTimer !== undefined,
+      instructionStatus: state.instructionStatus,
+      error: state.error,
+      bridgeStatus: state.bridgeStatus,
+      connecting: state.connecting,
+      scrollbars: state.scrollbars,
     };
   }
   /** Draw the bar, reload a changed file page, and send the page its presentation. */
   function draw() {
     const next = model();
-    const current = session();
+    const current = state.session;
     // An HTML file reloads on its own when its source changes, once per revision.
     // Unfinished input blocks it. App pages keep the button: their HTML can differ on each request.
     if (
       current &&
       next.changed &&
       current.source.kind === 'file' &&
-      !editorDirty() &&
+      !state.editorDirty &&
       reloadedFor !== current.revision
     ) {
       reloadedFor = current.revision;
@@ -225,7 +214,7 @@ export function createWorkspace(
     if (!current) return;
     const params = presentation(current);
     const signature = JSON.stringify(params);
-    if (page() && lastPresentation !== signature) {
+    if (state.page && lastPresentation !== signature) {
       lastPresentation = signature;
       bridge.post('update', params);
     }
@@ -234,46 +223,42 @@ export function createWorkspace(
   function saveInstruction() {
     clearTimeout(instructionTimer);
     instructionTimer = undefined;
-    instructionPending.set(false);
+    scheduleDraw();
     return write('instruction', 'PUT', { instruction }).then(
-      () => instructionStatus.set('Saved.'),
+      () => setState({ instructionStatus: 'Saved.' }),
       (e) => {
-        instructionStatus.set('Not saved');
+        setState({ instructionStatus: 'Not saved' });
         throw e;
       },
     );
   }
   let sentTimer: ReturnType<typeof setTimeout>;
   async function send() {
-    if (sending()) return;
-    sending.set(true);
-    sent.set(false);
+    if (state.sending) return;
+    setState({ sending: true, sent: false });
     clearTimeout(sentTimer);
     try {
       if (instructionTimer !== undefined) await saveInstruction();
-      if (editorDirty())
+      if (state.editorDirty)
         throw new Error('Save or cancel your review before sending.');
-      await write('send', 'POST', { revision: page()?.revision });
-      fail();
-      sent.set(true);
-      sentTimer = setTimeout(() => sent.set(false), 1500);
+      await write('send', 'POST', { revision: state.page?.revision });
+      setState({ error: '', sent: true });
+      sentTimer = setTimeout(() => setState({ sent: false }), 1500);
     } catch (e) {
       fail(errorMessage(e));
     } finally {
-      sending.set(false);
+      setState({ sending: false });
     }
   }
   const actions: BarActions = {
     instruction(value) {
-      sent.set(false);
+      state.sent = false;
       instruction = value;
       clearTimeout(instructionTimer);
       instructionTimer = setTimeout(() => {
         saveInstruction().catch((e) => fail(errorMessage(e)));
       }, 300);
-      instructionPending.set(true);
-      // The field's text is not a signal. Send depends on it.
-      render();
+      draw();
     },
     send: () => void send(),
     end() {
@@ -281,13 +266,13 @@ export function createWorkspace(
     },
     // Reload only the page frame at its current address.
     reload() {
-      const current = session();
+      const current = state.session;
       if (current) view.load(current.page.frameUrl);
     },
     annotate(enabled, keyboard) {
       // Without an attached page, nothing can confirm. Annotating is off.
-      if (page()) bridge.post('annotate', { enabled, keyboard });
-      else annotating.set(false);
+      if (state.page) bridge.post('annotate', { enabled, keyboard });
+      else setState({ annotating: false });
     },
     open: (reviewId) => bridge.post('open', { reviewId }),
     highlight: (reviewId) =>
@@ -306,7 +291,7 @@ export function createWorkspace(
     },
     outside: () => bridge.post('outside', {}),
     // The bar moved, so the page needs its new position.
-    layout: () => render(),
+    layout: draw,
   };
 
   /** Attach a page document. The SDK repeats `hello` until `init` arrives, so a failed attach retries. */
@@ -314,10 +299,9 @@ export function createWorkspace(
     if (msg.documentId === attaching) return;
     attaching = msg.documentId;
     // The bar stops guarding the old page's unfinished input.
-    page.set(undefined);
-    editorDirty.set(false);
+    setState({ page: undefined, editorDirty: false });
     lastPresentation = '';
-    available.set(new Map());
+    available.clear();
     try {
       await write('page', 'POST', { documentId: msg.documentId });
     } catch (e) {
@@ -327,99 +311,89 @@ export function createWorkspace(
       }
       return;
     }
-    const current = session();
+    const current = state.session;
     if (attaching !== msg.documentId || !current) return;
-    page.set({ documentId: msg.documentId, revision: msg.revision });
-    connecting.set(false);
-    bridgeStatus.set('Page connected');
+    setState({
+      page: { documentId: msg.documentId, revision: msg.revision },
+      connecting: false,
+      bridgeStatus: 'Page connected',
+    });
     const params = presentation(current);
     lastPresentation = JSON.stringify(params);
-    bridge.post('init', { ...params, annotating: annotating() });
+    bridge.post('init', { ...params, annotating: state.annotating });
   }
-  function connect() {
-    bridge = connectPage({
-      frame: view.frame,
-      page: () => session()?.page,
-      attached: (msg) => msg.documentId === page()?.documentId,
-      hello: (msg) => void attach(msg),
-      failed: fail,
-      requests: {
-        // The page is not trusted. Each review passes the rules of its plugin before the server saves it.
-        async save(params, revision) {
-          const checked = prepareSave(
-            plugins,
-            session()?.pending ?? [],
-            params,
-          );
-          const { reviewId } = await write<{ reviewId: string }>(
-            'reviews',
-            'POST',
-            { ...checked, revision },
-          );
-          sent.set(false);
-          fail();
-          return { reviewId, status: 'pending' };
-        },
-        async edit(params, revision) {
-          const changes = prepareEdit(
-            plugins,
-            session()?.pending ?? [],
-            params,
-          );
-          await write(
-            `reviews/${encodeURIComponent(params.reviewId)}`,
-            'PATCH',
-            { ...changes, revision },
-          );
-          return null;
-        },
-        async remove({ reviewId, revision }, pageRevision) {
-          await removeReview(reviewId, revision ?? pageRevision);
-          return null;
-        },
+  const view = createBar(plugins, actions);
+  const bridge = connectPage({
+    frame: view.frame,
+    page: () => state.session?.page,
+    attached: (msg) => msg.documentId === state.page?.documentId,
+    hello: (msg) => void attach(msg),
+    failed: fail,
+    requests: {
+      // The page is not trusted. Each review passes the rules of its plugin before the server saves it.
+      async save(params, revision) {
+        const checked = prepareSave(
+          plugins,
+          state.session?.pending ?? [],
+          params,
+        );
+        const { reviewId } = await write<{ reviewId: string }>(
+          'reviews',
+          'POST',
+          { ...checked, revision },
+        );
+        setState({ sent: false, error: '' });
+        return { reviewId, status: 'pending' };
       },
-      events: {
-        annotating({ enabled }) {
-          annotating.set(enabled);
-          if (!enabled) view.focusToggle();
-        },
-        editing({ dirty }) {
-          editorDirty.set(dirty);
-        },
-        notice({ message: text }) {
-          fail(text);
-        },
-        availability({ items }) {
-          const next = new Map(available());
-          for (const item of items) next.set(item.id, item.available);
-          available.set(next);
-        },
-        scrollbars({ right, bottom }) {
-          // Page input: keep each size between 0 and 40 pixels.
-          const size = (value: number) =>
-            Number.isFinite(value) ? Math.min(Math.max(value, 0), 40) : 0;
-          scrollbars.set({ right: size(right), bottom: size(bottom) });
-        },
+      async edit(params, revision) {
+        const changes = prepareEdit(
+          plugins,
+          state.session?.pending ?? [],
+          params,
+        );
+        await write(`reviews/${encodeURIComponent(params.reviewId)}`, 'PATCH', {
+          ...changes,
+          revision,
+        });
+        return null;
       },
-    });
-  }
-  return {
-    actions,
-    /** Connect the bar, read the session, and keep it current. */
-    async start(bar: BarView) {
-      view = bar;
-      connect();
-      render = effect(draw);
-      await sync();
-      setInterval(() => void sync(), 1000);
-      setTimeout(() => {
-        if (!page()) {
-          connecting.set(false);
-          fail(
-            'The page did not connect. Check its security policy or local server.',
-          );
-        }
-      }, 8000);
+      async remove({ reviewId, revision }, pageRevision) {
+        await removeReview(reviewId, revision ?? pageRevision);
+        return null;
+      },
     },
-  };
+    events: {
+      annotating({ enabled }) {
+        setState({ annotating: enabled });
+        if (!enabled) view.focusToggle();
+      },
+      editing({ dirty }) {
+        setState({ editorDirty: dirty });
+      },
+      notice({ message: text }) {
+        fail(text);
+      },
+      availability({ items }) {
+        for (const item of items) available.set(item.id, item.available);
+        scheduleDraw();
+      },
+      scrollbars({ right, bottom }) {
+        // Page input: keep each size between 0 and 40 pixels.
+        const size = (value: number) =>
+          Number.isFinite(value) ? Math.min(Math.max(value, 0), 40) : 0;
+        setState({ scrollbars: { right: size(right), bottom: size(bottom) } });
+      },
+    },
+  });
+  draw();
+  await sync();
+  setInterval(sync, 1000);
+  setTimeout(() => {
+    if (!state.page)
+      setState({
+        connecting: false,
+        error:
+          'The page did not connect. Check its security policy or local server.',
+      });
+  }, 8000);
 }

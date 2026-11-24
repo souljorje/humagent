@@ -1,11 +1,6 @@
 /** The workspace bar. It draws a model and reports input. It makes no requests. */
 import type { Plugin } from '../shared/plugin.js';
-import type {
-  AgentStatus,
-  BarActions,
-  BarModel,
-  BarView,
-} from './workspace.js';
+import type { AgentStatus, BarActions, BarModel } from './workspace.js';
 import {
   adoptStyles,
   autosize,
@@ -34,7 +29,7 @@ const AGENT_STATUS: Record<AgentStatus, string> = {
 export function createBar(
   plugins: ReadonlyMap<string, Plugin>,
   actions: BarActions,
-): BarView {
+) {
   const $ = <K extends keyof Controls>(name: K): Controls[K] =>
     document.getElementById(name as string) as Controls[K];
   let model: BarModel | undefined;
@@ -317,7 +312,7 @@ export function createBar(
       const frame = $('frame').getBoundingClientRect();
       return { x: bar.left - frame.left, y: bar.top - frame.top };
     },
-    load(url) {
+    load(url: string) {
       $('frame').src = url;
     },
     focusToggle: () => $('bar-toggle').focus(),
