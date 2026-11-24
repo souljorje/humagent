@@ -1,5 +1,8 @@
-import { startWorkspace } from './workspace.js';
+/** Workspace saved: connect the logic, the bar, and the plugins. */
+import { createWorkspace } from './workspace.js';
+import { createBar } from './bar.js';
 import { plugins } from '../plugins/index.js';
 
 const id = new URL(location.href).searchParams.get('session') ?? '';
-await startWorkspace(id, plugins);
+const workspace = createWorkspace(id, plugins);
+await workspace.start(createBar(plugins, workspace.actions));
