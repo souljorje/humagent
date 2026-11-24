@@ -23,7 +23,6 @@ export interface PanelModel {
   confirmLabel: string;
   confirmDisabled: boolean;
   saveDisabled: boolean;
-  removeDisabled: boolean;
   readOnly: boolean;
   /** The session accepts no input. */
   locked: boolean;
@@ -226,7 +225,7 @@ export function createOverlayView(actions: OverlayActions) {
         $('remove').hidden = !panel.existing;
         $('confirm').disabled = panel.confirmDisabled;
         $('save').disabled = panel.saveDisabled;
-        $('remove').disabled = panel.removeDisabled;
+        $('remove').disabled = panel.readOnly;
         $('comment').readOnly = panel.readOnly;
         $('editor-status').hidden = !panel.locked;
         setText($('local-error'), panel.error);

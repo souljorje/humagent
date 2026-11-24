@@ -7,6 +7,7 @@ import {
   createOverlayView,
   type MarkerModel,
   type OverlayModel,
+  type PanelModel,
 } from './overlay.js';
 import { inView, markerPoint, panelPoint, type Point } from './layout.js';
 import type {
@@ -25,6 +26,7 @@ import {
 } from '../shared/feedback.js';
 import type { Editor, Hit, Pick, Targeting, Tool } from '../shared/plugin.js';
 import { clickPoint } from '../shared/dom.js';
+import { effect, signal } from '../shared/signal.js';
 import { errorMessage } from '../shared/errors.js';
 import type { MarkerLocal } from '../shared/marker.js';
 
@@ -51,18 +53,18 @@ const HINT = 'Arrow keys choose an element. Enter comments. Escape exits.';
 export function createTargeting(bridge: TargetingBridge) {
   const { boot, notice, post } = bridge;
   const tools: RegisteredTool[] = [];
-  let pending: SavedReview[] = [],
-    writable = false;
+  let pending: SavedReview[] = [];
+  const writable = signal(false);
   let captured: Capture | null = null,
     hovered: Element | undefined;
   let highlightedReview: string | undefined;
   let bar: Presentation['bar'] | undefined;
   // A marker press opens its editor, which can move the marker before the click.
   let markerPress = false;
-  let annotating = false,
-    saving = false,
+  const annotating = signal(false);
+  let saving = false,
     scheduled = false;
-  const enabled = () => annotating && writable;
+  const enabled = () => annotating() && writable();
   let lastAvailability = '',
     lastScrollbars = '',
     lastDirty = false;
@@ -160,32 +162,28 @@ export function createTargeting(bridge: TargetingBridge) {
     outsideClicks = 0;
     updateEditor();
   }
+  function panelModel(): PanelModel | undefined {
+    if (!panelOpen || !captured) return;
+    const readOnly = saving || !writable();
+    const confirmDisabled = readOnly || !validInput();
+    return {
+      existing: !!captured.saved,
+      confirmLabel: captured.editor?.confirmLabel ?? 'Add comment',
+      confirmDisabled,
+      saveDisabled: confirmDisabled || (!!captured.saved && !changed()),
+      readOnly,
+      locked: !writable(),
+      error: localError,
+      position: layout.panel,
+    };
+  }
   function render() {
-    const valid = validInput();
     view.update({
-      ...(panelOpen && captured
-        ? {
-            panel: {
-              existing: !!captured.saved,
-              confirmLabel: captured.editor?.confirmLabel ?? 'Add comment',
-              confirmDisabled: saving || !writable || !valid,
-              saveDisabled:
-                saving ||
-                !writable ||
-                !valid ||
-                (!!captured.saved && !changed()),
-              removeDisabled: saving || !writable,
-              readOnly: saving || !writable,
-              locked: !writable,
-              error: localError,
-              ...(layout.panel ? { position: layout.panel } : {}),
-            },
-          }
-        : {}),
+      panel: panelModel(),
       markers: layout.markers,
       pendingIds: pending.map((saved) => saved.review.id),
-      ...(layout.highlight ? { highlight: layout.highlight } : {}),
-      ...(hint !== undefined ? { hint } : {}),
+      highlight: layout.highlight,
+      hint,
     });
   }
   function updateEditor() {
@@ -194,7 +192,7 @@ export function createTargeting(bridge: TargetingBridge) {
       lastDirty = dirty;
       post('editing', { dirty });
     }
-    captured?.editor?.setReadOnly(saving || !writable);
+    captured?.editor?.setReadOnly(saving || !writable());
     render();
     schedule();
   }
@@ -245,8 +243,7 @@ export function createTargeting(bridge: TargetingBridge) {
       return;
     }
     close();
-    annotating = value;
-    syncSelection();
+    annotating.set(value);
     post('annotating', { enabled: enabled() });
     hint = enabled() && keyboard ? hintText : undefined;
     if (enabled() && keyboard) {
@@ -287,7 +284,7 @@ export function createTargeting(bridge: TargetingBridge) {
   }
   /** Open the comment panel on an element. No tool claimed the pick. */
   function show(el: EventTarget | null, range?: Range, point?: Point) {
-    if (!(el instanceof Element) || ignored(el) || !writable || outside())
+    if (!(el instanceof Element) || ignored(el) || !writable() || outside())
       return;
     const before = range ? range.toString() : textOf(el);
     if (before.length > LIMITS.text) {
@@ -314,7 +311,7 @@ export function createTargeting(bridge: TargetingBridge) {
   }
   /** Open a tool's inline editor for a claimed pick. The comment panel opens beside it. */
   function showTool(tool: RegisteredTool, hit: Hit, point?: Point) {
-    if (!writable || outside()) return;
+    if (!writable() || outside()) return;
     reopen(hit.saved && view.marker(hit.saved.review.id));
     // The target and the press position describe the element before the editor changes it.
     const described = hit.saved?.review.target || targetOf(hit.el);
@@ -402,7 +399,7 @@ export function createTargeting(bridge: TargetingBridge) {
     return true;
   }
   async function save(remove = false) {
-    if (!captured || saving || !writable) return;
+    if (!captured || saving || !writable()) return;
     if (!remove && (!validInput() || (!!captured.saved && !changed()))) return;
     const el = findTarget(captured.target);
     if (!el) {
@@ -606,19 +603,27 @@ export function createTargeting(bridge: TargetingBridge) {
     scheduled = false;
     for (const tool of tools) tool.layout?.();
     const available: Availability[] = [];
-    const layouts: {
-      saved: SavedReview;
-      index: number;
-      rect: DOMRect;
-    }[] = [];
-    pending.forEach((saved, index) => {
-      if (!saved.review.target) return;
+    const markers: MarkerModel[] = [];
+    for (const [index, saved] of pending.entries()) {
+      if (!saved.review.target) continue;
       const el = resolve(saved);
-      available.push({ id: saved.review.id, available: !!el });
-      if (!el) return;
+      const { id, kind, comment } = saved.review;
+      available.push({ id, available: !!el });
+      if (!el) continue;
       const rect = el.getBoundingClientRect();
-      if (inView(rect, innerHeight)) layouts.push({ saved, index, rect });
-    });
+      if (!inView(rect, innerHeight)) continue;
+      const number = String(index + 1);
+      const label =
+        comment || (tools.find((tool) => tool.kind === kind)?.name ?? kind);
+      markers.push({
+        id,
+        number,
+        label: `Review ${number}: ${label}`,
+        expanded: captured?.saved?.review.id === id,
+        highlighted: id === highlightedReview,
+        ...markerPoint(rect, (saved.local as MarkerLocal | undefined)?.marker),
+      });
+    }
     const target = captured ? findTarget(captured.target) : hovered;
     const highlighted = highlightedReview
       ? pending.find((saved) => saved.review.id === highlightedReview)
@@ -640,36 +645,11 @@ export function createTargeting(bridge: TargetingBridge) {
         : height - 24,
     );
     layout = {
-      markers: layouts.map(({ saved, index, rect }) => {
-        const number = String(index + 1);
-        const name =
-          tools.find((tool) => tool.kind === saved.review.kind)?.name ??
-          saved.review.kind;
-        return {
-          id: saved.review.id,
-          number,
-          label: `Review ${number}: ${saved.review.comment || name}`,
-          expanded: captured?.saved?.review.id === saved.review.id,
-          highlighted: saved.review.id === highlightedReview,
-          ...markerPoint(
-            rect,
-            (saved.local as MarkerLocal | undefined)?.marker,
-          ),
-        };
-      }),
-      ...(highlight
-        ? {
-            highlight: {
-              left: highlight.left,
-              top: highlight.top,
-              width: highlight.width,
-              height: highlight.height,
-            },
-          }
-        : {}),
-      ...(panelSize && editorAnchor && captured
-        ? {
-            panel: panelPoint(
+      markers,
+      highlight: highlight ?? undefined,
+      panel:
+        panelSize && editorAnchor && captured
+          ? panelPoint(
               {
                 x: editorAnchor.left + captured.point.x,
                 y: editorAnchor.top + captured.point.y,
@@ -677,11 +657,8 @@ export function createTargeting(bridge: TargetingBridge) {
               panelSize,
               { width: innerWidth, height },
               bar,
-            ),
-          }
-        : layout.panel
-          ? { panel: layout.panel }
-          : {}),
+            )
+          : layout.panel,
     };
     render();
     const signature = JSON.stringify(available);
@@ -749,14 +726,14 @@ export function createTargeting(bridge: TargetingBridge) {
   );
   observer.observe(document.body || document.documentElement, observation);
   // Pages can block text selection with CSS. Selection must work while annotating.
-  function syncSelection() {
-    const sheets = document.adoptedStyleSheets.filter(
-      (sheet) => sheet !== selectionStyle,
-    );
-    document.adoptedStyleSheets = enabled()
+  effect(() => {
+    const active = enabled();
+    const sheets = document.adoptedStyleSheets;
+    if (active === sheets.includes(selectionStyle)) return;
+    document.adoptedStyleSheets = active
       ? [...sheets, selectionStyle]
-      : sheets;
-  }
+      : sheets.filter((sheet) => sheet !== selectionStyle);
+  });
   /** What page plugins use. */
   const api: Targeting = {
     resolve,
@@ -781,7 +758,7 @@ export function createTargeting(bridge: TargetingBridge) {
       // A new presentation may follow an attach. Report scrollbars again.
       lastScrollbars = '';
       pending = presentation.pending;
-      writable = presentation.writable;
+      writable.set(presentation.writable);
       const ids = new Set(pending.map((saved) => saved.review.id));
       if (highlightedReview && !ids.has(highlightedReview))
         highlightedReview = undefined;
@@ -791,10 +768,7 @@ export function createTargeting(bridge: TargetingBridge) {
         markers: layout.markers.filter((marker) => ids.has(marker.id)),
       };
       if (captured?.saved && !ids.has(captured.saved.review.id)) close(true);
-      if (!writable) {
-        syncSelection();
-        post('annotating', { enabled: false });
-      }
+      if (!presentation.writable) post('annotating', { enabled: false });
       for (const tool of tools) tool.layout?.();
       updateEditor();
       schedule();

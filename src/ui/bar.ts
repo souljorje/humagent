@@ -15,6 +15,7 @@ import {
 import { icon } from '../shared/icons.js';
 import { installTooltips } from '../shared/tooltips.js';
 import { inputStyles } from '../shared/input-styles.js';
+import { effect, signal } from '../shared/signal.js';
 
 type Controls = Record<string, HTMLElement> & {
   frame: HTMLIFrameElement;
@@ -43,17 +44,19 @@ export function createBar(
   $('end').innerHTML = icon('power');
   $('reload-page').onclick = actions.reload;
   /** The Send icon shows the state. Hidden text keeps it readable and announced. */
-  function showSendState(label: BarModel['send']) {
-    if ($('send').dataset.state === label) return;
-    $('send').dataset.state = label;
+  const sendState = signal<BarModel['send']>('Send');
+  effect(() => {
+    const label = sendState();
+    const send = $('send');
+    send.dataset.state = label;
+    send.setAttribute('aria-busy', String(label === 'Sending…'));
     const name =
       label === 'Sending…' ? 'spinner' : label === 'Sent' ? 'check' : 'send';
-    $('send').innerHTML = icon(name);
-    $('send').append(
+    send.innerHTML = icon(name);
+    send.append(
       createElement('span', { className: 'sr-only', textContent: label }),
     );
-  }
-  showSendState('Send');
+  });
   installTooltips(document);
   adoptStyles(
     document,
@@ -65,14 +68,17 @@ export function createBar(
     ].join('\n'),
   );
 
-  const isOpen = () => $('bar').dataset.open === 'true';
+  const isOpen = signal(false);
   /** Closed, the bar is one button. Open, it shows the instruction, Send, and the pending reviews. */
-  function setOpen(open: boolean) {
-    if (isOpen() === open) return;
+  effect(() => {
+    const open = isOpen();
     $('bar').dataset.open = String(open);
     $('details').inert = !open;
     $('details').dataset.expanded = String(open);
     $('bar-toggle').setAttribute('aria-expanded', String(open));
+  });
+  function setOpen(open: boolean) {
+    isOpen.set(open);
     if (!open) actions.highlight();
   }
   /** The human can pick page elements only on an attached page of a live session. */
@@ -243,8 +249,7 @@ export function createBar(
       $('instruction').value = session.instruction;
     $('instruction').disabled = !mutable;
     autosize($('instruction'));
-    showSendState(current.send);
-    $('send').setAttribute('aria-busy', String(current.send === 'Sending…'));
+    sendState.set(current.send);
     $('send').disabled =
       !current.sendable || (!count && !$('instruction').value.trim());
     $('send').dataset.tooltip = current.agent

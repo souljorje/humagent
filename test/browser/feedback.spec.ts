@@ -161,7 +161,12 @@ test('sending requires a connected agent, and an ended session accepts no input'
   await humagent.open();
   const send = page.locator('#send');
   const status = page.locator('#agent-state');
+  const heading = humagent.frame.locator('h1');
+  await heading.evaluate((el) => {
+    el.style.userSelect = 'none';
+  });
   await humagent.annotate();
+  await expect(heading).toHaveCSS('user-select', 'text');
   await page.locator('#instruction').fill('Check this');
   await expect(status).toHaveText('No agent connected');
   await expect(send).toBeDisabled();
@@ -183,6 +188,7 @@ test('sending requires a connected agent, and an ended session accepts no input'
   await page.getByRole('button', { name: 'End session', exact: true }).click();
   await expect(status).toHaveText('Session ended');
   await expect(page.locator('#instruction')).toBeDisabled();
+  await expect(heading).toHaveCSS('user-select', 'none');
 });
 
 test('a server restart keeps pending reviews, the instruction, and form choices', async ({
