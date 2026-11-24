@@ -9,8 +9,8 @@ import { errorMessage } from '../shared/errors.js';
 
 interface Options {
   frame: HTMLIFrameElement;
-  /** The current page surface, or nothing before the first session view. */
-  surface(): WorkspaceView['surface'] | undefined;
+  /** Where the page is served, or nothing before the first session view. */
+  page(): WorkspaceView['page'] | undefined;
   /** Whether a message comes from the attached page document. */
   attached(msg: PageMessage): boolean;
   hello(msg: PageMessage): void;
@@ -31,16 +31,16 @@ export function connectPage(options: Options) {
   const { frame, requests, events } = options;
   window.addEventListener('message', (event) => {
     const msg = event.data as PageMessage;
-    const surface = options.surface();
+    const page = options.page();
     if (
-      !surface ||
+      !page ||
       event.source !== frame.contentWindow ||
       typeof msg !== 'object' ||
       !msg
     )
       return;
     const current =
-      event.origin === surface.origin && msg.channel === surface.channel;
+      event.origin === page.origin && msg.channel === page.channel;
     if (msg.method === 'hello') {
       if (current) options.hello(msg);
       return;
@@ -48,7 +48,7 @@ export function connectPage(options: Options) {
     const attached = current && options.attached(msg);
     if ('id' in msg && typeof msg.id === 'string') {
       // After a server restart the old page still runs and gets an error.
-      // Reply to the sender, not the current surface, because the surface can change while a request runs.
+      // Reply to the sender, not the current page address, because it can change while a request runs.
       const source = event.source as Window;
       const reply = (body: { result: unknown } | { error: string }) =>
         source.postMessage(
@@ -79,11 +79,11 @@ export function connectPage(options: Options) {
       method: M,
       params: WorkspaceEvents[M],
     ) {
-      const surface = options.surface();
-      if (surface)
+      const page = options.page();
+      if (page)
         frame.contentWindow?.postMessage(
-          { channel: surface.channel, method, params },
-          surface.origin,
+          { channel: page.channel, method, params },
+          page.origin,
         );
     },
   };

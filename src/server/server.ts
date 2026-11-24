@@ -5,15 +5,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { Store, sessionView } from './store.js';
+import { Store } from './store.js';
 import { version } from './version.js';
 import { ensure, Failure, object, parseJson } from './validate.js';
 import {
   sourceOf,
   sourceRevision,
-  startSurface,
-  type Surface,
-} from './surfaces.js';
+  startPageServer,
+  type PageServer,
+} from './pages.js';
 import { writeJson } from './storage.js';
 import { browserAsset, noStore } from './assets.js';
 import { LIMITS, type WorkspaceView } from '../shared/feedback.js';
@@ -26,8 +26,9 @@ const equal = (a: unknown, b: string) =>
 const JSON_HEADERS = noStore('application/json');
 const json = (status: number, data: unknown) =>
   new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
-/** Public browser modules of the control page. */
-const ASSET = /^\/(?:ui|shared)\/[a-z][a-z0-9-]*\.(?:js|css)$/;
+/** Public browser modules of the workspace. A plugin is one module, with helper files in its own directory. */
+const ASSET =
+  /^\/(?:ui|shared|plugins(?:\/[a-z][a-z0-9-]*)?)\/[a-z][a-z0-9-]*\.(?:js|css)$/;
 /**
  * The credential each control path needs. Paths without a rule need the control token.
  * A `session` path also accepts the page key of its session. An `agent` path does not.
@@ -35,7 +36,7 @@ const ASSET = /^\/(?:ui|shared)\/[a-z][a-z0-9-]*\.(?:js|css)$/;
 const ACCESS: [RegExp, 'none' | 'session' | 'agent'][] = [
   [/^\/(?:health)?$/, 'none'],
   [ASSET, 'none'],
-  [/^\/api\/sessions\/([\w-]+)\/(?:wait|ack)(?:\/[^/]+)?$/, 'agent'],
+  [/^\/api\/sessions\/([\w-]+)\/(?:wait|complete)(?:\/[^/]+)?$/, 'agent'],
   [/^\/api\/sessions\/([\w-]+)(?:\/\w+(?:\/[^/]+)?)?$/, 'session'],
 ];
 function accessOf(pathname: string) {
@@ -69,12 +70,12 @@ async function body(req: Request) {
   return value;
 }
 
-export interface RuntimeOptions {
+export interface ServerOptions {
   directory: string;
   port?: number;
 }
 /** One runtime owns a directory. Files stay read-only; agents apply proposals. */
-export async function createRuntime(options: RuntimeOptions) {
+export async function createServer(options: ServerOptions) {
   const directory = path.resolve(options.directory);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   // The record claims the directory before the store opens. It gains origin and token after listen.
@@ -116,24 +117,24 @@ export async function createRuntime(options: RuntimeOptions) {
     throw error;
   }
   const token = randomBytes(32).toString('hex');
-  const surfaces = new Map<string, Promise<Surface>>();
+  const pageServers = new Map<string, Promise<PageServer>>();
   let origin = '';
   let closing: Promise<void> | undefined;
-  function surface(id: string) {
+  function pageServer(id: string) {
     store.get(id);
-    if (!surfaces.has(id)) {
-      const p = startSurface(store, id, origin).catch((e) => {
-        surfaces.delete(id);
+    if (!pageServers.has(id)) {
+      const p = startPageServer(store, id, origin).catch((e) => {
+        pageServers.delete(id);
         throw e;
       });
-      surfaces.set(id, p);
+      pageServers.set(id, p);
     }
-    return surfaces.get(id)!;
+    return pageServers.get(id)!;
   }
-  const view = (id: string) => sessionView(store.get(id), store.isWaiting(id));
+  const view = (id: string) => store.view(id);
   async function snapshot(id: string): Promise<WorkspaceView> {
     store.get(id);
-    const panel = await surfaces.get(id);
+    const panel = await pageServers.get(id);
     ensure(
       panel,
       'Session is not attached. Open its source again.',
@@ -142,7 +143,7 @@ export async function createRuntime(options: RuntimeOptions) {
     );
     return {
       ...view(id),
-      surface: {
+      page: {
         origin: panel.origin,
         frameUrl: panel.frameUrl,
         channel: panel.channel,
@@ -168,9 +169,9 @@ export async function createRuntime(options: RuntimeOptions) {
     if (session === undefined)
       ensure(control, 'Unauthorized', 'UNAUTHORIZED', 401);
     else {
-      let viewKey: string | undefined;
+      let sessionKey: string | undefined;
       try {
-        viewKey = store.get(session).viewKey;
+        sessionKey = store.get(session).sessionKey;
       } catch (error) {
         // Without the control token, an unknown session looks like a wrong key.
         const unknown = error instanceof Failure && error.code === 'NOT_FOUND';
@@ -178,15 +179,15 @@ export async function createRuntime(options: RuntimeOptions) {
       }
       ensure(
         control ||
-          (viewKey !== undefined &&
-            equal(c.req.header('x-humagent-session'), viewKey)),
+          (sessionKey !== undefined &&
+            equal(c.req.header('x-humagent-session'), sessionKey)),
         'Unauthorized',
         'UNAUTHORIZED',
         401,
       );
       ensure(
         control || access !== 'agent',
-        'This operation requires the agent credential',
+        'This operation requires the control token',
         'UNAUTHORIZED',
         401,
       );
@@ -204,10 +205,14 @@ export async function createRuntime(options: RuntimeOptions) {
   app.all('/health', () =>
     json(200, { app: 'humagent', pid: process.pid, version }),
   );
-  app.get('/:root{ui|shared}/:file', async (c) => {
-    const { body, headers } = await browserAsset(c.req.path, ASSET);
-    return new Response(body, { headers });
-  });
+  for (const route of [
+    '/:root{ui|shared|plugins}/:file',
+    '/plugins/:plugin/:file',
+  ])
+    app.get(route, async (c) => {
+      const { body, headers } = await browserAsset(c.req.path, ASSET);
+      return new Response(body, { headers });
+    });
   app.all('/', (c) => {
     ensure(c.req.method === 'GET', 'Method not allowed', 'METHOD', 405);
     return new Response(fs.readFileSync(path.join(UI, 'index.html')), {
@@ -220,22 +225,26 @@ export async function createRuntime(options: RuntimeOptions) {
   });
 
   const sessionPath = '/api/sessions/:id{[\\w-]+}';
-  app.get(sessionPath, async (c) =>
-    json(200, await snapshot(c.req.param('id'))),
-  );
-  app.post(`${sessionPath}/drafts`, async (c) => {
+  /** When a workspace last read each session. An open workspace reads about once per second. */
+  const viewed = new Map<string, number>();
+  app.get(sessionPath, async (c) => {
     const id = c.req.param('id');
-    const draftId = store.addDraft(id, await body(c.req.raw));
-    return reply(id, { draftId });
+    if (c.req.header('x-humagent-session')) viewed.set(id, Date.now());
+    return json(200, await snapshot(id));
   });
-  app.patch(`${sessionPath}/drafts/:draft`, async (c) => {
+  app.post(`${sessionPath}/reviews`, async (c) => {
     const id = c.req.param('id');
-    store.editDraft(id, c.req.param('draft'), await body(c.req.raw));
+    const reviewId = store.addReview(id, await body(c.req.raw));
+    return reply(id, { reviewId });
+  });
+  app.patch(`${sessionPath}/reviews/:review`, async (c) => {
+    const id = c.req.param('id');
+    store.editReview(id, c.req.param('review'), await body(c.req.raw));
     return reply(id);
   });
-  app.delete(`${sessionPath}/drafts/:draft`, async (c) => {
+  app.delete(`${sessionPath}/reviews/:review`, async (c) => {
     const id = c.req.param('id');
-    store.removeDraft(id, c.req.param('draft'));
+    store.removeReview(id, c.req.param('review'), c.req.query('revision'));
     return reply(id);
   });
   app.put(`${sessionPath}/instruction`, async (c) => {
@@ -246,20 +255,20 @@ export async function createRuntime(options: RuntimeOptions) {
   app.post(`${sessionPath}/send`, async (c) => {
     const id = c.req.param('id');
     const value = await body(c.req.raw);
-    await (await surface(id)).checkRevision();
+    await (await pageServer(id)).checkRevision();
     ensure(
       store.get(id).ended || view(id).agent !== 'idle',
       'Connect an agent before sending feedback.',
       'AGENT_UNAVAILABLE',
       409,
     );
-    const event = store.send(id, value.revision);
-    return reply(id, { event });
+    const feedback = store.send(id, value.revision);
+    return reply(id, { feedback });
   });
-  app.post(`${sessionPath}/surface`, async (c) => {
+  app.post(`${sessionPath}/page`, async (c) => {
     const id = c.req.param('id');
     const value = await body(c.req.raw);
-    (await surface(id)).activate(value.documentId);
+    (await pageServer(id)).activate(value.documentId);
     return reply(id);
   });
   app.post(`${sessionPath}/end`, async (c) => {
@@ -268,14 +277,9 @@ export async function createRuntime(options: RuntimeOptions) {
     store.end(id);
     return reply(id);
   });
-  app.post(`${sessionPath}/ack`, async (c) => {
+  app.post(`${sessionPath}/complete`, async (c) => {
     const id = c.req.param('id');
-    store.acknowledge(id, (await body(c.req.raw)).receipt);
-    return json(200, view(id));
-  });
-  app.post(`${sessionPath}/ack/start`, async (c) => {
-    const id = c.req.param('id');
-    store.acknowledge(id, (await body(c.req.raw)).receipt, true);
+    store.complete(id, (await body(c.req.raw)).receipt);
     return json(200, view(id));
   });
   app.post(`${sessionPath}/wait`, async (c) => {
@@ -301,7 +305,7 @@ export async function createRuntime(options: RuntimeOptions) {
               controller.enqueue(Buffer.from(JSON.stringify(value)));
               controller.close();
             } catch {
-              // The agent disconnected. Unacknowledged events return on its next wait.
+              // The agent disconnected. Unfinished feedback returns on its next wait.
             }
           });
         },
@@ -329,10 +333,12 @@ export async function createRuntime(options: RuntimeOptions) {
     }
     const revision = await sourceRevision(source);
     const s = store.open(source, revision);
-    await surface(s.id);
+    await pageServer(s.id);
     return json(200, {
       session: s.id,
-      url: `${origin}/?session=${s.id}#${s.viewKey}`,
+      url: `${origin}/?session=${s.id}#${s.sessionKey}`,
+      // A browser already shows this session, so the caller need not open another.
+      viewing: Date.now() - (viewed.get(s.id) ?? 0) < 3000,
       source: s.source,
       note:
         source.kind === 'file'
@@ -385,7 +391,7 @@ export async function createRuntime(options: RuntimeOptions) {
       server.listen(options.port ?? 0, '127.0.0.1', resolve);
     });
     origin = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`;
-    await Promise.all(store.list().map((session) => surface(session.id)));
+    await Promise.all(store.list().map((session) => pageServer(session.id)));
     writeJson(record, {
       pid: process.pid,
       origin,
@@ -394,7 +400,7 @@ export async function createRuntime(options: RuntimeOptions) {
     });
   } catch (e) {
     await Promise.allSettled(
-      [...surfaces.values()].map(async (pending) => (await pending).close()),
+      [...pageServers.values()].map(async (pending) => (await pending).close()),
     );
     server.closeAllConnections();
     if (server.listening)
@@ -407,7 +413,7 @@ export async function createRuntime(options: RuntimeOptions) {
     closing = (async () => {
       store.interruptWaits();
       await Promise.all(
-        [...surfaces.values()].map(async (p) => (await p).close()),
+        [...pageServers.values()].map(async (p) => (await p).close()),
       );
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

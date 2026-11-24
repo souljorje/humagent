@@ -1,13 +1,58 @@
-import type { Json, ObjectValue } from '../shared/json.js';
-import {
-  LIMITS,
-  type Draft,
-  type NewItem,
-  type DraftLabels,
-} from '../shared/feedback.js';
+/** Forms: named values from a marked form or from `window.humagent.submit()`. */
+import { cloneJson, type Json, type ObjectValue } from '../shared/json.js';
+import type { SavedReview, SaveResult } from '../shared/feedback.js';
+import type {
+  Plugin,
+  PageHost,
+  PagePlugin,
+  WorkspacePlugin,
+} from '../shared/plugin.js';
+import { element } from '../shared/dom.js';
 import { errorMessage } from '../shared/errors.js';
+import { ensure, object, text as limited } from '../shared/validate.js';
 
-const FORMS = 'form[data-humagent-id]';
+const FORM_LIMITS = { label: 500, labelFields: 100 } as const;
+
+/** Readable text for a form pending review in the bar. Agents do not receive it. */
+export type FormLabels = {
+  title: string;
+  fields: { label: string; value: string }[];
+};
+export type FormLocal = { labels: FormLabels };
+/** What a page script passes to `window.humagent.submit()`. */
+export interface Submission {
+  data: ObjectValue;
+  comment?: string;
+}
+function labels(value: unknown): FormLabels {
+  object(value, 'Labels');
+  const title = limited(value.title, 'Form title', FORM_LIMITS.label);
+  const { fields } = value;
+  ensure(
+    Array.isArray(fields) && fields.length <= FORM_LIMITS.labelFields,
+    `Labels support at most ${FORM_LIMITS.labelFields} fields`,
+  );
+  return {
+    title,
+    fields: fields.map((field) => {
+      object(field, 'Field label');
+      return {
+        label: limited(field.label, 'Field label', FORM_LIMITS.label),
+        value: limited(field.value, 'Field value', FORM_LIMITS.label, true),
+      };
+    }),
+  };
+}
+/** Read the form values from a review that the host gave this plugin. */
+const formOf = (saved: SavedReview | undefined) =>
+  saved?.review.data as ObjectValue | undefined;
+
+declare module '../shared/plugin.js' {
+  interface PageMethods {
+    submit(value: Submission): Promise<SaveResult>;
+  }
+}
+
 type FormControl = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 function isElement(target: EventTarget | null): target is Element {
   return !!target && 'nodeType' in target && target.nodeType === 1;
@@ -38,7 +83,9 @@ function controls(form: HTMLFormElement): FormControl[] {
   );
 }
 const clip = (value: string) =>
-  value.length > LIMITS.label ? `${value.slice(0, LIMITS.label - 1)}…` : value;
+  value.length > FORM_LIMITS.label
+    ? `${value.slice(0, FORM_LIMITS.label - 1)}…`
+    : value;
 const text = (node: Node | null | undefined) =>
   (node?.textContent ?? '').replace(/\s+/g, ' ').trim();
 /** Visible label text, without the text of controls inside the label. */
@@ -64,15 +111,13 @@ function groupName(el: FormControl) {
   const fieldset = el.closest('fieldset');
   return accessibleName(fieldset) || text(fieldset?.querySelector('legend'));
 }
-/** The form's draft key. One draft exists per key. */
-const key = (form: HTMLFormElement) => form.dataset.humagentId!;
 const ownLabel = (el: FormControl) =>
   accessibleName(el) || labelText(el.labels?.[0]);
 
 /** Read named values for the agent and readable labels for the bar. */
-function readForm(form: HTMLFormElement) {
+function readForm(form: HTMLFormElement, key: string) {
   const values: ObjectValue = Object.create(null);
-  const fields: DraftLabels['fields'] = [];
+  const fields: FormLabels['fields'] = [];
   const groups = new Map<string, FormControl[]>();
   for (const el of controls(form)) {
     if (['__proto__', 'prototype', 'constructor'].includes(el.name))
@@ -112,10 +157,13 @@ function readForm(form: HTMLFormElement) {
     values[name] = value;
     fields.push({ label: clip(label || name), value: clip(shown) });
   }
-  const title = accessibleName(form) || key(form);
+  const title = accessibleName(form) || key;
   return {
     values,
-    labels: { title: clip(title), fields: fields.slice(0, LIMITS.labelFields) },
+    labels: {
+      title: clip(title),
+      fields: fields.slice(0, FORM_LIMITS.labelFields),
+    },
   };
 }
 function fill(form: HTMLFormElement, values: ObjectValue) {
@@ -139,13 +187,11 @@ function fill(form: HTMLFormElement, values: ObjectValue) {
   }
 }
 
-interface FormBridge {
-  revision: string;
-  stage(item: NewItem, key: string, labels: DraftLabels): Promise<unknown>;
-  notice(message: string): void;
-}
-/** Each form with `data-humagent-id` is one live draft. Choices save at once, typed text shortly after typing stops. */
-export function createForms({ revision, stage, notice }: FormBridge) {
+/** Each form with the plugin's attribute is one live pending review. Choices save at once, typed text shortly after typing stops. */
+function page(host: PageHost): PagePlugin {
+  // `data-humagent-form` marks a form. Its value is the pending review key: one pending review exists per key.
+  const FORMS = `form[${host.attribute}]`;
+  const key = (form: HTMLFormElement) => form.getAttribute(host.attribute)!;
   // Forms with typed text that is not saved yet.
   const typing = new Map<HTMLFormElement, ReturnType<typeof setTimeout>>();
   const settle = (form: HTMLFormElement) => {
@@ -167,34 +213,23 @@ export function createForms({ revision, stage, notice }: FormBridge) {
       quiet = false;
     }
   }
-  function status(form: HTMLFormElement, message: string) {
-    let output = form.querySelector<HTMLElement>('[data-humagent-status]');
-    if (!output && !message) return;
-    if (!output) {
-      output = document.createElement('output');
-      output.dataset.humagentStatus = '';
-      output.dataset.humagentUi = '';
-      output.setAttribute('role', 'status');
-      form.append(output);
-    }
-    output.textContent = message;
-  }
   function save(form: HTMLFormElement) {
     settle(form);
-    const { values, labels } = readForm(form);
-    const comment = form.dataset.humagentComment;
-    return stage(
-      { ...(comment ? { comment } : {}), form: values },
-      key(form),
-      labels,
-    ).then(
-      () => failed.delete(form),
-      (error: unknown) => {
-        failed.add(form);
-        status(form, errorMessage(error));
-        notice(errorMessage(error));
-      },
-    );
+    const { values, labels } = readForm(form, key(form));
+    const comment = form.getAttribute(`${host.attribute}-comment`);
+    return host
+      .save(
+        { ...(comment ? { comment } : {}), data: values },
+        { key: key(form), local: { labels } },
+      )
+      .then(
+        () => failed.delete(form),
+        (error: unknown) => {
+          failed.add(form);
+          showStatus(form, errorMessage(error));
+          host.notice(errorMessage(error));
+        },
+      );
   }
   for (const type of ['input', 'change'])
     document.addEventListener(type, (event) => {
@@ -223,23 +258,95 @@ export function createForms({ revision, stage, notice }: FormBridge) {
   window.addEventListener('beforeunload', () => {
     for (const form of typing.keys()) void save(form);
   });
-  const current = (drafts: Draft[], form: HTMLFormElement) =>
-    drafts.find((d) => d.key === key(form) && d.revision === revision);
+  /** A page script adds named values. Each call adds a new pending review. */
+  async function submit(value: Submission) {
+    const captured = cloneJson(value);
+    if (!captured || typeof captured !== 'object' || Array.isArray(captured))
+      throw new Error('submit expects an object');
+    return host.save({
+      ...(captured.comment ? { comment: captured.comment } : {}),
+      data: captured.data,
+    });
+  }
   return {
-    /** Refill forms from their drafts after a reload. Stale drafts stay untouched. */
-    restore(drafts: Draft[]) {
+    /** Refill forms from their pending reviews after a reload. Stale pending reviews stay untouched. */
+    init({ pending }) {
       for (const form of forms()) {
-        const values = current(drafts, form)?.item.form;
+        const values = formOf(pending.find((saved) => saved.key === key(form)));
         if (values) silently(form, () => fill(form, values));
       }
     },
     present() {
       // A later successful save clears an earlier error.
-      for (const form of forms()) if (!failed.has(form)) status(form, '');
+      for (const form of forms()) if (!failed.has(form)) showStatus(form, '');
     },
-    reset(formKey: string) {
+    /** Reset the form of a keyed pending review to its HTML defaults. */
+    discard(saved) {
       for (const form of forms())
-        if (key(form) === formKey) silently(form, () => form.reset());
+        if (key(form) === saved.key) silently(form, () => form.reset());
     },
+    api: { submit },
   };
 }
+
+/** Show a save error inside a form. An empty message clears an earlier one. */
+function showStatus(form: HTMLFormElement, message: string) {
+  let output = form.querySelector<HTMLElement>('[data-humagent-form-status]');
+  if (!output && !message) return;
+  if (!output) {
+    output = document.createElement('output');
+    output.dataset.humagentFormStatus = '';
+    output.dataset.humagentUi = '';
+    output.setAttribute('role', 'status');
+    form.append(output);
+  }
+  output.textContent = message;
+}
+
+const labelsOf = (local: unknown) => (local as FormLocal | undefined)?.labels;
+
+const card: WorkspacePlugin['card'] = {
+  title: (saved) => labelsOf(saved.local)?.title ?? 'Form',
+  body(saved) {
+    const data = formOf(saved);
+    if (!data) return;
+    const values = element('dl');
+    // Forms send readable labels for the bar. SDK calls show raw values.
+    const fields =
+      labelsOf(saved.local)?.fields ??
+      Object.entries(data).map(([label, value]) => ({
+        label,
+        value: typeof value === 'string' ? value : JSON.stringify(value),
+      }));
+    for (const { label, value } of fields)
+      values.append(element('dt', label), element('dd', value));
+    return values;
+  },
+  styles: `
+    .review dl{display:grid;grid-template-columns:minmax(80px,1fr) 2fr;gap:var(--ha-spacing-1) var(--ha-spacing-3);margin:var(--ha-spacing-2) 0;font-size:var(--ha-text-small)}
+    .review dt{color:var(--ha-fg-muted)}
+    .review dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+  `,
+};
+
+export const form: Plugin = {
+  kind: 'form',
+  contract: {
+    target: false,
+    validate({ data }) {
+      object(data, 'Form');
+      return data;
+    },
+    local(value) {
+      if (value === undefined) return undefined;
+      object(value, 'Local data');
+      return { labels: labels(value.labels) };
+    },
+  },
+  page,
+  workspace: {
+    // The page resets the form of a keyed pending review before the pending review is removed.
+    discardOnPage: (saved) => saved.key !== undefined,
+    card,
+  },
+};

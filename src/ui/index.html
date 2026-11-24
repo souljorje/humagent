@@ -4,26 +4,49 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Humagent</title>
+    <link rel="stylesheet" href="/ui/css-variables.css" />
     <link rel="stylesheet" href="/ui/app.css" />
     <script type="module" src="/ui/app.js"></script>
   </head>
   <body>
-    <main aria-label="Page under review">
+    <main aria-label="Page">
       <iframe
         id="frame"
-        title="Page under review"
+        title="Page"
         sandbox="allow-scripts allow-forms allow-same-origin"
         allow="clipboard-write"
       ></iframe>
       <div id="connecting" role="status">Connecting to the page…</div>
     </main>
-    <section id="review-bar" class="glass-surface" aria-label="Review controls">
-      <section id="tray" aria-label="Review details" inert>
-        <div id="tray-content">
+    <section
+      id="bar"
+      class="glass-surface"
+      aria-label="Humagent bar"
+      data-open="false"
+    >
+      <div id="notices">
+        <p id="error" role="alert" hidden></p>
+        <p id="update" role="status" hidden>
+          The page changed. Refresh it, then check stale reviews before sending.
+          <button id="reload-page" class="primary" type="button">
+            Refresh page
+          </button>
+        </p>
+      </div>
+      <section
+        id="details"
+        aria-label="Pending feedback and agent status"
+        inert
+      >
+        <div id="details-content">
           <section class="connection" aria-label="Agent connection">
             <div class="connection-heading">
               <h2 class="agent-status">
-                <span id="agent-indicator" aria-hidden="true"></span>
+                <span
+                  id="agent-indicator"
+                  class="agent-dot"
+                  aria-hidden="true"
+                ></span>
                 <span id="agent-state" role="status">Checking connection</span>
               </h2>
               <button
@@ -33,44 +56,28 @@
                 disabled
               ></button>
             </div>
-            <div class="connection-command">
-              <code id="agent-command" tabindex="0"></code
-              ><button
-                id="copy-command"
-                class="icon"
-                aria-label="Copy agent command"
-              ></button>
-            </div>
-            <span id="copy-status" class="sr-only" role="status"></span>
+            <p id="agent-hint" hidden>
+              Start <code>/humagent</code> in your agent chat to connect.
+            </p>
           </section>
-          <p id="error" role="alert" hidden></p>
-          <p id="update" role="status" hidden>
-            The page changed. Refresh it, then check stale feedback before
-            sending.
-            <button id="reload-page" class="primary" type="button">
-              Refresh page
-            </button>
-          </p>
           <h2 id="pending-count" hidden></h2>
-          <ol id="drafts" aria-label="Drafts"></ol>
+          <ol id="pending" aria-label="Pending feedback"></ol>
         </div>
       </section>
       <div class="bar-controls">
         <button
-          id="toggle-review"
+          id="bar-toggle"
           class="icon"
-          aria-label="Review details and agent connection"
-          data-tooltip="Review details"
-          aria-expanded="false"
-          aria-controls="tray"
-        ></button>
-        <button
-          id="annotate"
-          class="icon"
-          aria-label="Toggle commenting"
+          aria-label="Give feedback"
+          data-tooltip="Give feedback"
           aria-pressed="false"
-          disabled
-        ></button>
+          aria-expanded="false"
+          aria-controls="details"
+        >
+          <span id="toggle-icon"></span>
+          <span id="toggle-dot" class="agent-dot" aria-hidden="true"></span>
+          <span id="toggle-count" hidden></span>
+        </button>
         <textarea
           id="instruction"
           class="feedback-input"
@@ -87,7 +94,7 @@
         ></button>
       </div>
       <span id="bridge-status" class="sr-only" role="status">Connecting</span>
-      <span id="draft-status" class="sr-only" role="status"></span>
+      <span id="instruction-status" class="sr-only" role="status"></span>
     </section>
   </body>
 </html>

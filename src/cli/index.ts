@@ -4,30 +4,27 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { createRuntime } from '../runtime/server.js';
-import { ensure } from '../runtime/validate.js';
+import { createServer } from '../server/server.js';
+import { ensure } from '../server/validate.js';
 import { errorMessage } from '../shared/errors.js';
-import { version, runtimeName, runtimeVersion } from '../runtime/version.js';
+import { version, runtimeName, runtimeVersion } from '../server/version.js';
 
 const HELP = `Humagent ${version}
 Work with your agent through a page, prototype, or local application.
 
-Start here:
-  humagent demo                         Open the interactive plan guide
-  humagent open ./page.html              Review an HTML file
-  humagent open http://localhost:3000    Review a trusted local app
+Agent loop:
+  humagent ./page.html                   Open the page and wait for feedback
+  humagent http://localhost:3000         The same for a trusted local app
+  humagent ./page.html --done RECEIPT    Complete a receipt, then wait again
 
-Agent commands:
-  humagent wait <session>                Wait until the user sends feedback
-  humagent ack <session> --receipt id --start  Confirm work has started
-  humagent ack <session> --receipt id    Complete the events of a receipt
-
-Session commands:
-  humagent status [session]              Show the runtime, sessions, or one session
+Other commands:
+  humagent demo                          Open the interactive plan guide
+  humagent status [session]              Show the server, sessions, or one session
   humagent end <session>                 End a session
   humagent stop                          Stop the server and retain saved data
 
 Options:
+  --no-wait                             Open the page or complete a receipt, then exit
   --no-open                             Print the browser URL without opening it
   --network                             Allow external resources in trusted HTML
   --home <directory>                    Choose a private data directory
@@ -40,16 +37,15 @@ Also:
 
 Run with Node.js 24+ or Bun 1.4.4+. Bun is not required for npm/npx use.
 Humagent does not run a model or change source files.
-The agent must run wait to receive browser input.
 Install the agent skill separately: npx skills add souljorje/humagent
 `;
 const booleanFlags = new Set([
   'no-open',
+  'no-wait',
   'network',
   'help',
   'version',
   'json',
-  'start',
 ]);
 const flags = new Map<string, string>();
 const positional: string[] = [];
@@ -82,7 +78,7 @@ function parse() {
     } else {
       ensure(
         key === 'home' ||
-          Object.values(commands).some((command) =>
+          [...Object.values(commands), loop].some((command) =>
             command.flags.includes(key),
           ),
         `Unknown option: --${key}.`,
@@ -239,15 +235,35 @@ function sessionRoute(argument: string | undefined) {
   );
   return `/api/sessions/${argument}`;
 }
-async function openSource(source: string) {
-  const result = (await request(await service(), '/api/open', 'POST', {
+interface Opened {
+  url: string;
+  session: string;
+  note: string;
+  /** A browser already shows the session. */
+  viewing: boolean;
+}
+/** Check a source argument. Return a URL as it is and a file as an absolute path. */
+function sourceOf(argument: string | undefined) {
+  ensure(
+    argument,
+    'Specify an HTML file or localhost URL. Example: humagent ./page.html',
+  );
+  const url = /^https?:/i.test(argument);
+  const source = url ? argument : path.resolve(argument);
+  ensure(url || fs.existsSync(source), `File not found: ${source}`);
+  return source;
+}
+const open = async (r: ServerRecord, source: string) =>
+  (await request(r, '/api/open', 'POST', {
     source,
     network: flags.has('network'),
-  })) as { url: string; session: string; note: string };
+  })) as unknown as Opened;
+async function openSource(source: string) {
+  const result = await open(await service(), source);
   if (!flags.has('no-open')) openBrowser(result.url);
   await output(
     result,
-    `Open this private URL in your browser:\n${result.url}\n\nSession: ${result.session}\nSource: ${source}\n\nAsk your agent to run:\n  humagent wait ${result.session}\n\n${result.note}\nNo agent is connected until it starts waiting.`,
+    `Open this private URL in your browser:\n${result.url}\n\nSession: ${result.session}\nSource: ${source}\n\nStart your agent on it:\n  /humagent ${source}\n\n${result.note}`,
   );
 }
 interface Command {
@@ -258,61 +274,22 @@ interface Command {
 }
 /** Every command validates its input before it starts the server. */
 const commands: Record<string, Command> = {
-  open: {
-    flags: ['no-open', 'network'],
-    argument: true,
-    async run(argument) {
-      ensure(
-        argument,
-        'Specify an HTML file or localhost URL. Example: humagent open ./page.html',
-      );
-      const url = /^https?:/i.test(argument);
-      const source = url ? argument : path.resolve(argument);
-      ensure(url || fs.existsSync(source), `File not found: ${source}`);
-      await openSource(source);
-    },
-  },
   demo: {
     flags: ['no-open', 'network'],
     argument: false,
     async run() {
       const destination = path.join(directory, 'demos', version, 'plan');
-      for (const file of ['plan.html', 'plan.css', 'plan.js'])
+      for (const file of [
+        'plan.html',
+        'plan.css',
+        'plan.js',
+        'css-variables.css',
+      ])
         copy(
           new URL(`../examples/${file}`, import.meta.url),
           path.join(destination, file),
         );
       await openSource(path.join(destination, 'plan.html'));
-    },
-  },
-  wait: {
-    flags: [],
-    argument: true,
-    async run(argument) {
-      const route = sessionRoute(argument);
-      const r = await service();
-      process.stderr.write(
-        'Waiting until the user sends feedback or ends the session.\n',
-      );
-      await output(await request(r, `${route}/wait`, 'POST', {}, 0));
-    },
-  },
-  ack: {
-    flags: ['receipt', 'start'],
-    argument: true,
-    async run(argument) {
-      const route = sessionRoute(argument);
-      ensure(flags.get('receipt'), '--receipt is required.');
-      await output(
-        await request(
-          await service(),
-          `${route}/ack${flags.has('start') ? '/start' : ''}`,
-          'POST',
-          {
-            receipt: flags.get('receipt'),
-          },
-        ),
-      );
     },
   },
   status: {
@@ -375,7 +352,7 @@ const commands: Record<string, Command> = {
           (Number.isInteger(port) && port >= 0 && port <= 65535),
         'The server port must be an integer from 0 to 65535.',
       );
-      const runtime = await createRuntime({ directory, port });
+      const runtime = await createServer({ directory, port });
       await output({
         status: 'listening',
         origin: runtime.origin,
@@ -390,6 +367,39 @@ const commands: Record<string, Command> = {
     },
   },
 };
+/**
+ * The agent loop in one command: `humagent SOURCE [--done RECEIPT]`.
+ * Open or reuse the source's session, complete the given receipt, then wait for feedback.
+ */
+const loop: Command = {
+  flags: ['no-open', 'no-wait', 'network', 'done'],
+  argument: true,
+  async run(argument) {
+    const source = sourceOf(argument);
+    const r = await service();
+    const opened = await open(r, source);
+    const route = `/api/sessions/${opened.session}`;
+    // Only the first call opens a browser. Later calls find the workspace open.
+    if (!flags.has('no-open') && !opened.viewing) openBrowser(opened.url);
+    const completed = flags.has('done')
+      ? await request(r, `${route}/complete`, 'POST', {
+          receipt: flags.get('done'),
+        })
+      : undefined;
+    if (flags.has('no-wait')) {
+      await output(
+        { ...completed, ...opened },
+        `Open this private URL in your browser:\n${opened.url}\n\nSession: ${opened.session}\nSource: ${source}\n\n${opened.note}`,
+      );
+      return;
+    }
+    process.stderr.write(
+      `${opened.viewing ? '' : `Open this private URL in your browser:\n${opened.url}\n`}Waiting until the user sends feedback or ends the session.\n`,
+    );
+    const result = await request(r, `${route}/wait`, 'POST', {}, 0);
+    await output({ ...result, session: opened.session });
+  },
+};
 async function main() {
   parse();
   if (flags.has('version')) {
@@ -397,18 +407,17 @@ async function main() {
     else console.log(version);
     return;
   }
-  const [name, argument] = positional;
+  const [name] = positional;
   if (!name || name === 'help' || flags.has('help')) {
     console.log(HELP);
     return;
   }
+  // A first argument that is no command is a source for the agent loop.
+  const known = Object.hasOwn(commands, name);
+  const command = known ? commands[name]! : loop;
+  const argument = known ? positional[1] : name;
   ensure(
-    Object.hasOwn(commands, name),
-    `Unknown command: ${name}. Run humagent --help.`,
-  );
-  const command = commands[name]!;
-  ensure(
-    positional.length <= 2,
+    positional.length <= (known ? 2 : 1),
     'Too many arguments. Quote file paths that contain spaces.',
   );
   for (const key of flags.keys())

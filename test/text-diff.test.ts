@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { textDiff } from '../dist/ui/text-diff.js';
+import { textDiff } from '../dist/plugins/edit/text-diff.js';
 
 test('a text diff reconstructs the exact original and the exact proposal', () => {
   for (const [before, after] of [

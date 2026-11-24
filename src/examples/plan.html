@@ -109,7 +109,7 @@
             </div>
           </li>
           <li>
-            <h3>Review</h3>
+            <h3>Give feedback</h3>
             <p>
               Comment on elements, rewrite text, and answer questions. Then send
               it to the agent.
@@ -128,14 +128,14 @@
           <dt><kbd>Esc</kbd></dt>
           <dd>Cancel</dd>
           <dt><kbd>Arrow keys</kbd></dt>
-          <dd>Move between elements while commenting</dd>
+          <dd>Move between elements while annotating</dd>
           <dt><kbd>⌘</kbd> or <kbd>Ctrl</kbd> <kbd>Enter</kbd></dt>
           <dd>Send from the bar</dd>
         </dl>
       </section>
 
       <section class="existing" aria-labelledby="existing-title">
-        <h2 id="existing-title">Review an existing page</h2>
+        <h2 id="existing-title">Give feedback on an existing page</h2>
         <p class="note">
           Humagent works on your running app without changing it. Try it on this
           mock: comment on the button, or rewrite the headline.
@@ -169,12 +169,12 @@
         <h2 id="choices-title">Build interactive plan</h2>
         <p class="note">
           Agents can propose options for you to choose from. Your choices join
-          the review at once.
+          your feedback at once.
         </p>
         <form
           aria-labelledby="choices-title"
-          data-humagent-id="design-choices"
-          data-humagent-comment="Apply these choices to the first screen. Do not publish anything."
+          data-humagent-form="design-choices"
+          data-humagent-form-comment="Apply these choices to the first screen. Do not publish anything."
         >
           <fieldset>
             <legend>Which layout should the first screen use?</legend>
@@ -263,9 +263,9 @@
           Press Send, and your agent gets everything you marked, in order. It
           updates the page, then lets you know it is done.
         </p>
-        <pre aria-label="Simplified example event"><code>{
+        <pre aria-label="Simplified example feedback"><code>{
   "instruction": "Keep the tone friendly.",
-  "items": [
+  "reviews": [
     {
       "id": "1c78…",
       "kind": "comment",
@@ -279,7 +279,7 @@
     {
       "id": "8579…",
       "kind": "edit",
-      "edit": {
+      "data": {
         "before": "Ship your next idea faster.",
         "after": "Plan and launch in one place."
       },
@@ -294,7 +294,7 @@
       "id": "c6f8…",
       "kind": "form",
       "comment": "Apply these choices to the first screen.",
-      "form": { "layout": "split", "button": "solid", "workflow": "layout" }
+      "data": { "layout": "split", "button": "solid", "workflow": "layout" }
     }
   ]
 }</code></pre>

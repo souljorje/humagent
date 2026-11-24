@@ -3,19 +3,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { createRuntime } from '../dist/runtime/server.js';
-import { sourceOf, safeFile } from '../dist/runtime/surfaces.js';
+import { createServer } from '../dist/server/server.js';
+import { Store } from '../dist/server/store.js';
+import { sourceOf, safeFile } from '../dist/server/pages.js';
 import { LIMITS } from '../dist/shared/feedback.js';
 import { fixture } from './fixtures.ts';
 
 const dir = fixture('server');
 const root = path.join(dir, 'artifacts');
 fs.mkdirSync(root);
-let runtime: Awaited<ReturnType<typeof createRuntime>>;
+let runtime: Awaited<ReturnType<typeof createServer>>;
 let sources = 0;
 
 beforeAll(async () => {
-  runtime = await createRuntime({ directory: path.join(dir, 'state') });
+  runtime = await createServer({ directory: path.join(dir, 'state') });
 });
 afterAll(async () => {
   await runtime?.close();
@@ -83,7 +84,7 @@ test('control routes refuse foreign origins, missing credentials, session keys o
     [second.base],
     ['/api/sessions'],
     [`${first.base}/wait`, {}],
-    [`${first.base}/ack`, {}],
+    [`${first.base}/complete`, {}],
     ['/api/open', { source: second.source }],
   ] as [string, unknown?][])
     assert.equal(
@@ -113,23 +114,42 @@ test('the server refuses a stale revision and a receipt from another session', a
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   await call(`${first.base}/instruction`, 'PUT', {
-    instruction: 'Review this',
+    instruction: 'Check this',
   });
   const send = () => call(`${first.base}/send`, 'POST', { revision });
   assert.equal((await send()).status, 200);
   const batch = (await pending).data;
   assert.equal(batch.status, 'feedback');
   assert.deepEqual(batch.source, { kind: 'file', value: first.source });
-  assert.equal(batch.events[0].revision, revision);
+  assert.equal(batch.feedback[0].revision, revision);
 
   const ack = (base: string) =>
-    call(`${base}/ack`, 'POST', { receipt: batch.receipt });
+    call(`${base}/complete`, 'POST', { receipt: batch.receipt });
   assert.equal((await ack(second.base)).data.error, 'STALE_RECEIPT');
+  const reviews = `${first.base}/reviews`;
+  const save = (revision: string) =>
+    call(reviews, 'POST', {
+      revision,
+      key: 'options',
+      review: { kind: 'form', data: {} },
+    });
+  const { reviewId } = (await save(revision)).data;
   fs.writeFileSync(first.source, '<!doctype html><h1>Changed</h1>');
   await call(`${first.base}/instruction`, 'PUT', {
     instruction: 'Sent too late',
   });
   assert.equal((await send()).data.error, 'STALE_REVISION');
+  const next = (await call(first.base)).data.revision;
+  assert.equal((await save(next)).data.reviewId, reviewId);
+  assert.equal(
+    (await call(`${reviews}/${reviewId}?revision=${revision}`, 'DELETE')).data
+      .error,
+    'STALE_REVISION',
+  );
+  assert.equal(
+    (await call(`${reviews}/${reviewId}?revision=${next}`, 'DELETE')).status,
+    200,
+  );
   assert.equal((await ack(first.base)).status, 200);
 });
 
@@ -146,7 +166,7 @@ test('file serving refuses non-HTML sources, hidden files, traversal, and symlin
     await assert.rejects(() => safeFile(root, request), request);
 });
 
-test('JSON requests enforce content type, syntax, object shape, item rules, and the byte limit', async () => {
+test('JSON requests enforce content type, syntax, object shape, review rules, and the byte limit', async () => {
   const error = async (...args: Parameters<typeof call>) => {
     const { status, data } = await call(...args);
     return `${status} ${data.error}`;
@@ -170,20 +190,25 @@ test('JSON requests enforce content type, syntax, object shape, item rules, and 
 
   const { base } = await open();
   const { revision } = (await call(base)).data;
-  for (const item of [
-    { target: { selector: 'h1' }, comment: 'x', kind: 'execute' },
-    { target: { selector: 'h1' }, comment: ' ' },
-    { target: { selector: 'h1' }, comment: 'a'.repeat(LIMITS.comment + 1) },
-    { edit: { before: 'a', after: 'b' } },
-    { form: 'x' },
-    { target: { selector: 'h1' }, form: {} },
+  // The server checks the envelope only. The workspace applies the rules of each kind.
+  for (const review of [
+    { target: { selector: 'h1' }, comment: 'x' },
+    { kind: 'Not a kind', target: { selector: 'h1' }, comment: 'x' },
+    { kind: 'comment', target: { selector: 'h1' }, comment: 'x', edit: {} },
+    { kind: 'comment', comment: ' ' },
+    {
+      kind: 'comment',
+      target: { selector: 'h1' },
+      comment: 'a'.repeat(LIMITS.comment + 1),
+    },
+    { kind: 'comment', target: 'h1', comment: 'x' },
   ])
     assert.equal(
-      await error(`${base}/drafts`, 'POST', { revision, item }),
+      await error(`${base}/reviews`, 'POST', { revision, review }),
       '400 INVALID_INPUT',
-      JSON.stringify(item).slice(0, 80),
+      JSON.stringify(review).slice(0, 80),
     );
-  assert.equal((await call(base)).data.drafts.length, 0);
+  assert.equal((await call(base)).data.pending.length, 0);
 
   // An ended session answers a wait at once, so the wait route can take padded bodies.
   await call(`${base}/end`, 'POST', {});
@@ -199,6 +224,34 @@ test('JSON requests enforce content type, syntax, object shape, item rules, and 
     await error(`${base}/wait`, 'POST', undefined, {}, tooLarge),
     '413 TOO_LARGE',
   );
+});
+
+test('the store carries a new kind of review without a transport change', async () => {
+  const store = new Store(path.join(dir, 'kinds'));
+  const source = path.join(root, 'kinds.html');
+  fs.writeFileSync(source, '<!doctype html><h1>Kinds</h1>');
+  const { id } = store.open(await sourceOf(source), 'r1');
+  const save = (review: object, extra: object = {}) =>
+    store.addReview(id, { revision: 'r1', review, ...extra });
+  // No plugin defines `flag`: a targeted kind without data.
+  const flagged = (selector: string) =>
+    save({ kind: 'flag', target: { selector } }, { key: 'only' });
+  const first = flagged('h1');
+  save({ kind: 'comment', comment: 'Second', target: { selector: 'p' } });
+  // A keyed replacement keeps the review ID and the list position.
+  assert.equal(flagged('h2'), first);
+  const expected = [
+    { id: first, kind: 'flag', target: { selector: 'h2' } },
+    { kind: 'comment', comment: 'Second', target: { selector: 'p' } },
+  ];
+  assert.partialDeepStrictEqual(
+    store.get(id).pending.map((saved) => saved.review),
+    expected,
+  );
+  store.send(id, 'r1');
+  const delivered = store.take(id);
+  assert.ok(delivered && delivered.status === 'feedback');
+  assert.partialDeepStrictEqual(delivered.feedback[0]!.reviews, expected);
 });
 
 test('the server refuses a foreign Host header and a second writer on its state directory', async () => {
@@ -220,7 +273,7 @@ test('the server refuses a foreign Host header and a second writer on its state 
   ])
     assert.equal(await health(name), 403, name);
   await assert.rejects(
-    () => createRuntime({ directory: path.join(dir, 'state') }),
+    () => createServer({ directory: path.join(dir, 'state') }),
     /Another server/,
   );
 });

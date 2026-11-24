@@ -1,7 +1,7 @@
 {
   "name": "humagent",
   "version": "0.3.0",
-  "description": "Comment on, rewrite, and answer local pages and apps, then send your AI agent one structured review.",
+  "description": "Comment on, rewrite, and answer local pages and apps, then send your AI agent structured feedback.",
   "type": "module",
   "license": "MIT",
   "packageManager": "bun@1.4.4",
@@ -13,8 +13,8 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/runtime/server.d.ts",
-      "import": "./dist/runtime/server.js"
+      "types": "./dist/server/server.d.ts",
+      "import": "./dist/server/server.js"
     },
     "./feedback": {
       "types": "./dist/shared/feedback.d.ts",
@@ -38,7 +38,7 @@
   "scripts": {
     "changeset": "changeset",
     "version:packages": "changeset version && bun install --lockfile-only --ignore-scripts",
-    "build": "rm -rf dist && tsc && cp src/ui/*.{html,css} dist/ui/ && cp src/examples/*.{html,css} dist/examples/",
+    "build": "rm -rf dist && tsc && cp src/ui/*.{html,css} dist/ui/ && cp src/examples/*.{html,css} dist/examples/ && bun -e 'import { cssVariables } from \"./dist/shared/css-variables.js\"; await Bun.write(\"dist/ui/css-variables.css\", `:root {${cssVariables}}\\n`)' && cp dist/ui/css-variables.css dist/examples/",
     "lint": "oxlint src test",
     "format": "bun fmt src test tsconfig*.json package.json turbo.json",
     "format:check": "bun fmt --check src test tsconfig*.json package.json turbo.json",

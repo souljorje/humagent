@@ -1,13 +1,16 @@
+/** The page host: bridge to the workspace, and the plugins of this page document. */
 import { cloneJson } from '../shared/json.js';
-import { createForms } from './forms.js';
-import { createPageReview } from './review.js';
+import { createTargeting } from './targeting.js';
 import type {
   Bootstrap,
+  Presentation,
   Requests,
   WorkspaceEvents,
   WorkspaceMessage,
 } from '../shared/bridge.js';
-import type { Submission } from '../shared/feedback.js';
+import type { NewReview, SavedReview } from '../shared/feedback.js';
+import type { PagePlugin, PluginView } from '../shared/plugin.js';
+import { plugins } from '../plugins/index.js';
 import { errorMessage } from '../shared/errors.js';
 
 if (window.parent === window.top) {
@@ -20,7 +23,7 @@ if (window.parent === window.top) {
   const ready = new Promise<void>((resolve) => {
     resolveReady = resolve;
   });
-  const pending = new Map<
+  const calls = new Map<
     string,
     { resolve(value: unknown): void; reject(error: Error): void }
   >();
@@ -43,33 +46,60 @@ if (window.parent === window.top) {
     params: Requests[M]['params'],
   ): Promise<Requests[M]['result']> {
     await ready;
-    if (ended) throw new Error('Review session has ended');
+    if (ended) throw new Error('The session has ended');
     const id = crypto.randomUUID();
     return new Promise((resolve, reject) => {
-      pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
+      calls.set(id, { resolve: resolve as (value: unknown) => void, reject });
       post(method, params, id);
     });
   }
-  async function submit(value: Submission) {
-    const captured = cloneJson(value);
-    if (!captured || typeof captured !== 'object' || Array.isArray(captured))
-      throw new Error('submit expects an object');
-    return request('stage', {
-      item: {
-        ...(captured.comment ? { comment: captured.comment } : {}),
-        form: captured.form,
-      },
+  const notice = (message: string) => post('notice', { message });
+  function save(
+    review: NewReview,
+    { key, local }: Omit<Requests['save']['params'], 'review'> = {},
+  ) {
+    return request('save', {
+      review: cloneJson(review),
+      key,
+      local: local === undefined ? undefined : cloneJson(local),
     });
   }
-  window.humagent = Object.freeze({ submit });
-  const notice = (message: string) => post('notice', { message });
-  const forms = createForms({
-    revision: boot.revision,
-    stage: (item, key, labels) =>
-      request('stage', { item: cloneJson(item), key, labels }),
+  const targeting = createTargeting({
+    boot,
+    post,
     notice,
+    save,
+    edit: (params) => request('edit', cloneJson(params)),
+    remove: (reviewId) => request('remove', { reviewId }),
   });
-  const review = createPageReview({ boot, request, notice, post });
+  const pages = new Map<string, PagePlugin>();
+  const api: Record<string, unknown> = {};
+  for (const [kind, plugin] of plugins) {
+    const page = plugin.page?.({
+      attribute: `data-humagent-${kind}`,
+      targeting: targeting.api,
+      notice,
+      save: (review, options) => save({ ...review, kind }, options),
+    });
+    if (!page) continue;
+    pages.set(kind, page);
+    if (page.tool) targeting.register(kind, page.tool);
+    for (const [name, member] of Object.entries(page.api ?? {})) {
+      if (Object.hasOwn(api, name))
+        throw new Error(`Duplicate page API member: ${name}`);
+      api[name] = member;
+    }
+  }
+  window.humagent = Object.freeze(api) as Window['humagent'];
+  let pending: SavedReview[] = [];
+  /** Each plugin gets the feedback of its own kind. */
+  const share = (kind: string, params: Presentation): PluginView => ({
+    pending: params.pending.filter(
+      (saved) => saved.review.kind === kind && saved.revision === boot.revision,
+    ),
+    previews: params.previews.filter((saved) => saved.review.kind === kind),
+    writable: params.writable,
+  });
   const handlers: {
     [M in keyof WorkspaceEvents]: (params: WorkspaceEvents[M]) => void;
   } = {
@@ -77,27 +107,30 @@ if (window.parent === window.top) {
       if (!initialized) {
         initialized = true;
         clearInterval(hello);
-        forms.restore(params.drafts);
+        for (const [kind, page] of pages) page.init?.(share(kind, params));
         resolveReady();
       }
       handlers.update(params);
-      review.setMode(params.annotating);
+      targeting.setMode(params.annotating);
     },
     update(params) {
       ended = !params.writable;
-      forms.present();
-      review.present(params);
+      pending = params.pending;
+      for (const [kind, page] of pages) page.present?.(share(kind, params));
+      targeting.present(params);
     },
     annotate(params) {
-      if (!ended) review.setMode(params.enabled, params.keyboard);
+      if (!ended) targeting.setMode(params.enabled, params.keyboard);
     },
-    open: (params) => review.edit(params.draftId),
-    highlight: (params) => review.highlight(params.draftId),
-    outside: () => review.outside(),
-    reset(params) {
-      // Page requests stay in order, so a save sent earlier cannot recreate the draft.
-      forms.reset(params.key);
-      request('remove', { draftId: params.draftId }).catch((error: unknown) =>
+    open: (params) => targeting.open(params.reviewId),
+    highlight: (params) => targeting.highlight(params.reviewId),
+    outside: () => targeting.outside(),
+    discard({ reviewId, revision }) {
+      const saved = pending.find((d) => d.review.id === reviewId);
+      if (saved?.revision === revision && revision === boot.revision)
+        pages.get(saved.review.kind)?.discard?.(saved);
+      // Page requests stay in order, so a save sent earlier cannot recreate the pending review.
+      request('remove', { reviewId, revision }).catch((error: unknown) =>
         notice(errorMessage(error)),
       );
     },
@@ -111,9 +144,9 @@ if (window.parent === window.top) {
     )
       return;
     if (data.method === 'result') {
-      const call = pending.get(data.id);
+      const call = calls.get(data.id);
       if (!call) return;
-      pending.delete(data.id);
+      calls.delete(data.id);
       if (data.error !== undefined) call.reject(new Error(data.error));
       else call.resolve(data.result);
     } else if (Object.hasOwn(handlers, data.method))

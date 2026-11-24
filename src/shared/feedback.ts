@@ -1,17 +1,15 @@
 /** Feedback contracts shared by the server, the workspace, the page SDK, and agents. */
-import type { ObjectValue } from './json.js';
+import type { Json, ObjectValue } from './json.js';
 
 export const LIMITS = {
   bodyBytes: 256 * 1024,
-  drafts: 100,
-  events: 2000,
-  eventsPerReceipt: 100,
+  pending: 100,
+  feedback: 2000,
+  feedbackPerReceipt: 100,
   comment: 4000,
   instruction: 4000,
   text: 50000,
-  formKey: 200,
-  label: 500,
-  labelFields: 100,
+  key: 200,
 } as const;
 
 export interface Source {
@@ -20,52 +18,41 @@ export interface Source {
   root?: string;
   network: boolean;
 }
-export type ReviewTarget = ObjectValue;
-/** One feedback item. `kind` names the key that holds its content. */
-export interface ReviewItem {
+export type Target = ObjectValue;
+/** One feedback review. `kind` names the plugin that made it. `data` holds that plugin's content. */
+export interface Review {
   id: string;
-  kind: 'comment' | 'edit' | 'form';
+  kind: string;
   comment?: string;
-  edit?: { before: string; after: string };
-  form?: ObjectValue;
-  target?: ReviewTarget;
+  data?: Json;
+  target?: Target;
 }
-/** An item as the page sends it. The server adds `id` and `kind`. */
-export type NewItem = Omit<ReviewItem, 'id' | 'kind'>;
-/** Where the human clicked, relative to the target's top-left corner. */
-export interface MarkerPosition {
-  x: number;
-  y: number;
-}
-/** Readable text for a form draft in the bar. Agents do not receive it. */
-export interface DraftLabels {
-  title: string;
-  fields: { label: string; value: string }[];
-}
-/** Unsent feedback for the page revision that the human saw. */
-export interface Draft {
-  item: ReviewItem;
+/** A review as the page sends it. The server adds `id`. */
+export type NewReview = Omit<Review, 'id'>;
+/** A review with the page revision that it belongs to. A pending review also has its key and local data. */
+export interface SavedReview {
+  review: Review;
   revision: string;
-  marker?: MarkerPosition;
-  /** A form's identity. A session holds at most one draft per key. */
+  /** A session holds at most one pending review per kind and key. A new pending review with a known key replaces it. */
   key?: string;
-  labels?: DraftLabels;
+  /** The plugin's private data for the page and the bar. Agents do not receive it. */
+  local?: Json;
 }
-/** One Send action. The agent receives it without `status`. */
-export interface Event {
+/** What one Send delivers: the instruction and the reviews that were pending. The agent receives it without `status`. */
+export interface Feedback {
   id: string;
   revision: string;
   instruction?: string;
-  items: ReviewItem[];
+  reviews: Review[];
   status: 'queued' | 'delivered' | 'completed';
   deliveries: number;
 }
-/** What `wait` returns when the human sends feedback. */
-export interface Feedback {
+/** What the agent receives when it waits: every unfinished feedback, held by one receipt. */
+export interface Delivered {
   status: 'feedback';
   source: Pick<Source, 'kind' | 'value'>;
   receipt: string;
-  events: Omit<Event, 'status'>[];
+  feedback: Omit<Feedback, 'status'>[];
 }
 export interface SessionView {
   id: string;
@@ -75,21 +62,18 @@ export interface SessionView {
   ended: boolean;
   createdAt: string;
   agent: 'sent' | 'working' | 'connected' | 'idle';
-  drafts: Draft[];
+  pending: SavedReview[];
   instruction: string;
-  /** Text edits that were sent but not completed. Pages keep previewing them. */
-  sent: Draft[];
+  /** Sent reviews that are not completed. Plugins can keep showing them on the page. */
+  sent: SavedReview[];
 }
 export interface WorkspaceView extends SessionView {
-  surface: { origin: string; frameUrl: string; channel: string };
+  /** Where the page is served: its own origin, its address, and the channel of its messages. */
+  page: { origin: string; frameUrl: string; channel: string };
 }
-export interface Submission {
-  form: ObjectValue;
-  comment?: string;
-}
-export interface StageResult {
-  draftId: string;
-  status: 'draft';
+export interface SaveResult {
+  reviewId: string;
+  status: 'pending';
 }
 export interface Availability {
   id: string;

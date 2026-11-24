@@ -2,75 +2,40 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import {
-  ensure,
-  Failure,
-  item,
-  labels,
-  localUrl,
-  marker,
-  object,
-  text,
-} from './validate.js';
+import { ensure, Failure, review, localUrl, object, text } from './validate.js';
 import { writeJson } from './storage.js';
 import {
   LIMITS,
-  type Draft,
-  type Event,
+  type SavedReview,
+  type Delivered,
   type Feedback,
   type SessionView,
   type Source,
 } from '../shared/feedback.js';
+import type { Json } from '../shared/json.js';
 
-const FORMAT = 3;
+const FORMAT = 4;
 
-/** The events that the last `wait` returned. They stay unfinished until the agent acknowledges this receipt. */
+/** The feedback that the last `wait` returned. They stay unfinished until the agent completes this receipt. */
 interface Delivery {
   receipt: string;
-  eventIds: string[];
+  feedbackIds: string[];
   started?: boolean;
 }
 export interface Session {
   id: string;
   title: string;
   source: Source;
-  viewKey: string;
+  sessionKey: string;
   revision: string;
-  surfacePath?: string;
+  pagePath?: string;
   ended: boolean;
   createdAt: string;
-  drafts: Draft[];
+  pending: SavedReview[];
   instruction: string;
-  events: Event[];
+  feedback: Feedback[];
   delivery?: Delivery;
-  acknowledged: string[];
-}
-
-export function sessionView(s: Session, waiting: boolean): SessionView {
-  return {
-    id: s.id,
-    title: s.title,
-    source: s.source,
-    revision: s.revision,
-    ended: s.ended,
-    createdAt: s.createdAt,
-    agent: s.delivery?.started
-      ? 'working'
-      : s.events.some((event) => event.status !== 'completed')
-        ? 'sent'
-        : waiting
-          ? 'connected'
-          : 'idle',
-    drafts: s.drafts,
-    instruction: s.instruction,
-    sent: s.events
-      .filter((event) => event.status !== 'completed')
-      .flatMap((event) =>
-        event.items
-          .filter((entry) => entry.edit)
-          .map((entry) => ({ item: entry, revision: event.revision })),
-      ),
-  };
+  completed: string[];
 }
 
 function readSession(saved: unknown, id: string): Session {
@@ -82,24 +47,24 @@ function readSession(saved: unknown, id: string): Session {
       s?.id === id &&
       typeof s.title === 'string' &&
       typeof s.revision === 'string' &&
-      typeof s.viewKey === 'string' &&
+      typeof s.sessionKey === 'string' &&
       typeof s.createdAt === 'string' &&
       typeof s.ended === 'boolean' &&
       typeof s.instruction === 'string' &&
-      Array.isArray(s.drafts) &&
-      Array.isArray(s.events) &&
-      Array.isArray(s.acknowledged) &&
+      Array.isArray(s.pending) &&
+      Array.isArray(s.feedback) &&
+      Array.isArray(s.completed) &&
       !!source &&
       typeof source.value === 'string' &&
       typeof source.network === 'boolean' &&
       (source.kind === 'url'
         ? localUrl(new URL(source.value))
         : source.kind === 'file' && typeof source.root === 'string') &&
-      (s.surfacePath === undefined ||
-        (typeof s.surfacePath === 'string' &&
-          s.surfacePath.startsWith('/') &&
-          !s.surfacePath.startsWith('//') &&
-          !s.surfacePath.includes('\\'))),
+      (s.pagePath === undefined ||
+        (typeof s.pagePath === 'string' &&
+          s.pagePath.startsWith('/') &&
+          !s.pagePath.startsWith('//') &&
+          !s.pagePath.includes('\\'))),
     'Unsupported or corrupt session',
   );
   // A previous process cannot confirm that the agent is still working.
@@ -110,7 +75,7 @@ function readSession(saved: unknown, id: string): Session {
 function current(s: Session, revision: unknown) {
   ensure(
     revision === s.revision,
-    'The page changed. Refresh it and inspect stale feedback.',
+    'The page changed. Refresh it and inspect stale reviews.',
     'STALE_REVISION',
     409,
   );
@@ -169,10 +134,38 @@ export class Store extends EventEmitter {
     ensure(!s.ended, 'Session has ended', 'ENDED', 410);
     return s;
   }
-  private draft(s: Session, draftId: string) {
-    const draft = s.drafts.find((d) => d.item.id === draftId);
-    if (!draft) throw new Failure(404, 'NOT_FOUND', 'Feedback not found');
-    return draft;
+  view(id: string): SessionView {
+    const s = this.get(id);
+    return {
+      id: s.id,
+      title: s.title,
+      source: s.source,
+      revision: s.revision,
+      ended: s.ended,
+      createdAt: s.createdAt,
+      agent: s.delivery?.started
+        ? 'working'
+        : s.feedback.some((feedback) => feedback.status !== 'completed')
+          ? 'sent'
+          : this.waiting.has(id)
+            ? 'connected'
+            : 'idle',
+      pending: s.pending,
+      instruction: s.instruction,
+      sent: s.feedback
+        .filter((feedback) => feedback.status !== 'completed')
+        .flatMap((feedback) =>
+          feedback.reviews.map((saved) => ({
+            review: saved,
+            revision: feedback.revision,
+          })),
+        ),
+    };
+  }
+  private saved(s: Session, reviewId: string) {
+    const saved = s.pending.find((d) => d.review.id === reviewId);
+    if (!saved) throw new Failure(404, 'NOT_FOUND', 'Review not found');
+    return saved;
   }
   open(source: Source, revision: string) {
     const existing = this.list().find(
@@ -193,92 +186,98 @@ export class Store extends EventEmitter {
           ? path.basename(source.value)
           : new URL(source.value).pathname,
       source,
-      viewKey: randomBytes(32).toString('hex'),
+      sessionKey: randomBytes(32).toString('hex'),
       revision,
       ended: false,
       createdAt: new Date().toISOString(),
-      drafts: [],
+      pending: [],
       instruction: '',
-      events: [],
-      acknowledged: [],
+      feedback: [],
+      completed: [],
     });
   }
-  setRevision(
-    id: string,
-    revision: string,
-    surfacePath = this.get(id).surfacePath,
-  ) {
+  setRevision(id: string, revision: string, pagePath = this.get(id).pagePath) {
     const s = this.get(id);
-    return s.revision === revision && s.surfacePath === surfacePath
+    return s.revision === revision && s.pagePath === pagePath
       ? s
-      : this.commit({ ...s, revision, surfacePath });
+      : this.commit({ ...s, revision, pagePath });
   }
-  /** Add a draft. A draft with a known form key replaces that form's draft in place. */
-  addDraft(id: string, value: unknown) {
+  /**
+   * Add a pending review. A pending review with a known kind and key replaces that pending review.
+   * The replacement keeps the review ID and the list position. It replaces every other field.
+   */
+  addReview(id: string, value: unknown) {
     const s = this.writable(id);
     object(value);
     current(s, value.revision);
+    object(value.review, 'Review');
+    const { kind } = value.review;
     const key =
       value.key === undefined
         ? undefined
-        : text(value.key, 'Form key', LIMITS.formKey);
+        : text(value.key, 'Review key', LIMITS.key);
     const previous =
-      key === undefined ? undefined : s.drafts.find((d) => d.key === key);
+      key === undefined
+        ? undefined
+        : s.pending.find((d) => d.key === key && d.review.kind === kind);
     ensure(
-      previous || s.drafts.length < LIMITS.drafts,
-      `Send or remove current feedback before adding more than ${LIMITS.drafts} items.`,
+      previous || s.pending.length < LIMITS.pending,
+      `Send or remove pending reviews before adding more than ${LIMITS.pending}.`,
       'SESSION_FULL',
       413,
     );
-    const position = marker(value.marker);
-    const display = labels(value.labels);
-    const draft: Draft = {
-      item: item(value.item, previous?.item.id ?? randomUUID()),
+    const saved: SavedReview = {
+      review: review(value.review, previous?.review.id ?? randomUUID()),
       revision: s.revision,
-      ...(position ? { marker: position } : {}),
       ...(key !== undefined ? { key } : {}),
-      ...(display ? { labels: display } : {}),
+      ...(value.local !== undefined ? { local: value.local as Json } : {}),
     };
-    if (JSON.stringify(previous) !== JSON.stringify(draft))
+    if (JSON.stringify(previous) !== JSON.stringify(saved))
       this.commit({
         ...s,
-        drafts: previous
-          ? s.drafts.map((d) => (d === previous ? draft : d))
-          : [...s.drafts, draft],
+        pending: previous
+          ? s.pending.map((d) => (d === previous ? saved : d))
+          : [...s.pending, saved],
       });
-    return draft.item.id;
+    return saved.review.id;
   }
-  /** Edits keep the item ID, target, and original text. */
-  editDraft(id: string, draftId: string, value: unknown) {
+  /**
+   * Edit a pending review. The edit keeps the review ID, kind, key, target, private data, and list position.
+   * It replaces the comment, and the data when the edit gives data.
+   */
+  editReview(id: string, reviewId: string, value: unknown) {
     const s = this.writable(id);
     object(value);
     current(s, value.revision);
-    const draft = this.draft(s, draftId);
-    current(s, draft.revision);
-    const { id: _, kind: _kind, ...previous } = draft.item;
+    const saved = this.saved(s, reviewId);
+    current(s, saved.revision);
+    const { id: _, ...previous } = saved.review;
     const changes = {
       ...previous,
       comment: text(value.comment, 'Comment', LIMITS.comment, true),
+      ...(value.data !== undefined ? { data: value.data } : {}),
     };
-    if (value.after !== undefined) {
-      ensure(previous.edit, 'This feedback is not an edit.');
-      changes.edit = {
-        ...previous.edit,
-        after: text(value.after, 'Edit after', LIMITS.text, true),
-      };
-    }
-    const updated: Draft = { ...draft, item: item(changes, draftId) };
+    const updated: SavedReview = {
+      ...saved,
+      review: review(changes, reviewId),
+    };
     this.commit({
       ...s,
-      drafts: s.drafts.map((d) => (d.item.id === draftId ? updated : d)),
+      pending: s.pending.map((d) => (d.review.id === reviewId ? updated : d)),
     });
   }
-  removeDraft(id: string, draftId: string) {
+  removeReview(id: string, reviewId: string, revision?: string) {
     const s = this.writable(id);
-    this.draft(s, draftId);
+    const saved = this.saved(s, reviewId);
+    ensure(
+      revision === undefined || revision === saved.revision,
+      'The review changed revision. Inspect it before deleting it.',
+      'STALE_REVISION',
+      409,
+    );
     this.commit({
       ...s,
-      drafts: s.drafts.filter((d) => d.item.id !== draftId),
+      pending: s.pending.filter((d) => d.review.id !== reviewId),
     });
   }
   setInstruction(id: string, value: unknown) {
@@ -286,106 +285,102 @@ export class Store extends EventEmitter {
     const instruction = text(value, 'Instruction', LIMITS.instruction, true);
     if (s.instruction !== instruction) this.commit({ ...s, instruction });
   }
-  /** Turn the current drafts and instruction into one event. */
+  /** One Send: the instruction and the pending reviews become one feedback. */
   send(id: string, revision: unknown) {
     const s = this.writable(id);
     current(s, revision);
     const instruction = s.instruction.trim() ? s.instruction : undefined;
-    ensure(s.drafts.length || instruction, 'Add feedback or an instruction');
+    ensure(s.pending.length || instruction, 'Add a review or an instruction');
     ensure(
-      s.drafts.every((d) => d.revision === s.revision),
-      'Some feedback belongs to another revision. Inspect the page, then recreate or remove stale items.',
+      s.pending.every((d) => d.revision === s.revision),
+      'Some reviews belong to another revision. Inspect the page, then recreate or remove stale reviews.',
       'STALE_REVISION',
       409,
     );
     ensure(
-      s.events.length < LIMITS.events,
-      'Session event limit reached; open a new session',
+      s.feedback.length < LIMITS.feedback,
+      'Session feedback limit reached; open a new session',
       'SESSION_FULL',
       413,
     );
-    const event: Event = {
+    const feedback: Feedback = {
       id: randomUUID(),
       revision: s.revision,
       ...(instruction ? { instruction } : {}),
-      items: s.drafts.map((d) => d.item),
+      reviews: s.pending.map((d) => d.review),
       status: 'queued',
       deliveries: 0,
     };
     this.commit({
       ...s,
-      drafts: [],
+      pending: [],
       instruction: '',
-      events: [...s.events, event],
+      feedback: [...s.feedback, feedback],
     });
-    return event;
+    return feedback;
   }
-  /** Deliver every unfinished event. Unacknowledged events come back with the next delivery. */
-  take(id: string): Feedback | { status: 'ended' } | null {
+  /** Deliver every unfinished feedback. Uncompleted feedback come back with the next delivery. */
+  take(id: string): Delivered | { status: 'ended' } | null {
     const s = this.get(id);
-    const pending = s.events
+    const unfinished = s.feedback
       .filter((e) => e.status !== 'completed')
-      .slice(0, LIMITS.eventsPerReceipt);
-    if (!pending.length) return s.ended ? { status: 'ended' as const } : null;
+      .slice(0, LIMITS.feedbackPerReceipt);
+    if (!unfinished.length)
+      return s.ended ? { status: 'ended' as const } : null;
+    // The agent holds these feedback now, so it works on them.
     const delivery = {
       receipt: randomUUID(),
-      eventIds: pending.map((e) => e.id),
+      feedbackIds: unfinished.map((e) => e.id),
+      started: true,
     };
-    const ids = new Set(delivery.eventIds);
+    const ids = new Set(delivery.feedbackIds);
     const updated = this.commit({
       ...s,
       delivery,
-      events: s.events.map((e) =>
+      feedback: s.feedback.map((e) =>
         ids.has(e.id)
           ? { ...e, status: 'delivered', deliveries: e.deliveries + 1 }
           : e,
       ),
     });
-    // The agent gets what it needs to apply the review. Delivery state stays on the server.
+    // The agent gets what it needs to apply the feedback. Delivery state stays on the server.
     return {
       status: 'feedback',
       source: { kind: s.source.kind, value: s.source.value },
       receipt: delivery.receipt,
-      events: updated.events
+      feedback: updated.feedback
         .filter((e) => ids.has(e.id))
-        .map(({ id, revision, instruction, items, deliveries }) => ({
+        .map(({ id, revision, instruction, reviews, deliveries }) => ({
           id,
           revision,
           ...(instruction ? { instruction } : {}),
-          items,
+          reviews,
           deliveries,
         })),
     };
   }
-  acknowledge(id: string, receipt: unknown, start = false) {
+  /** Complete the feedback of a receipt. */
+  complete(id: string, receipt: unknown) {
     const s = this.get(id);
-    if (typeof receipt === 'string' && s.acknowledged.includes(receipt))
-      return s;
+    if (typeof receipt === 'string' && s.completed.includes(receipt)) return s;
     ensure(
       typeof receipt === 'string' && s.delivery?.receipt === receipt,
-      'Receipt is unknown or replaced by a newer wait; do not acknowledge newer work',
+      'Receipt is unknown or replaced by a newer wait; do not complete newer work',
       'STALE_RECEIPT',
       409,
     );
-    if (start)
-      return s.delivery!.started
-        ? s
-        : this.commit({ ...s, delivery: { ...s.delivery!, started: true } });
-    const ids = new Set(s.delivery!.eventIds);
+    const ids = new Set(s.delivery!.feedbackIds);
     return this.commit({
       ...s,
       delivery: undefined,
-      acknowledged: [...s.acknowledged, receipt as string],
-      events: s.events.map((e) =>
+      completed: [...s.completed, receipt as string],
+      feedback: s.feedback.map((e) =>
         ids.has(e.id) ? { ...e, status: 'completed' } : e,
       ),
     });
   }
   end(id: string) {
     return this.commit({ ...this.get(id), ended: true });
-  }
-  isWaiting(id: string) {
-    return this.waiting.has(id);
   }
   /**
    * Resolve with the first delivery from `take`, after each session change.

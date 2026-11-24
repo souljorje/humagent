@@ -1,0 +1,89 @@
+// Used by the workspace, overlay, and example.
+export const cssVariables = `
+  /* Primitives */
+  --ha-white: #fff;
+  --ha-black: #000;
+  --ha-gray-100: #f5f5f5;
+  --ha-gray-200: #eee;
+  --ha-gray-300: #ddd;
+  --ha-gray-400: #c8c8cc;
+  --ha-gray-450: #8e8e93;
+  --ha-gray-500: #888;
+  --ha-gray-600: #666;
+  --ha-gray-700: #555;
+  --ha-gray-800: #252527;
+  --ha-gray-850: #252525;
+  --ha-gray-900: #222;
+  --ha-charcoal: #18181b;
+  --ha-smoke: #36363a;
+  --ha-blue-400: #60a5fa;
+  --ha-blue-500: #1685ff;
+  --ha-amber-400: #fbbf24;
+  --ha-green-400: #4ade80;
+  --ha-red-400: #f87171;
+  --ha-unit: 4px;
+  /* Spacing suffixes are multipliers. A hyphen marks the decimal point. */
+  --ha-spacing-0-75: calc(var(--ha-unit) * 0.75);
+  --ha-spacing-1: var(--ha-unit);
+  --ha-spacing-1-5: calc(var(--ha-unit) * 1.5);
+  --ha-spacing-2: calc(var(--ha-unit) * 2);
+  --ha-spacing-2-5: calc(var(--ha-unit) * 2.5);
+  --ha-spacing-3: calc(var(--ha-unit) * 3);
+  --ha-spacing-3-5: calc(var(--ha-unit) * 3.5);
+  --ha-spacing-4: calc(var(--ha-unit) * 4);
+  --ha-spacing-6: calc(var(--ha-unit) * 6);
+  --ha-spacing-7: calc(var(--ha-unit) * 7);
+  --ha-spacing-16: calc(var(--ha-unit) * 16);
+  --ha-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ha-system-sans: system-ui, sans-serif;
+  --ha-opacity-42: 0.42;
+  --ha-time-140: 140ms;
+
+  /* Semantic tokens */
+  --ha-fg: var(--ha-gray-100);
+  --ha-fg-muted: var(--ha-gray-400);
+  --ha-fg-status: var(--ha-gray-300);
+  --ha-fg-bright: var(--ha-white);
+  --ha-fg-on-light: var(--ha-gray-700);
+  --ha-bg-page: var(--ha-white);
+  --ha-bg-glass: color-mix(in srgb, var(--ha-charcoal) 82%, transparent);
+  --ha-bg-tooltip: color-mix(in srgb, var(--ha-charcoal) 90%, transparent);
+  --ha-bg-glass-solid: var(--ha-gray-800);
+  /* Convert 8-bit alpha values to percentages to preserve their exact opacity. */
+  --ha-bg-hover: color-mix(in srgb, var(--ha-white) calc(20 * 100% / 255), transparent);
+  --ha-bg-hover-strong: color-mix(in srgb, var(--ha-white) calc(26 * 100% / 255), transparent);
+  --ha-bg-hover-subtle: color-mix(in srgb, var(--ha-white) calc(13 * 100% / 255), transparent);
+  --ha-bg-primary: color-mix(in srgb, var(--ha-white) calc(235 * 100% / 255), transparent);
+  --ha-bg-primary-hover: var(--ha-white);
+  --ha-fg-primary: var(--ha-gray-900);
+  --ha-shadow-primary: inset 0 1px 0 color-mix(in srgb, var(--ha-white) calc(128 * 100% / 255), transparent);
+  --ha-bg-selection: var(--ha-gray-600);
+  --ha-fg-selection: var(--ha-fg-bright);
+  --ha-accent: var(--ha-blue-500);
+  --ha-focus-ring: var(--ha-gray-200);
+  --ha-focus-ring-strong: var(--ha-gray-100);
+  --ha-focus-ring-field: color-mix(in srgb, var(--ha-white) 40%, transparent);
+  --ha-scrollbar-thumb: var(--ha-gray-500);
+  --ha-border-emphasis: var(--ha-gray-500);
+  --ha-bg-field: color-mix(in srgb, var(--ha-black) 14%, transparent);
+  --ha-shadow-field:
+    inset 0 1px 2px color-mix(in srgb, var(--ha-black) calc(34 * 100% / 255), transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--ha-white) calc(10 * 100% / 255), transparent);
+  --ha-padding-compact: var(--ha-spacing-2) var(--ha-spacing-3);
+  --ha-padding-content: var(--ha-spacing-2-5) var(--ha-spacing-3);
+  --ha-button-height: calc(var(--ha-unit) * 10);
+  --ha-control-compact-size: calc(var(--ha-unit) * 8);
+  --ha-control-disabled-opacity: var(--ha-opacity-42);
+  --ha-panel-padding: var(--ha-spacing-2);
+  --ha-radius-compact: calc(var(--ha-unit) * 2);
+  --ha-radius-card: calc(var(--ha-unit) * 3);
+  --ha-radius-field: calc(var(--ha-unit) * 3.5);
+  --ha-radius-button: calc(var(--ha-unit) * 4.5);
+  --ha-text-small: calc(var(--ha-unit) * 3);
+  --ha-text-label: calc(var(--ha-unit) * 3.25);
+  --ha-text-body: calc(var(--ha-unit) * 3.5);
+  --ha-font-body: var(--ha-text-body)/1.5 var(--ha-sans);
+  --ha-font-overlay: var(--ha-text-body)/1.45 var(--ha-system-sans);
+  --ha-font-tooltip: var(--ha-text-small)/1.4 var(--ha-system-sans);
+  --ha-control-duration: var(--ha-time-140);
+`;

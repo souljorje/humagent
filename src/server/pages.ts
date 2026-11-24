@@ -29,8 +29,9 @@ const MIME: Record<string, string> = {
   '.wasm': 'application/wasm',
   '.txt': 'text/plain',
 };
-/** Browser modules of the page SDK. */
-const SDK_ASSET = /^\/(?:sdk|shared)\/[a-z][a-z0-9-]*\.js$/;
+/** Browser modules of the page SDK. A plugin is one module, with helper files in its own directory. */
+const SDK_ASSET =
+  /^\/(?:sdk|shared|plugins(?:\/[a-z][a-z0-9-]*)?)\/[a-z][a-z0-9-]*\.js$/;
 const digest = (value: string | Buffer) =>
   createHash('sha256').update(value).digest('hex');
 export async function sourceOf(
@@ -166,7 +167,7 @@ function inject(html: string, bootstrap: Bootstrap) {
   const encoded = JSON.stringify(bootstrap).replaceAll('<', '\\u003c');
   return `${prefix}<script>(${initializeFrame.toString()})(${encoded})</script><script type="module" src="/__humagent/sdk/sdk.js"></script>${html.slice(prefix.length)}`;
 }
-export interface Surface {
+export interface PageServer {
   origin: string;
   frameUrl: string;
   channel: string;
@@ -174,17 +175,17 @@ export interface Surface {
   checkRevision: () => Promise<string>;
   close: () => Promise<void>;
 }
-export async function startSurface(
+export async function startPageServer(
   store: Store,
   id: string,
   parentOrigin: string,
-): Promise<Surface> {
-  const { source, surfacePath } = store.get(id);
+): Promise<PageServer> {
+  const { source, pagePath } = store.get(id);
   const channel = randomBytes(24).toString('hex');
   let origin = '';
   const upstreamUrl = source.kind === 'url' ? new URL(source.value) : undefined;
   let currentPath =
-    surfacePath ??
+    pagePath ??
     (upstreamUrl
       ? upstreamUrl.pathname + upstreamUrl.search
       : `/${encodeURIComponent(path.basename(source.value))}`);
@@ -225,7 +226,7 @@ export async function startSurface(
     try {
       ensure(
         req.headers.host === new URL(origin).host,
-        'Invalid surface host',
+        'Invalid page host',
         'FORBIDDEN',
         403,
       );
@@ -257,7 +258,7 @@ export async function startSurface(
       if (source.kind === 'file') {
         ensure(
           ['GET', 'HEAD'].includes(req.method ?? ''),
-          'File interfaces are read-only',
+          'File pages are read-only',
           'READ_ONLY',
           405,
         );
@@ -452,6 +453,6 @@ function fail(res: ServerResponse, error: unknown) {
     'x-content-type-options': 'nosniff',
   });
   res.end(
-    error instanceof Error ? error.message : 'Interface could not be served',
+    error instanceof Error ? error.message : 'The page could not be served',
   );
 }

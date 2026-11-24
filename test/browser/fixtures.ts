@@ -2,22 +2,22 @@ import { test as base, expect, type Frame, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRuntime } from '../../dist/runtime/server.js';
-import type { Feedback } from '../../dist/shared/feedback.js';
+import { createServer } from '../../dist/server/server.js';
+import type { Delivered } from '../../dist/shared/feedback.js';
 import { fixture } from '../fixtures.ts';
 
-/** One server, one copy of the demo page, and the actions of a reviewer and an agent. */
+/** One server, one copy of the demo page, and the actions of a human and an agent. */
 export const test = base.extend<{
-  review: Awaited<ReturnType<typeof createReview>>;
+  humagent: Awaited<ReturnType<typeof createHumagent>>;
   pageErrors: void;
 }>({
-  review: async ({ page }, use) => {
+  humagent: async ({ page }, use) => {
     const directory = fixture('browser');
-    const review = await createReview(page, directory);
+    const humagent = await createHumagent(page, directory);
     try {
-      await use(review);
+      await use(humagent);
     } finally {
-      await review.close();
+      await humagent.close();
       fs.rmSync(directory, { recursive: true, force: true });
     }
   },
@@ -32,7 +32,7 @@ export const test = base.extend<{
   ],
 });
 
-async function createReview(page: Page, directory: string) {
+async function createHumagent(page: Page, directory: string) {
   const state = path.join(directory, 'state');
   const file = path.join(directory, 'examples/plan.html');
   fs.cpSync(
@@ -40,17 +40,16 @@ async function createReview(page: Page, directory: string) {
     path.dirname(file),
     { recursive: true },
   );
-  let runtime = await createRuntime({ directory: state });
+  let runtime = await createServer({ directory: state });
   let id = '';
   let key = '';
-  let wait: Promise<Feedback> | undefined;
+  let wait: Promise<Delivered> | undefined;
   const agent = new AbortController();
   const frame = page.frameLocator('#frame');
   const note = frame.getByLabel('Comment', { exact: true });
   const editor = frame.getByRole('textbox', { name: 'Edit text', exact: true });
-  const annotateButton = page.locator('#annotate');
-  const toggle = page.locator('#toggle-review');
-  const surface = (): Frame =>
+  const toggle = page.locator('#bar-toggle');
+  const pageFrame = (): Frame =>
     page.frames().find((child) => child.parentFrame() === page.mainFrame())!;
 
   /** Call a control route with the agent's credential. */
@@ -69,33 +68,26 @@ async function createReview(page: Page, directory: string) {
     return JSON.parse(body) as T;
   }
   async function ready() {
-    await expect(page.locator('#bridge-status')).toHaveText(
-      'Interface connected',
-    );
-    await surface().waitForFunction(() => !!window.humagent);
+    await expect(page.locator('#bridge-status')).toHaveText('Page connected');
+    await pageFrame().waitForFunction(() => !!window.humagent);
   }
-  async function expand(open: boolean) {
-    if ((await toggle.getAttribute('aria-expanded')) !== String(open))
-      await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-expanded', String(open));
-  }
-  /** Turn commenting on or off. */
+  /** Open the bar, which turns annotating on. Or close it, which turns annotating off. */
   async function annotate(on = true) {
-    if ((await annotateButton.getAttribute('aria-pressed')) !== String(on))
-      await annotateButton.click();
-    await expect(annotateButton).toHaveAttribute('aria-pressed', String(on));
+    if ((await toggle.getAttribute('aria-pressed')) !== String(on))
+      await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', String(on));
+    await expect(toggle).toHaveAttribute('aria-expanded', String(on));
   }
   async function confirm() {
     await frame
       .getByRole('button', { name: /^(Add comment|Confirm text edit|Save)$/ })
       .click();
-    await expect(frame.getByRole('dialog', { name: 'Feedback' })).toBeHidden();
+    await expect(frame.getByRole('dialog', { name: 'Review' })).toBeHidden();
   }
 
   return {
     file,
     frame,
-    expand,
     annotate,
     ready,
     get origin() {
@@ -108,8 +100,8 @@ async function createReview(page: Page, directory: string) {
     /** The server's saved state of the open session. */
     session: () => runtime.store.get(id),
     evaluate: ((...args: Parameters<Frame['evaluate']>) =>
-      surface().evaluate(...args)) as Frame['evaluate'],
-    /** Open a source with the review details closed. Return the session ID. */
+      pageFrame().evaluate(...args)) as Frame['evaluate'],
+    /** Open a source. The bar starts closed. Return the session ID. */
     async open(source = file) {
       const opened = await api<{ session: string; url: string }>(
         '/api/open',
@@ -120,7 +112,6 @@ async function createReview(page: Page, directory: string) {
       key = new URL(opened.url).hash.slice(1);
       await page.goto(opened.url);
       await ready();
-      await expand(false);
       return id;
     },
     async addComment(selector: string, comment: string) {
@@ -129,38 +120,49 @@ async function createReview(page: Page, directory: string) {
       await note.fill(comment);
       await confirm();
     },
+    /** Select the complete first text node of an element, as a drag does. Resolve after the page handled it. */
+    async selectText(selector: string) {
+      await annotate();
+      await pageFrame().evaluate(
+        (selector) =>
+          new Promise<void>((resolve) => {
+            const element = document.querySelector(selector)!;
+            const range = document.createRange();
+            range.selectNodeContents(element.firstChild!);
+            getSelection()!.removeAllRanges();
+            getSelection()!.addRange(range);
+            element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            // The page reads the selection in a timer. A later timer runs after it.
+            setTimeout(resolve, 0);
+          }),
+        selector,
+      );
+    },
     /** Replace the complete first text node of an element. */
     async replace(selector: string, after: string) {
-      await annotate();
-      await surface().evaluate((selector) => {
-        const element = document.querySelector(selector)!;
-        const range = document.createRange();
-        range.selectNodeContents(element.firstChild!);
-        getSelection()!.removeAllRanges();
-        getSelection()!.addRange(range);
-        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-      }, selector);
+      await this.selectText(selector);
       await editor.fill(after);
       await confirm();
     },
     /** Start an agent wait. `receive` returns its feedback. */
     async connect() {
-      wait = api<Feedback>(`/api/sessions/${id}/wait`, 'POST', {});
+      wait = api<Delivered>(`/api/sessions/${id}/wait`, 'POST', {});
       wait.catch(() => {});
       await expect(page.locator('#agent-state')).toHaveText('Agent connected');
     },
     async receive() {
-      const feedback = await wait!;
-      expect(feedback.status).toBe('feedback');
-      return feedback;
+      const delivered = await wait!;
+      expect(delivered.status).toBe('feedback');
+      return delivered;
     },
-    acknowledge: (feedback: Feedback, start = false) =>
-      api(`/api/sessions/${id}/ack${start ? '/start' : ''}`, 'POST', {
-        receipt: feedback.receipt,
+    /** Complete the receipt, as the agent does after it applies the feedback. */
+    complete: (delivered: Delivered) =>
+      api(`/api/sessions/${id}/complete`, 'POST', {
+        receipt: delivered.receipt,
       }),
     async restart() {
       await runtime.close();
-      runtime = await createRuntime({ directory: state });
+      runtime = await createServer({ directory: state });
     },
     async close() {
       agent.abort();

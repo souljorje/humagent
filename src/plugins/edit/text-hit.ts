@@ -1,3 +1,5 @@
+import { LIMITS } from '../../shared/feedback.js';
+
 /** The caret under a point, from the browser's own text geometry. */
 export function caretAtPoint(point: { x: number; y: number }): Range | null {
   const doc = document as Document & {
@@ -40,4 +42,36 @@ export function hitTestText(
       node,
       offset: Math.max(0, Math.min(caret!.startOffset, node.length)),
     };
+}
+
+/** The single text node that a selection covers, with the selected offsets. */
+export function selectedRun(range: Range) {
+  let node = range.startContainer;
+  if (node !== range.endContainer) return null;
+  if (
+    node instanceof Element &&
+    node.childNodes.length === 1 &&
+    range.startOffset === 0 &&
+    range.endOffset === 1
+  )
+    node = node.firstChild!;
+  if (!(node instanceof Text) || !node.parentElement) return null;
+  return {
+    node,
+    start: node === range.startContainer ? range.startOffset : 0,
+    end: node === range.endContainer ? range.endOffset : node.length,
+  };
+}
+
+/** Plain text outside Humagent UI, native fields, and application editors. */
+export function isEditableText(node: Node | null): node is Text {
+  return (
+    node instanceof Text &&
+    !!node.data.trim() &&
+    node.length <= LIMITS.text &&
+    node.parentElement instanceof HTMLElement &&
+    !node.parentElement.closest(
+      '[data-humagent-ui],script,style,head,input,textarea,select,option,optgroup,[contenteditable]:not([contenteditable="false"])',
+    )
+  );
 }

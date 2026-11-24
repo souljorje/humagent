@@ -49,7 +49,7 @@ for (const runtime of ['bun', 'node'])
       runtime === 'bun' ? process.execPath : 'node',
     );
     try {
-      const opened = await run('open', source, '--no-open');
+      const opened = await run(source, '--no-wait', '--no-open');
       const record = JSON.parse(
         fs.readFileSync(path.join(home, 'server.json'), 'utf8'),
       );
@@ -59,7 +59,8 @@ for (const runtime of ['bun', 'node'])
       );
       assert.equal(started.runtime, runtime);
       const snapshot = await run('status', opened.session);
-      const pending = run('wait', opened.session);
+      // The agent loop is one command: open or reuse the session, then wait.
+      const pending = run(source, '--no-open');
       for (
         let attempt = 0;
         (await run('status', opened.session)).agent !== 'connected';
@@ -84,53 +85,34 @@ for (const runtime of ['bun', 'node'])
       assert.equal(sent.status, 200);
       const batch = await pending;
       assert.equal(batch.status, 'feedback');
-      assert.equal(batch.events[0].instruction, 'Check this interface.');
-      assert.equal(batch.events[0].revision, snapshot.revision);
-      assert.equal((await run('status', opened.session)).agent, 'sent');
-      for (let i = 0; i < 2; i++)
-        assert.equal(
-          (
-            await run(
-              'ack',
-              opened.session,
-              '--receipt',
-              batch.receipt,
-              '--start',
-            )
-          ).agent,
-          'working',
-        );
+      assert.equal(batch.feedback[0].instruction, 'Check this interface.');
+      assert.equal(batch.feedback[0].revision, snapshot.revision);
+      assert.equal(batch.session, opened.session);
+      // A delivered event means that the agent works on it.
+      assert.equal((await run('status', opened.session)).agent, 'working');
 
       // An unacknowledged event survives a restart. Only its newest receipt is valid.
       await stop();
-      const resumed = await run('open', source, '--no-open');
+      const resumed = await run(source, '--no-wait', '--no-open');
       assert.equal(resumed.session, opened.session);
       assert.equal((await run('status', opened.session)).agent, 'sent');
-      const redelivered = await run('wait', opened.session);
-      assert.equal(redelivered.events[0].id, batch.events[0].id);
-      assert.equal(redelivered.events[0].deliveries, 2);
+      const redelivered = await run(source, '--no-open');
+      assert.equal(redelivered.feedback[0].id, batch.feedback[0].id);
+      assert.equal(redelivered.feedback[0].deliveries, 2);
       await assert.rejects(() =>
-        run('ack', opened.session, '--receipt', batch.receipt),
+        run(source, '--no-wait', '--no-open', '--done', batch.receipt),
       );
-      await assert.rejects(() =>
-        run('ack', opened.session, '--receipt', batch.receipt, '--start'),
-      );
-      assert.equal(
-        (
-          await run(
-            'ack',
-            opened.session,
-            '--receipt',
-            redelivered.receipt,
-            '--start',
-          )
-        ).agent,
-        'working',
-      );
-      await run('ack', opened.session, '--receipt', redelivered.receipt);
-      assert.equal((await run('status', opened.session)).agent, 'idle');
+      assert.equal((await run('status', opened.session)).agent, 'working');
+      // `--done` completes the receipt, then waits again.
+      const next = run(source, '--no-open', '--done', redelivered.receipt);
+      for (
+        let attempt = 0;
+        (await run('status', opened.session)).agent !== 'connected';
+        attempt++
+      )
+        assert.ok(attempt < 50, 'Agent must wait again');
       await run('end', opened.session);
-      assert.equal((await run('wait', opened.session)).status, 'ended');
+      assert.equal((await next).status, 'ended');
     } finally {
       await stop();
       fs.rmSync(root, { recursive: true, force: true });
@@ -144,9 +126,14 @@ test('the demo opens the editable plan and keeps local edits on the next run', a
     const opened = await run('demo', '--no-open');
     const snapshot = await run('status', opened.session);
     assert.match(
-      await (await fetch(snapshot.surface.frameUrl)).text(),
+      await (await fetch(snapshot.page.frameUrl)).text(),
       /Show your agent what you mean/,
     );
+    const styles = await fetch(
+      new URL('css-variables.css', snapshot.page.frameUrl),
+    );
+    assert.equal(styles.status, 200);
+    assert.match(await styles.text(), /--ha-unit: 4px/);
     fs.appendFileSync(snapshot.source.value, '\n<!-- Local demo edit -->');
     assert.equal((await run('demo', '--no-open')).session, opened.session);
     assert.match(

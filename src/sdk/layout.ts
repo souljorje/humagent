@@ -1,5 +1,5 @@
 /** Pure placement rules for markers and the editor. All values are CSS pixels in the viewport. */
-import type { MarkerPosition } from '../shared/feedback.js';
+import type { MarkerPosition } from '../shared/marker.js';
 
 export interface Point {
   x: number;
@@ -41,7 +41,7 @@ export function panelPoint(
   point: Point,
   panel: Size,
   viewport: Size,
-  reviewBar?: Point,
+  bar?: Point,
 ): Point {
   const along = (start: number, size: number, limit: number) =>
     clamp(
@@ -54,13 +54,13 @@ export function panelPoint(
     y: along(point.y, panel.height, viewport.height),
   };
   if (
-    reviewBar &&
-    position.x + panel.width + GAP > reviewBar.x &&
-    position.y + panel.height + GAP > reviewBar.y
+    bar &&
+    position.x + panel.width + GAP > bar.x &&
+    position.y + panel.height + GAP > bar.y
   ) {
-    if (reviewBar.x >= panel.width + MARGIN + GAP)
-      position.x = reviewBar.x - panel.width - GAP;
-    else position.y = Math.max(MARGIN, reviewBar.y - panel.height - GAP);
+    if (bar.x >= panel.width + MARGIN + GAP)
+      position.x = bar.x - panel.width - GAP;
+    else position.y = Math.max(MARGIN, bar.y - panel.height - GAP);
   }
   return position;
 }
