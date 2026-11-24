@@ -17,6 +17,7 @@ export function createEditor(
   // Native plaintext-only editing forces pre-wrap, exposing HTML indentation.
   // Preserve application whitespace and handle plain-text input below.
   const element = createElement('span', {
+    dataset: { humagentUi: '', humagentText: '' },
     contentEditable: 'true',
     role: 'textbox',
     ariaLabel: 'Edit text',
@@ -24,8 +25,6 @@ export function createEditor(
     spellcheck: false,
     textContent: initial,
   });
-  element.dataset.humagentUi = '';
-  element.dataset.humagentText = '';
   element.style.cssText =
     'display:inline;white-space:inherit;outline:none;cursor:text;min-width:1ch;';
   if (!initial) element.style.display = 'inline-block';
@@ -50,11 +49,10 @@ export function createEditor(
     const last = fragment.lastChild as Text;
     range.insertNode(fragment);
     // A trailing line break needs a following node, or the browser does not show the new line.
-    if (!element.querySelector('[data-humagent-placeholder]')) {
-      const end = createElement('br');
-      end.dataset.humagentPlaceholder = '';
-      element.append(end);
-    }
+    if (!element.querySelector('[data-humagent-placeholder]'))
+      element.append(
+        createElement('br', { dataset: { humagentPlaceholder: '' } }),
+      );
     range.setStart(last, last.length);
     range.collapse(true);
     selection.removeAllRanges();

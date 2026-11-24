@@ -131,9 +131,10 @@ export function createBar(
     ] of current.pending.entries()) {
       const review = saved.review;
       const card = plugins.get(review.kind)?.workspace?.card;
-      const li = createElement('li', { className: 'review' });
-      li.dataset.reviewId = review.id;
-      li.dataset.stale = String(stale);
+      const li = createElement('li', {
+        className: 'review',
+        dataset: { reviewId: review.id, stale: String(stale) },
+      });
       const content = createElement('div', { className: 'review-content' });
       li.append(content);
       content.append(
@@ -167,12 +168,12 @@ export function createBar(
           disabled: !mutable || !!status,
           ariaLabel: `Edit review ${index + 1}`,
           ariaHasPopup: 'dialog',
+          dataset: { tooltip: status || 'Edit review' },
           onclick() {
             $('frame').focus();
             actions.open(review.id);
           },
         });
-        open.dataset.tooltip = status || 'Edit review';
         li.prepend(open);
         li.onpointerenter = () => actions.highlight(review.id);
         li.onpointerleave = () => actions.highlight();

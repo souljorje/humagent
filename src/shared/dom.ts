@@ -3,9 +3,11 @@
 /** Create an HTML element with optional DOM properties. */
 export function createElement<K extends keyof HTMLElementTagNameMap>(
   tag: K,
-  properties?: Partial<HTMLElementTagNameMap[K]>,
+  { dataset, ...properties }: Partial<HTMLElementTagNameMap[K]> = {},
 ): HTMLElementTagNameMap[K] {
-  return Object.assign(document.createElement(tag), properties);
+  const element = document.createElement(tag);
+  if (dataset) Object.assign(element.dataset, dataset);
+  return Object.assign(element, properties);
 }
 /** Write text only when it changes, so live regions do not announce it again. */
 export function setText(el: Element, text: string) {

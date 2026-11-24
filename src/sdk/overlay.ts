@@ -54,8 +54,7 @@ export interface OverlayActions {
 }
 
 export function createOverlayView(actions: OverlayActions) {
-  const host = createElement('div');
-  host.dataset.humagentUi = '';
+  const host = createElement('div', { dataset: { humagentUi: '' } });
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.innerHTML = `<style>
     :host {
@@ -177,8 +176,8 @@ export function createOverlayView(actions: OverlayActions) {
   function createMarker(id: string) {
     const marker = createElement('button', {
       className: 'marker glass-surface',
+      dataset: { reviewId: id },
     });
-    marker.dataset.reviewId = id;
     marker.onpointerdown = (event) => {
       if (event.button !== 0 || !event.isPrimary) return;
       event.preventDefault();

@@ -294,9 +294,10 @@ function showStatus(form: HTMLFormElement, message: string) {
   let output = form.querySelector<HTMLElement>('[data-humagent-form-status]');
   if (!output && !message) return;
   if (!output) {
-    output = createElement('output', { role: 'status' });
-    output.dataset.humagentFormStatus = '';
-    output.dataset.humagentUi = '';
+    output = createElement('output', {
+      role: 'status',
+      dataset: { humagentFormStatus: '', humagentUi: '' },
+    });
     form.append(output);
   }
   output.textContent = message;
