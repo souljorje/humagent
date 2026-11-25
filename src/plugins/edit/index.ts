@@ -5,7 +5,6 @@ import type { Contract, Plugin, ReviewSummary } from '@/shared/plugin';
 import { ensure, object, text } from '@/shared/validate';
 import { editOf, type EditData } from './data';
 import './index.css';
-import { page } from './page';
 import { textDiff } from './text-diff';
 
 const DIFF_TAG = { remove: 'del', add: 'ins', same: 'span' } as const;
@@ -43,4 +42,4 @@ const contract: Contract = {
   },
 };
 
-export const edit: Plugin = { kind: 'edit', contract, page, summary };
+export const edit: Plugin = { ...contract, summary };

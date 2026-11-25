@@ -1,12 +1,11 @@
 /** What annotating asks the tools of the plugins. */
 import type { Pick, Tool } from './types';
 
-export type RegisteredTool = Tool & { kind: string };
-type Tools = readonly RegisteredTool[];
+type Tools = readonly Tool[];
 /** The first answer of any tool. */
 function firstOf<T>(
   tools: Tools,
-  ask: (tool: RegisteredTool) => T | undefined,
+  ask: (tool: Tool) => T | undefined,
 ): T | undefined {
   for (const tool of tools) {
     const answer = ask(tool);

@@ -454,18 +454,21 @@ test('a proxied app keeps its own behavior and accepts comments and SDK submissi
   try {
     const source = `http://127.0.0.1:${(app.address() as AddressInfo).port}/`;
     // The first tool blocks a button whose text the edit tool would accept.
-    await page.route('**/__humagent/assets/plugins-*.js', (route) => {
+    await page.route('**/__humagent/assets/inputs-*.js', (route) => {
       const builtins = `${route.request().url()}?builtins`;
       return route.fulfill({
         contentType: 'text/javascript',
         body: `
-          import { plugins as builtins } from '${builtins}';
+          import { pageInputs as builtins } from '${builtins}';
           export * from '${builtins}';
           const tool = {
-            name: 'Block',
+            kind: 'block', name: 'Block',
             hit: ({ el }) => el.id === 'blocked' ? 'blocked' : undefined,
           };
-          export const plugins = new Map([['block', { page: () => ({ tool }) }], ...builtins]);
+          export function pageInputs(...args) {
+            const inputs = builtins(...args);
+            return { ...inputs, tools: [tool, ...inputs.tools] };
+          }
         `,
       });
     });

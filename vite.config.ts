@@ -70,8 +70,8 @@ export default defineConfig(({ command }) => ({
         outDir: '../dist/client',
         manifest: true,
         rolldownOptions: {
-          input: ['/ui/index.html', '/sdk/sdk.ts'],
-          // A test replaces `plugins`.
+          // Browser tests supply an extra picker through the page input module.
+          input: ['/ui/index.html', '/sdk/sdk.ts', '/plugins/inputs.ts'],
           output: { minifyInternalExports: false },
         },
       },

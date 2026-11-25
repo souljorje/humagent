@@ -2,7 +2,6 @@
 import { createElement } from '@/shared/dom';
 import type { Plugin, ReviewSummary } from '@/shared/plugin';
 import { contract, formOf, type FormLocal } from './data';
-import { page } from './page';
 import './index.css';
 
 export type { FormLabels, FormLocal } from './data';
@@ -32,4 +31,4 @@ const summary: ReviewSummary = {
   },
 };
 
-export const form: Plugin = { kind: 'form', contract, page, summary };
+export const form: Plugin = { ...contract, summary };

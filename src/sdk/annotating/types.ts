@@ -36,6 +36,8 @@ export interface Editor {
 }
 /** A plugin's part in element picking. The SDK asks tools in registry order. */
 export interface Tool {
+  /** Reopen saved reviews of this kind. New drafts can use any kind. */
+  kind: string;
   /** The marker label of a pending review without a comment. */
   name: string;
   /** Claim a pick. `blocked` stops the pick without an editor. */

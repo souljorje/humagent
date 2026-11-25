@@ -27,6 +27,8 @@ Change the glossary first when a name changes.
 | marker | The numbered pin of a pending review on the page. |
 | preview | A text edit that the page shows in place before the agent applies it. |
 | revision | The version of the page's HTML. A review belongs to one revision. A stale review belongs to an older one. |
-| plugin | One module that adds one kind of review. Its attribute, `data-humagent-<kind>`, marks its elements on a page. |
+| plugin | The data rules and summary for one review kind. |
+| page input | A page interaction or script call that produces a review. |
+| picker | A page input that can claim or block a selection during annotating. |
 | session key | The credential of one session. The workspace holds it. The page never sees it. |
 | control token | The credential of the agent's commands. |

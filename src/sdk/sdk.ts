@@ -1,5 +1,5 @@
 /** The page SDK: the bridge to the workspace, and the plugins of this page document. */
-import { plugins } from '@/plugins';
+import { pageInputs } from '@/plugins/inputs';
 import { BOOTSTRAP_ID, type Bootstrap } from '@/shared/bridge';
 import { createBridge, listenBridge } from './bridge';
 import { attach, handlersOf, startHost } from './host';
@@ -10,7 +10,7 @@ function start() {
     throw new Error('Humagent SDK requires an attached workspace');
   const boot: Bootstrap = JSON.parse(bootstrap);
   const bridge = createBridge(boot);
-  const host = startHost(bridge, plugins);
+  const host = startHost(bridge, pageInputs);
   listenBridge(bridge, handlersOf(host));
   attach(host);
 }

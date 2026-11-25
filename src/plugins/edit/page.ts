@@ -1,8 +1,16 @@
 /** Text edits on the page: what the human can edit, and the open editor. */
 import { commentDraft } from '../comment';
-import type { Annotating, Editor, Hit, Pick } from '@/sdk/annotating/types';
+import type {
+  Annotating,
+  Editor,
+  Hit,
+  Pick,
+  Tool,
+} from '@/sdk/annotating/types';
 import { LIMITS, type SavedReview } from '@/shared/feedback';
-import type { PageHost, PagePlugin, PluginView } from '@/shared/plugin';
+import type { PageView } from '../inputs';
+import { effect } from '@/shared/signal';
+import './index.css';
 import { editOf, type EditTarget } from './data';
 import { createEditor, editorText, selectText, setReadOnly } from './editor';
 import {
@@ -19,7 +27,7 @@ import { hitTestText, isEditableText, selectedRun } from './text-hit';
 interface State {
   readonly annotating: Annotating;
   readonly previews: Previews;
-  view: PluginView;
+  readonly view: () => PageView;
   editing?: Editing;
 }
 /** The text that a pick selects for an edit. */
@@ -40,11 +48,11 @@ function canEdit(
   { editing, previews, view }: State,
   node: Node | null,
 ): node is Text {
-  if (!view.writable || !isEditableText(node)) return false;
+  if (!view().writable || !isEditableText(node)) return false;
   const existing = reviewAt(previews, node, editing);
   return (
     !existing ||
-    view.pending.some(({ review }) => review.id === existing.review.id)
+    view().pending.some(({ review }) => review.id === existing.review.id)
   );
 }
 
@@ -152,27 +160,20 @@ function hit(state: State, { el, saved, range, point, keyboard }: Pick) {
 }
 
 function showPreviews({ annotating, editing, previews, view }: State) {
-  reconcile(previews, view.previews, { resolve: annotating.resolve, editing });
+  reconcile(
+    previews,
+    view().previews.filter((saved) => saved.review.kind === 'edit'),
+    { resolve: annotating.resolve, editing },
+  );
 }
 
-function present(state: State, view: PluginView) {
-  state.view = view;
-  showPreviews(state);
-}
-
-export function page({ annotating }: PageHost): PagePlugin {
-  const state: State = {
-    annotating,
-    previews: createPreviews(),
-    view: { pending: [], previews: [], writable: false },
-  };
+export function textTool(annotating: Annotating, view: () => PageView): Tool {
+  const state: State = { annotating, previews: createPreviews(), view };
   return {
-    tool: {
-      name: 'Text edit',
-      hit: (pick) => hit(state, pick),
-      textOf: (node) => originalText(state.previews, node, state.editing),
-      layout: () => showPreviews(state),
-    },
-    present: (view) => present(state, view),
+    kind: 'edit',
+    name: 'Text edit',
+    hit: (pick) => hit(state, pick),
+    textOf: (node) => originalText(state.previews, node, state.editing),
+    layout: effect(() => showPreviews(state)),
   };
 }

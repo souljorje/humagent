@@ -22,18 +22,18 @@ export function prepareSave(
     key === undefined
       ? undefined
       : pending.find(
-          (saved) => saved.review.kind === plugin.kind && saved.key === key,
+          (saved) => saved.review.kind === input.kind && saved.key === key,
         );
-  const data = plugin.contract.validateReview(input, previous?.review);
+  const data = plugin.validateReview(input, previous?.review);
   ensure(
-    local === undefined || plugin.contract.validateLocal,
-    `A ${plugin.kind} review cannot include local data`,
+    local === undefined || plugin.validateLocal,
+    `A ${input.kind} review cannot include local data`,
   );
   return {
     review: { ...input, data },
     key,
     marker,
-    local: plugin.contract.validateLocal?.(local),
+    local: plugin.validateLocal?.(local),
   };
 }
 
@@ -54,7 +54,7 @@ export function prepareEdit(
     comment: comment === undefined ? undefined : reviewComment(comment),
     data: data === undefined ? previous.data : data,
   };
-  const checked = plugin.contract.validateReview(input, previous);
+  const checked = plugin.validateReview(input, previous);
   return {
     comment: input.comment ?? '',
     data: data === undefined ? undefined : checked,

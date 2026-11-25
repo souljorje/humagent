@@ -97,44 +97,23 @@ Import from another directory with `@`, which is `src/`: `import { ensure } from
 
 ## Add a plugin
 
-A plugin is one module in `src/plugins/` that exports one object. Use `<kind>.ts` for one file. Use `<kind>/index.ts` for more files. Its `kind` is the review kind.
+Use `src/plugins/<kind>.ts` or `src/plugins/<kind>/index.ts` for one review kind.
+Register the module under its kind in `src/plugins/index.ts`.
+The workspace uses that key to find the data rules and summary.
 
-```ts
-import type { Plugin } from '@/shared/plugin';
-import { ensure } from '@/shared/validate';
+- `validateReview` checks the envelope against the kind's rules and returns its data.
+- `validateLocal` checks optional private data such as form labels.
+- `summary` supplies the title and optional details for the bar.
 
-export const flag: Plugin = {
-  kind: 'flag',
-  contract: {
-    validateReview(review) {
-      ensure(review.target, 'A flag requires a target');
-      return undefined;
-    },
-  },
-  page(host) { /* behavior in the page */ return {}; },
-  summary: { title: () => 'Flag' },
-};
-```
+Wire page inputs in `src/plugins/inputs.ts`. Each input chooses the kind of its draft.
+The SDK asks pickers in order until one claims or blocks a new selection.
+An unclaimed element opens the comment panel. Reopening a saved review uses its kind.
 
-| Member | Purpose |
-| --- | --- |
-| `contract` | `validateReview` checks the review, including any target rule, and returns the data for the agent. Optional `validateLocal` checks private data such as form labels. |
-| `page` | Behavior in the page. It saves pending reviews through the page host. It can supply a tool for annotating. Page authors mark its elements with `host.attribute`, which is `data-humagent-<kind>`. |
-| `summary` | Sets the title and optional body of the review summary. The bar displays it. |
+The edit picker reads a signal for the current page view. Marked forms restore once when the page attaches.
+Discarding a keyed form review on its original revision resets the form.
+Both marked forms and `window.humagent.submit()` await their save result.
 
-The interfaces between annotating and a tool are in `src/sdk/annotating/types.ts`.
-
-A plugin reports input that it has not saved through `host.unsaved`. Send waits while a plugin is saving. Unsaved input blocks the automatic reload.
-
-The page receives `discard` before the workspace removes a keyed review on the current revision. Forms use it to cancel pending saves and reset their controls.
-
-1. Write the module. The interfaces are in `src/shared/plugin.ts`.
-2. Add the plugin to `src/plugins/index.ts`. The SDK asks tools in registry order.
-3. Extend a browser test in `test/browser/feedback.spec.ts` with the new workflow.
-
-A plugin runs only in the browser. To style it, import `./index.css` in `index.ts`. The registry refuses two plugins with one kind. The page host refuses two plugins with one `window.humagent` member. The transport, the server, and the CLI need no change.
-
-The SDK manages annotating, markers, the highlight, and the comment panel for all plugins. A tool claims a pick with `hit`, opens an inline editor with `open`, and returns its review from `build`. The editor builds the draft and chooses its kind. A text selection with only a note becomes a comment. Reopening a saved review preserves its kind.
+Keep kind-specific behavior in the browser. Extend a workflow in `test/browser/feedback.spec.ts` when adding a kind.
 
 ## Test coverage
 

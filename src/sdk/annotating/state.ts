@@ -9,7 +9,7 @@ import type { CaptureState } from './capture';
 import type { CursorState } from './cursor';
 import type { PlacementState } from './placement';
 import type { PointerState } from './pointer';
-import type { RegisteredTool } from './tools';
+import type { Tool } from './types';
 
 /** The workspace requests that save an editor's input. */
 export interface ReviewRequests {
@@ -28,8 +28,8 @@ export interface AnnotatingBridge extends ReviewRequests {
 export interface Annotator {
   readonly bridge: AnnotatingBridge;
   readonly view: OverlayView;
-  /** The tools of the plugins, in registry order. */
-  readonly tools: RegisteredTool[];
+  /** Pickers in the order they handle new selections. */
+  readonly tools: Tool[];
   readonly writable: Signal<boolean>;
   readonly annotating: Signal<boolean>;
   /** The last report of each state, so the workspace hears about changes only. */
