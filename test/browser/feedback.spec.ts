@@ -341,6 +341,38 @@ test('the page cannot use control routes, learn the session key, save through a 
       ),
     ),
   ).toContain('Form must be an object');
+  // A page that posts its own messages cannot add local data that the plugin does not define.
+  expect(
+    await humagent.evaluate(
+      () =>
+        new Promise<string>((resolve) => {
+          const boot = JSON.parse(
+            document.getElementById('__humagent-bootstrap')!.textContent!,
+          );
+          window.addEventListener('message', ({ data }) => {
+            if (data.id === 'local') resolve(data.error ?? 'saved');
+          });
+          parent.postMessage(
+            {
+              channel: boot.channel,
+              documentId: boot.documentId,
+              revision: boot.revision,
+              method: 'save',
+              id: 'local',
+              params: {
+                review: {
+                  kind: 'comment',
+                  comment: 'x',
+                  target: { selector: 'h1' },
+                },
+                local: { marker: { x: 0, y: 0 }, extra: true },
+              },
+            },
+            boot.parentOrigin,
+          );
+        }),
+    ),
+  ).toContain('cannot include local data');
   // A comment that saves after the foreign message proves that the message saved nothing.
   await humagent.addComment('h1', 'The only saved');
   expect(humagent.session().pending).toHaveLength(1);

@@ -42,8 +42,7 @@ function checkLocal(
     object(value, 'Local data');
     const { marker: position, ...fields } = value;
     marker = markerPosition(position);
-    value =
-      contract.validateLocal && Object.keys(fields).length ? fields : undefined;
+    value = Object.keys(fields).length ? fields : undefined;
   }
   ensure(
     value === undefined || contract.validateLocal,
