@@ -47,10 +47,10 @@ export function text(
 
 /** A review after the envelope check. `data` is still unchecked JSON. */
 export interface Envelope {
-  kind: string;
-  comment?: string;
-  data?: unknown;
-  target?: Target;
+  readonly kind: string;
+  readonly comment?: string;
+  readonly data?: unknown;
+  readonly target?: Target;
 }
 const REVIEW_FIELDS = new Set(['kind', 'comment', 'data', 'target']);
 /**
@@ -59,19 +59,20 @@ const REVIEW_FIELDS = new Set(['kind', 'comment', 'data', 'target']);
  */
 export function envelope(value: unknown): Envelope {
   object(value, 'Review');
-  for (const key of Object.keys(value))
-    ensure(REVIEW_FIELDS.has(key), `Unsupported review field: ${key}`);
+  const unsupported = Object.keys(value).find((key) => !REVIEW_FIELDS.has(key));
+  ensure(unsupported === undefined, `Unsupported review field: ${unsupported}`);
   const kind = text(value.kind, 'Review kind', LIMITS.key);
   ensure(/^[a-z][a-z0-9-]*$/.test(kind), 'Invalid review kind');
-  const result: Envelope = { kind };
-  if (value.comment !== undefined) {
-    const comment = text(value.comment, 'Comment', LIMITS.comment, true);
-    if (comment.trim()) result.comment = comment;
-  }
-  if (value.data !== undefined) result.data = value.data;
-  if (value.target !== undefined) {
-    object(value.target, 'Target');
-    result.target = value.target as Target;
-  }
-  return result;
+  const comment =
+    value.comment === undefined
+      ? undefined
+      : text(value.comment, 'Comment', LIMITS.comment, true);
+  const { data, target } = value;
+  if (target !== undefined) object(target, 'Target');
+  return {
+    kind,
+    ...(comment?.trim() ? { comment } : {}),
+    ...(data !== undefined ? { data } : {}),
+    ...(target !== undefined ? { target } : {}),
+  };
 }

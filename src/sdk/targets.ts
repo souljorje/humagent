@@ -38,6 +38,19 @@ const interactiveSelector =
 export function isNativeInteractiveControl(target: EventTarget | null) {
   return target instanceof Element && !!target.closest(interactiveSelector);
 }
+function textAnchor(el: Element, range: Range) {
+  const prefix = range.cloneRange(),
+    suffix = range.cloneRange();
+  prefix.selectNodeContents(el);
+  prefix.setEnd(range.startContainer, range.startOffset);
+  suffix.selectNodeContents(el);
+  suffix.setStart(range.endContainer, range.endOffset);
+  return {
+    quote: range.toString(),
+    prefix: prefix.toString().slice(-32),
+    suffix: suffix.toString().slice(0, 32),
+  };
+}
 /** The selector already names the tag. An element without a stable ID sends none. */
 export function describeTarget(
   el: Element,
@@ -46,26 +59,13 @@ export function describeTarget(
   range?: Range,
 ): Target {
   const id = el.getAttribute('data-humagent-id') || el.id;
-  const target: Target = {
+  return {
     ...(id ? { id } : {}),
     selector: selector(el),
     text: text.trim().replace(/\s+/g, ' ').slice(0, 4000),
     url,
+    ...(range ? { anchor: textAnchor(el, range) } : {}),
   };
-  if (range) {
-    const prefix = range.cloneRange(),
-      suffix = range.cloneRange();
-    prefix.selectNodeContents(el);
-    prefix.setEnd(range.startContainer, range.startOffset);
-    suffix.selectNodeContents(el);
-    suffix.setStart(range.endContainer, range.endOffset);
-    target.anchor = {
-      quote: range.toString(),
-      prefix: prefix.toString().slice(-32),
-      suffix: suffix.toString().slice(0, 32),
-    };
-  }
-  return target;
 }
 
 /** A missing, ambiguous, or invalid selector has no target. */

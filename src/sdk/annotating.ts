@@ -116,7 +116,7 @@ function enableTextSelection(enabled: () => boolean) {
 export function createAnnotating(bridge: AnnotatingBridge) {
   const { boot, notice, post } = bridge;
   const tools: RegisteredTool[] = [];
-  let pending: SavedReview[] = [];
+  let pending: readonly SavedReview[] = [];
   const writable = signal(false);
   let captured: Capture | null = null,
     hovered: Element | undefined;

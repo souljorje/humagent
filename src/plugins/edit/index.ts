@@ -17,8 +17,8 @@ import { hitTestText, isEditableText, selectedRun } from './text-hit.js';
 
 function page(host: PageHost): PagePlugin {
   const { annotating } = host;
-  let pending: SavedReview[] = [],
-    shown: SavedReview[] = [],
+  let pending: readonly SavedReview[] = [],
+    shown: readonly SavedReview[] = [],
     writable = false;
   let editing: Editing | undefined;
   const previews = createPreviews({

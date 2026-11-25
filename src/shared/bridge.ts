@@ -19,9 +19,9 @@ export interface Bootstrap {
 export interface Presentation {
   /** Top-left corner of the workspace bar, in frame viewport pixels. */
   bar: { x: number; y: number };
-  pending: SavedReview[];
+  readonly pending: readonly SavedReview[];
   /** Pending reviews and sent reviews of the page's revision. Plugins show them in place on the page. */
-  previews: SavedReview[];
+  readonly previews: readonly SavedReview[];
   writable: boolean;
 }
 

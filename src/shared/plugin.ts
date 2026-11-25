@@ -113,9 +113,9 @@ export interface PageHost {
 /** A plugin's share of the saved feedback. */
 export interface PluginView {
   /** Pending reviews of this kind on this page revision. */
-  pending: SavedReview[];
+  readonly pending: readonly SavedReview[];
   /** Pending reviews and sent reviews of the plugin's kind and of the page's revision. */
-  previews: SavedReview[];
+  readonly previews: readonly SavedReview[];
   writable: boolean;
 }
 /** Each plugin can add its public page methods to this interface. */

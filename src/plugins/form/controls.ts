@@ -1,4 +1,8 @@
-import type { ObjectValue } from '../../shared/json.js';
+import {
+  isReservedJsonKey,
+  type Json,
+  type ObjectValue,
+} from '../../shared/json.js';
 import { FORM_LIMITS, type FormLabels } from './data.js';
 
 type FormControl = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
@@ -96,12 +100,11 @@ function readValues(group: FormControl[]) {
 
 /** Read named values for the agent and readable labels for the bar. */
 export function readForm(form: HTMLFormElement, key: string) {
-  const values: ObjectValue = Object.create(null);
+  const values: Record<string, Json> = Object.create(null);
   const fields: FormLabels['fields'] = [];
   const groups = new Map<string, FormControl[]>();
   for (const el of controls(form)) {
-    if (['__proto__', 'prototype', 'constructor'].includes(el.name))
-      throw new Error('Reserved field name');
+    if (isReservedJsonKey(el.name)) throw new Error('Reserved field name');
     const group = groups.get(el.name);
     if (group) group.push(el);
     else groups.set(el.name, [el]);

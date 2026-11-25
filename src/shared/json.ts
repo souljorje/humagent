@@ -1,6 +1,11 @@
-export type Json = null | boolean | number | string | Json[] | ObjectValue;
-export type ObjectValue = { [key: string]: Json };
+export type Json =
+  null | boolean | number | string | readonly Json[] | ObjectValue;
+export type ObjectValue = { readonly [key: string]: Json };
 
+export const isReservedJsonKey = (key: string) =>
+  key === '__proto__' || key === 'constructor' || key === 'prototype';
+
+/** Snapshot untrusted input. Inspect descriptors so copying a property never calls its getter. */
 export function cloneJson<T>(value: T): T {
   const ancestors = new WeakSet<object>();
 
@@ -27,13 +32,10 @@ export function cloneJson<T>(value: T): T {
       throw new Error('JSON arrays cannot have holes or extra properties');
     }
     ancestors.add(item);
-    const copy: Json[] | ObjectValue = array ? [] : {};
+    const copy: Json[] | Record<string, Json> = array ? [] : {};
     for (const key of keys) {
       if (array && key === 'length') continue;
-      if (
-        typeof key !== 'string' ||
-        ['__proto__', 'constructor', 'prototype'].includes(key)
-      ) {
+      if (typeof key !== 'string' || isReservedJsonKey(key)) {
         throw new Error('Unsupported JSON property');
       }
       if (
@@ -46,7 +48,7 @@ export function cloneJson<T>(value: T): T {
       if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) {
         throw new Error('JSON properties must be enumerable data values');
       }
-      (copy as ObjectValue)[key] = check(descriptor.value, depth + 1);
+      (copy as Record<string, Json>)[key] = check(descriptor.value, depth + 1);
     }
     ancestors.delete(item);
     return copy;

@@ -128,7 +128,7 @@ export function createPreviews(hooks: {
       )?.saved;
     },
     /** Draw the wanted previews. Remove the others. */
-    reconcile(pending: SavedReview[]) {
+    reconcile(pending: readonly SavedReview[]) {
       const editing = hooks.editing();
       const wanted = new Map(pending.map((saved) => [saved.review.id, saved]));
       for (const [id, preview] of previews) {

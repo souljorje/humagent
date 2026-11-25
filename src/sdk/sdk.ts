@@ -105,7 +105,7 @@ if (window.parent === window.top) {
     }
   }
   window.humagent = Object.freeze(api) as Window['humagent'];
-  let pending: SavedReview[] = [];
+  let pending: readonly SavedReview[] = [];
   /** Each plugin gets the feedback of its own kind. */
   const share = (kind: string, params: Presentation): PluginView => ({
     pending: params.pending.filter(

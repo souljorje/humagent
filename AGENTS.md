@@ -4,7 +4,7 @@ Humagent adds a feedback layer to local pages. A human annotates a page. An agen
 
 Preserve application behavior. Keep task-specific requests as data, not backend handlers.
 
-Prefer collection methods when they make the operation clearer. Keep loops when they avoid extra passes, allocations, or awkward callbacks.
+Treat inputs and shared snapshots as read-only. Prefer collection methods that return new values. Keep local mutation when it avoids repeated copies or makes an algorithm clearer.
 
 ## Map
 

@@ -13,82 +13,94 @@ export const LIMITS = {
 } as const;
 
 export interface Source {
-  kind: 'file' | 'url';
-  value: string;
-  root?: string;
-  network: boolean;
+  readonly kind: 'file' | 'url';
+  readonly value: string;
+  readonly root?: string;
+  readonly network: boolean;
 }
 /**
  * Where a review points. The page SDK writes these fields. The server stores a target as it is, so each field can be missing.
  * A plugin can add fields of its own.
  */
 export interface Target {
-  id?: string;
-  selector?: string;
-  text?: string;
-  url?: string;
-  anchor?: { quote: string; prefix?: string; suffix?: string };
-  coordinates?: { x: number; y: number; space: string };
+  readonly id?: string;
+  readonly selector?: string;
+  readonly text?: string;
+  readonly url?: string;
+  readonly anchor?: {
+    readonly quote: string;
+    readonly prefix?: string;
+    readonly suffix?: string;
+  };
+  readonly coordinates?: {
+    readonly x: number;
+    readonly y: number;
+    readonly space: string;
+  };
 }
 /** One feedback review. `kind` names the plugin that made it. `data` holds that plugin's content. */
 export interface Review {
-  id: string;
-  kind: string;
-  comment?: string;
-  data?: Json;
-  target?: Target;
+  readonly id: string;
+  readonly kind: string;
+  readonly comment?: string;
+  readonly data?: Json;
+  readonly target?: Target;
 }
 /** A review as the page sends it. The server adds `id`. */
 export type NewReview = Omit<Review, 'id'>;
 /** A review with the page revision that it belongs to. A pending review also has its key and local data. */
 export interface SavedReview {
-  review: Review;
-  revision: string;
+  readonly review: Review;
+  readonly revision: string;
   /** A session holds at most one pending review per kind and key. A new pending review with a known key replaces it. */
-  key?: string;
+  readonly key?: string;
   /** The plugin's private data for the page and the bar. Agents do not receive it. */
-  local?: Json;
+  readonly local?: Json;
 }
 /** What one Send delivers: the instruction and the reviews that were pending. The agent receives it without `status`. */
 export interface Feedback {
-  id: string;
-  revision: string;
-  instruction?: string;
-  reviews: Review[];
-  status: 'queued' | 'delivered' | 'completed';
-  deliveries: number;
+  readonly id: string;
+  readonly revision: string;
+  readonly instruction?: string;
+  readonly reviews: readonly Review[];
+  readonly status: 'queued' | 'delivered' | 'completed';
+  readonly deliveries: number;
 }
 /** What the agent receives when it waits: every unfinished feedback, held by one receipt. */
 export interface Delivered {
-  status: 'feedback';
-  source: Pick<Source, 'kind' | 'value'>;
-  receipt: string;
-  feedback: Omit<Feedback, 'status'>[];
+  readonly status: 'feedback';
+  readonly source: Pick<Source, 'kind' | 'value'>;
+  readonly receipt: string;
+  readonly feedback: readonly Omit<Feedback, 'status'>[];
 }
 export interface SessionView {
-  id: string;
-  title: string;
-  source: Source;
-  revision: string;
-  ended: boolean;
-  createdAt: string;
-  agent: 'sent' | 'working' | 'connected' | 'idle';
-  pending: SavedReview[];
-  instruction: string;
+  readonly id: string;
+  readonly title: string;
+  readonly source: Source;
+  readonly revision: string;
+  readonly ended: boolean;
+  readonly createdAt: string;
+  readonly agent: 'sent' | 'working' | 'connected' | 'idle';
+  readonly pending: readonly SavedReview[];
+  readonly instruction: string;
   /** Sent reviews that are not completed. Plugins can keep showing them on the page. */
-  sent: SavedReview[];
+  readonly sent: readonly SavedReview[];
 }
 export interface WorkspaceView extends SessionView {
   /** Where the page is served: its own origin, its address, and the channel of its messages. */
-  page: { origin: string; frameUrl: string; channel: string };
+  readonly page: {
+    readonly origin: string;
+    readonly frameUrl: string;
+    readonly channel: string;
+  };
 }
 export interface SaveResult {
-  reviewId: string;
-  status: 'pending';
+  readonly reviewId: string;
+  readonly status: 'pending';
 }
 /** `saving` ends with a reply. `failed` lasts until the human changes the input or reloads the page. */
 export type Unsaved = 'saving' | 'failed';
 export interface Availability {
-  id: string;
-  available: boolean;
+  readonly id: string;
+  readonly available: boolean;
 }

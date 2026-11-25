@@ -18,24 +18,24 @@ const FORMAT = 4;
 
 /** The feedback that the last `wait` returned. They stay unfinished until the agent completes this receipt. */
 interface Delivery {
-  receipt: string;
-  feedbackIds: string[];
-  started?: boolean;
+  readonly receipt: string;
+  readonly feedbackIds: readonly string[];
+  readonly started?: boolean;
 }
 export interface Session {
-  id: string;
-  title: string;
-  source: Source;
-  sessionKey: string;
-  revision: string;
-  pagePath?: string;
-  ended: boolean;
-  createdAt: string;
-  pending: SavedReview[];
-  instruction: string;
-  feedback: Feedback[];
-  delivery?: Delivery;
-  completed: string[];
+  readonly id: string;
+  readonly title: string;
+  readonly source: Source;
+  readonly sessionKey: string;
+  readonly revision: string;
+  readonly pagePath?: string;
+  readonly ended: boolean;
+  readonly createdAt: string;
+  readonly pending: readonly SavedReview[];
+  readonly instruction: string;
+  readonly feedback: readonly Feedback[];
+  readonly delivery?: Delivery;
+  readonly completed: readonly string[];
 }
 
 function readSession(saved: unknown, id: string): Session {
@@ -68,8 +68,7 @@ function readSession(saved: unknown, id: string): Session {
     'Unsupported or corrupt session',
   );
   // A previous process cannot confirm that the agent is still working.
-  if (s.delivery) s.delivery.started = false;
-  return s;
+  return s.delivery ? { ...s, delivery: { ...s.delivery, started: false } } : s;
 }
 /** Stale input is never rebound to a newer page revision. */
 function current(s: Session, revision: unknown) {
@@ -110,7 +109,7 @@ export class Store extends EventEmitter {
     return [...this.sessions.values()];
   }
   errors() {
-    return [...this.failures].map(([id, message]) => ({ id, message }));
+    return Array.from(this.failures, ([id, message]) => ({ id, message }));
   }
   get(id: string): Session {
     const failure = this.failures.get(id);
@@ -168,12 +167,14 @@ export class Store extends EventEmitter {
     return saved;
   }
   open(source: Source, revision: string) {
-    const existing = this.list().find(
-      (s) =>
-        !s.ended &&
-        s.source.value === source.value &&
-        s.source.network === source.network,
-    );
+    const existing = this.sessions
+      .values()
+      .find(
+        (s) =>
+          !s.ended &&
+          s.source.value === source.value &&
+          s.source.network === source.network,
+      );
     if (existing) return existing;
     let id: string;
     do {
@@ -216,10 +217,11 @@ export class Store extends EventEmitter {
       value.key === undefined
         ? undefined
         : text(value.key, 'Review key', LIMITS.key);
-    const previous =
+    const index =
       key === undefined
-        ? undefined
-        : s.pending.find((d) => d.key === key && d.review.kind === kind);
+        ? -1
+        : s.pending.findIndex((d) => d.key === key && d.review.kind === kind);
+    const previous = s.pending[index];
     ensure(
       previous || s.pending.length < LIMITS.pending,
       `Send or remove pending reviews before adding more than ${LIMITS.pending}.`,
@@ -236,7 +238,7 @@ export class Store extends EventEmitter {
       this.commit({
         ...s,
         pending: previous
-          ? s.pending.map((d) => (d === previous ? saved : d))
+          ? s.pending.with(index, saved)
           : [...s.pending, saved],
       });
     return saved.review.id;
@@ -323,8 +325,10 @@ export class Store extends EventEmitter {
   take(id: string): Delivered | { status: 'ended' } | null {
     const s = this.get(id);
     const unfinished = s.feedback
+      .values()
       .filter((e) => e.status !== 'completed')
-      .slice(0, LIMITS.feedbackPerReceipt);
+      .take(LIMITS.feedbackPerReceipt)
+      .toArray();
     if (!unfinished.length)
       return s.ended ? { status: 'ended' as const } : null;
     // The agent holds these feedback now, so it works on them.
