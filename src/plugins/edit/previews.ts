@@ -123,9 +123,8 @@ export function createPreviews(hooks: {
     },
     /** The pending review whose preview a text node shows. */
     existing(node: Text) {
-      return [...previews.values()].find(
-        (preview) => preview.node === node && valid(preview),
-      )?.saved;
+      const preview = nodes.get(node);
+      return preview && valid(preview) ? preview.saved : undefined;
     },
     /** Draw the wanted previews. Remove the others. */
     reconcile(pending: readonly SavedReview[]) {
