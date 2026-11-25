@@ -1,6 +1,6 @@
 /**
  * The page host and the workspace use these built-in plugins.
- * The SDK asks tools in registry order. `comment` stays after `edit`.
+ * The SDK asks tools in registry order. `comment` builds a review from any comment, so it stays after `edit`.
  */
 import type { Plugin } from '../shared/plugin.js';
 import { comment } from './comment.js';

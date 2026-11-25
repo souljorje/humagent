@@ -183,12 +183,27 @@ export function createAnnotating(bridge: AnnotatingBridge) {
     return [...node.childNodes].map(textOf).join('');
   }
   const resolve = (saved: SavedReview) => resolveTarget(saved, boot);
-  /** Ask the tool with the open editor to build a review, then the other tools in registry order. */
+  /**
+   * The open editor builds the review first. Then a saved review asks only the tool of its kind.
+   * A new review asks each tool in registry order.
+   */
   function build(target: Target): NewReview | undefined {
     if (!captured) return undefined;
-    const fields = captured.editor?.build(comment);
-    if (fields && captured.tool)
-      return { ...fields, kind: captured.tool.kind, target };
+    const { editor, tool: owner, saved } = captured;
+    const fields = editor?.build(comment);
+    if (fields && owner) return { ...fields, kind: owner.kind, target };
+    if (saved) {
+      if (editor) return undefined;
+      const { kind } = saved.review;
+      const tool = tools.find((tool) => tool.kind === kind);
+      // A kind without its own builder can still change its comment.
+      const review = tool?.build
+        ? tool.build(comment)
+        : comment.trim()
+          ? { comment }
+          : undefined;
+      return review && { ...review, kind, target };
+    }
     for (const tool of tools) {
       const review = tool.build?.(comment);
       if (review) return { ...review, kind: tool.kind, target };
