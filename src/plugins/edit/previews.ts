@@ -61,6 +61,52 @@ export function createPreviews(hooks: {
     const node = target.childNodes[index];
     return node instanceof Text ? node : null;
   }
+  function inEditor(
+    saved: SavedReview,
+    previous: Preview | undefined,
+    editing: Editing | undefined,
+  ) {
+    if (!editing) return false;
+    if (previous?.node === editing.node) return true;
+    const index = saved.review.target?.textNode;
+    return (
+      index !== undefined &&
+      hooks.resolve(saved) === editing.parent &&
+      editing.parent.childNodes[Number(index)] === editing.element
+    );
+  }
+  function draw(saved: SavedReview, editing: Editing | undefined) {
+    const edit = editOf(saved);
+    if (!edit || suppressed.has(saved.review.id)) return;
+    const previous = previews.get(saved.review.id);
+    if (inEditor(saved, previous, editing)) return;
+    const target = previous?.target || hooks.resolve(saved);
+    if (!target) return;
+    const node = previous?.node || textNodeAt(saved, target);
+    if (!node || (!previous && node.data !== edit.before)) {
+      suppressed.add(saved.review.id);
+      return;
+    }
+    const preview: Preview = previous || {
+      saved,
+      node,
+      target,
+      before: edit.before,
+      written: edit.after,
+      observer: new MutationObserver((records) => mutations(preview, records)),
+      writes: 0,
+      owned: true,
+    };
+    if (!previous) preview.observer.observe(node, { characterData: true });
+    preview.saved = saved;
+    preview.written = edit.after;
+    previews.set(saved.review.id, preview);
+    nodes.set(node, preview);
+    if (node.data !== edit.after) {
+      preview.writes++;
+      node.data = edit.after;
+    }
+  }
   return {
     /** Reopen the text node only while this review still owns its preview. */
     ownedNode(saved: SavedReview, target: Element) {
@@ -87,63 +133,18 @@ export function createPreviews(hooks: {
       const wanted = new Map(pending.map((saved) => [saved.review.id, saved]));
       for (const [id, preview] of previews) {
         if (editing?.node === preview.node) continue;
-        if (!wanted.has(id)) {
-          if (valid(preview)) preview.node.data = preview.before;
-          forget(id, preview);
-        } else if (
-          !valid(preview) ||
-          hooks.resolve(wanted.get(id)!) !== preview.target
-        ) {
-          // Stop drawing a preview after application changes. Keep the feedback attached.
+        const saved = wanted.get(id);
+        if (saved) {
+          if (valid(preview) && hooks.resolve(saved) === preview.target)
+            continue;
+          // The application changed this target. Keep the feedback attached.
           suppressed.add(id);
-          if (valid(preview)) preview.node.data = preview.before;
-          forget(id, preview);
         }
+        if (valid(preview)) preview.node.data = preview.before;
+        forget(id, preview);
       }
       for (const id of suppressed) if (!wanted.has(id)) suppressed.delete(id);
-      for (const saved of pending) {
-        const edit = editOf(saved);
-        if (!edit || suppressed.has(saved.review.id)) continue;
-        const previous = previews.get(saved.review.id);
-        if (
-          editing &&
-          (previous?.node === editing.node ||
-            (saved.review.target?.textNode !== undefined &&
-              hooks.resolve(saved) === editing.parent &&
-              editing.parent.childNodes[
-                Number(saved.review.target.textNode)
-              ] === editing.element))
-        )
-          continue;
-        const target = previous?.target || hooks.resolve(saved);
-        if (!target) continue;
-        const node = previous?.node || textNodeAt(saved, target);
-        if (!node || (!previous && node.data !== edit.before)) {
-          suppressed.add(saved.review.id);
-          continue;
-        }
-        const preview: Preview = previous || {
-          saved,
-          node,
-          target,
-          before: edit.before,
-          written: edit.after,
-          observer: new MutationObserver((records) =>
-            mutations(preview, records),
-          ),
-          writes: 0,
-          owned: true,
-        };
-        if (!previous) preview.observer.observe(node, { characterData: true });
-        preview.saved = saved;
-        preview.written = edit.after;
-        previews.set(saved.review.id, preview);
-        nodes.set(node, preview);
-        if (node.data !== edit.after) {
-          preview.writes++;
-          node.data = edit.after;
-        }
-      }
+      for (const saved of pending) draw(saved, editing);
     },
   };
 }
