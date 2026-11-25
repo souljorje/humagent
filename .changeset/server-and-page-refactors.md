@@ -5,3 +5,4 @@
 Group form controls by name without copying the group for each additional control.
 Separate file serving, application proxying, authorization, and session routes from server startup.
 Separate keyboard handling and layout observation from annotation setup.
+Separate text preview cleanup from drawing pending edits. Simplify how the workspace determines agent status and protects unfinished edits.
