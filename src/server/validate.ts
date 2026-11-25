@@ -1,8 +1,7 @@
 import { cloneJson, type Json } from '../shared/json.js';
 import type { Review } from '../shared/feedback.js';
-import { ensure, envelope, Failure, object, text } from '../shared/validate.js';
+import { ensure, envelope, Failure } from '../shared/validate.js';
 
-export { ensure, Failure, object, text };
 /** Sources must be explicit HTTP loopback addresses without credentials. */
 export function localUrl(url: URL) {
   return (

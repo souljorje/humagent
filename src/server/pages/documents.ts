@@ -1,0 +1,17 @@
+/** HTML documents: their size limit, their revision, and the SDK that each one loads. */
+import { createHash } from 'node:crypto';
+import { BOOTSTRAP_ID, type Bootstrap } from '../../shared/bridge.js';
+
+export const DOCUMENT_LIMIT = 8 * 1024 * 1024;
+/** Attach the SDK to the HTML of a route. */
+export type Decorate = (bytes: Buffer, route: string) => string;
+
+export const digest = (value: string | Buffer) =>
+  createHash('sha256').update(value).digest('hex');
+/** The bootstrap is inert data, so an application policy without inline scripts still allows it. */
+export function inject(html: string, bootstrap: Bootstrap) {
+  // Insert after the initial doctype, not a regex-matched </body> inside a script.
+  const prefix = /^\s*<!doctype[^>]*>/i.exec(html)?.[0] ?? '';
+  const encoded = JSON.stringify(bootstrap).replaceAll('<', '\\u003c');
+  return `${prefix}<script type="application/json" id="${BOOTSTRAP_ID}">${encoded}</script><script type="module" src="/__humagent/sdk/sdk.js"></script>${html.slice(prefix.length)}`;
+}

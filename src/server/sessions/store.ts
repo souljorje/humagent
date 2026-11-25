@@ -2,8 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { ensure, Failure, review, localUrl, object, text } from './validate.js';
-import { writeJson } from './storage.js';
 import {
   LIMITS,
   type SavedReview,
@@ -11,74 +9,18 @@ import {
   type Feedback,
   type SessionView,
   type Source,
-} from '../shared/feedback.js';
-import type { Json } from '../shared/json.js';
-
-const FORMAT = 4;
-
-/** The feedback that the last `wait` returned. They stay unfinished until the agent completes this receipt. */
-interface Delivery {
-  readonly receipt: string;
-  readonly feedbackIds: readonly string[];
-  readonly started?: boolean;
-}
-export interface Session {
-  readonly id: string;
-  readonly title: string;
-  readonly source: Source;
-  readonly sessionKey: string;
-  readonly revision: string;
-  readonly pagePath?: string;
-  readonly ended: boolean;
-  readonly createdAt: string;
-  readonly pending: readonly SavedReview[];
-  readonly instruction: string;
-  readonly feedback: readonly Feedback[];
-  readonly delivery?: Delivery;
-  readonly completed: readonly string[];
-}
-
-function readSession(saved: unknown, id: string): Session {
-  object(saved);
-  const s = saved.session as unknown as Session | undefined;
-  const source = s?.source;
-  ensure(
-    saved.format === FORMAT &&
-      s?.id === id &&
-      typeof s.title === 'string' &&
-      typeof s.revision === 'string' &&
-      typeof s.sessionKey === 'string' &&
-      typeof s.createdAt === 'string' &&
-      typeof s.ended === 'boolean' &&
-      typeof s.instruction === 'string' &&
-      Array.isArray(s.pending) &&
-      Array.isArray(s.feedback) &&
-      Array.isArray(s.completed) &&
-      !!source &&
-      typeof source.value === 'string' &&
-      typeof source.network === 'boolean' &&
-      (source.kind === 'url'
-        ? localUrl(new URL(source.value))
-        : source.kind === 'file' && typeof source.root === 'string') &&
-      (s.pagePath === undefined ||
-        (typeof s.pagePath === 'string' &&
-          s.pagePath.startsWith('/') &&
-          !s.pagePath.startsWith('//') &&
-          !s.pagePath.includes('\\'))),
-    'Unsupported or corrupt session',
-  );
-  // A previous process cannot confirm that the agent is still working.
-  return s.delivery ? { ...s, delivery: { ...s.delivery, started: false } } : s;
-}
-/** Stale input is never rebound to a newer page revision. */
-function current(s: Session, revision: unknown) {
-  ensure(
-    revision === s.revision,
-    'The page changed. Refresh it and inspect stale reviews.',
-    'STALE_REVISION',
-    409,
-  );
-}
+} from '../../shared/feedback.js';
+import type { Json } from '../../shared/json.js';
+import { ensure, Failure, object, text } from '../../shared/validate.js';
+import { writeJson } from '../storage.js';
+import { review } from '../validate.js';
+import {
+  FORMAT,
+  current,
+  readSession,
+  sessionView,
+  type Session,
+} from './session.js';
 
 /** Single-process writer. Each change is saved atomically before listeners hear about it. */
 export class Store extends EventEmitter {
@@ -134,32 +76,7 @@ export class Store extends EventEmitter {
     return s;
   }
   view(id: string): SessionView {
-    const s = this.get(id);
-    return {
-      id: s.id,
-      title: s.title,
-      source: s.source,
-      revision: s.revision,
-      ended: s.ended,
-      createdAt: s.createdAt,
-      agent: s.delivery?.started
-        ? 'working'
-        : s.feedback.some((feedback) => feedback.status !== 'completed')
-          ? 'sent'
-          : this.waiting.has(id)
-            ? 'connected'
-            : 'idle',
-      pending: s.pending,
-      instruction: s.instruction,
-      sent: s.feedback
-        .filter((feedback) => feedback.status !== 'completed')
-        .flatMap((feedback) =>
-          feedback.reviews.map((saved) => ({
-            review: saved,
-            revision: feedback.revision,
-          })),
-        ),
-    };
+    return sessionView(this.get(id), this.waiting.has(id));
   }
   private saved(s: Session, reviewId: string) {
     const saved = s.pending.find((d) => d.review.id === reviewId);

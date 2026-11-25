@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { createServer } from '../dist/server/server.js';
-import { Store } from '../dist/server/store.js';
-import { sourceOf, safeFile } from '../dist/server/pages.js';
+import { Store } from '../dist/server/sessions/store.js';
+import { safeFile } from '../dist/server/pages/files.js';
+import { sourceOf } from '../dist/server/pages/sources.js';
 import { LIMITS } from '../dist/shared/feedback.js';
 import { fixture } from './fixtures.ts';
 
@@ -94,6 +95,17 @@ test('control routes refuse foreign origins, missing credentials, session keys o
       401,
       route,
     );
+  // Browser modules are public at any depth. Runtime modules are not.
+  const module = async (route: string) =>
+    (await runtime.app.request(runtime.origin + route)).status;
+  assert.equal(await module('/plugins/edit/index.js'), 200);
+  for (const route of [
+    '/server/server.js',
+    '/ui/../server/server.js',
+    '/ui/%2e%2e/server/server.js',
+    '/ui/workspace/workspace.d.ts',
+  ])
+    assert.equal(await module(route), 401, route);
   for (const source of [
     'https://localhost:3000',
     'http://example.com',
@@ -165,7 +177,12 @@ test('file serving refuses non-HTML sources, hidden files, traversal, and symlin
   fs.writeFileSync(path.join(dir, 'outside.txt'), 'no');
   fs.symlinkSync(path.join(dir, 'outside.txt'), path.join(root, 'escape.txt'));
   for (const request of ['/.secret', '/%2e%2e/outside.txt', '/escape.txt'])
-    await assert.rejects(() => safeFile(root, request), request);
+    await assert.rejects(
+      () => safeFile(root, request),
+      { status: 403 },
+      request,
+    );
+  await assert.rejects(() => safeFile(root, '/missing.css'), { status: 404 });
 });
 
 test('JSON requests enforce content type, syntax, object shape, review rules, and the byte limit', async () => {
