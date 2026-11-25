@@ -92,7 +92,7 @@ export function createBar(
     document,
     [
       inputStyles,
-      ...[...plugins.values()].map((plugin) => plugin.summary?.styles),
+      ...Array.from(plugins.values(), (plugin) => plugin.summary?.styles),
     ].join('\n'),
   );
 
@@ -159,10 +159,7 @@ export function createBar(
     }
   }
   function drawPending(current: BarModel, mutable: boolean) {
-    for (const [
-      index,
-      { saved, stale, unavailable },
-    ] of current.pending.entries()) {
+    current.pending.forEach(({ saved, stale, unavailable }, index) => {
       const review = saved.review;
       const summary = plugins.get(review.kind)?.summary;
       const li = createElement('li', {
@@ -228,7 +225,7 @@ export function createBar(
         }),
       );
       $('pending').append(li);
-    }
+    });
   }
   function update(current: BarModel) {
     // The bar follows annotating: the page can turn it off, and can refuse to.

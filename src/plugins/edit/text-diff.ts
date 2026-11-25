@@ -7,8 +7,8 @@ const words = new Intl.Segmenter(undefined, { granularity: 'word' });
 
 /** Preserve exact text while bounding comparison work for large replacements. */
 export function textDiff(before: string, after: string): DiffPart[] {
-  const a = [...words.segment(before)].map((word) => word.segment);
-  const b = [...words.segment(after)].map((word) => word.segment);
+  const a = Array.from(words.segment(before), (word) => word.segment);
+  const b = Array.from(words.segment(after), (word) => word.segment);
   const anchors = a.map((word) => /[\p{L}\p{N}\p{S}]/u.test(word));
   const parts: DiffPart[] = [];
   function append(kind: DiffPart['kind'], text: string) {
