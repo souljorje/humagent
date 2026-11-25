@@ -6,8 +6,8 @@ export const comment: Plugin = {
   kind: 'comment',
   // The review has no data, so it needs a comment.
   contract: {
-    target: true,
-    validate(review) {
+    validateReview(review) {
+      ensure(review.target, 'A comment review requires a target');
       ensure(review.data === undefined, 'A comment cannot include data');
       ensure(review.comment, 'A comment needs text');
       return undefined;

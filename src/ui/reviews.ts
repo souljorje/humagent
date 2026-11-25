@@ -1,6 +1,11 @@
 /** Prepare page requests for storage after checking their plugin contracts. */
 import type { Requests } from '../shared/bridge.js';
-import type { NewReview, Review, SavedReview } from '../shared/feedback.js';
+import type {
+  NewReview,
+  Review,
+  SavedReview,
+  Target,
+} from '../shared/feedback.js';
 import { markerPosition, type MarkerPosition } from '../shared/marker.js';
 import type { Plugin } from '../shared/plugin.js';
 import { ensure, envelope, object, type Envelope } from '../shared/validate.js';
@@ -18,13 +23,7 @@ function checkReview(
   previous?: Review,
 ): NewReview {
   const { kind, contract } = plugin;
-  ensure(
-    (review.target !== undefined) === contract.target,
-    contract.target
-      ? `A ${kind} review requires a target`
-      : `A ${kind} review cannot include a target`,
-  );
-  const data = contract.validate(review, previous);
+  const data = contract.validateReview(review, previous);
   return {
     kind,
     ...(review.comment ? { comment: review.comment } : {}),
@@ -33,24 +32,24 @@ function checkReview(
   };
 }
 /** Validate the marker separately from the plugin's local data. */
-function checkLocal({ kind, contract }: Plugin, value: unknown) {
+function checkLocal(
+  { kind, contract }: Plugin,
+  target: Target | undefined,
+  value: unknown,
+) {
   let marker: MarkerPosition | undefined;
-  if (
-    contract.target &&
-    value &&
-    typeof value === 'object' &&
-    'marker' in value
-  ) {
+  if (target && value && typeof value === 'object' && 'marker' in value) {
     object(value, 'Local data');
     const { marker: position, ...fields } = value;
     marker = markerPosition(position);
-    value = contract.local && Object.keys(fields).length ? fields : undefined;
+    value =
+      contract.validateLocal && Object.keys(fields).length ? fields : undefined;
   }
   ensure(
-    value === undefined || contract.local,
+    value === undefined || contract.validateLocal,
     `A ${kind} review cannot include local data`,
   );
-  const local = contract.local?.(value);
+  const local = contract.validateLocal?.(value);
   if (!marker) return local;
   if (local !== undefined) object(local, 'Local data with a marker');
   return { ...local, marker };
@@ -71,7 +70,7 @@ export function prepareSave(
           (saved) => saved.review.kind === plugin.kind && saved.key === key,
         );
   const checked = checkReview(plugin, input, previous?.review);
-  const privateData = checkLocal(plugin, local);
+  const privateData = checkLocal(plugin, checked.target, local);
   return {
     review: checked,
     ...(key !== undefined ? { key } : {}),

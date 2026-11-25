@@ -14,16 +14,14 @@ import type { Envelope } from './validate.js';
  * The server checks only the envelope and the limits.
  */
 export interface Contract {
-  /** Whether each review has a target. A review of the other shape is refused. */
-  target: boolean;
   /**
    * Check the whole review after the envelope check. Cross-field rules belong here.
    * Return the review's data, or nothing for a kind without data.
    * `previous` is set for an edit and for a keyed replacement.
    */
-  validate(review: Envelope, previous?: Review): Json | undefined;
+  validateReview(review: Envelope, previous?: Review): Json | undefined;
   /** Validate plugin-specific local data. Targeting owns the marker field on targeted reviews. */
-  local?(value: unknown): Json | undefined;
+  validateLocal?(value: unknown): Json | undefined;
 }
 
 /** The pending review of one kind in the workspace bar. */

@@ -8,7 +8,7 @@ import type {
   ReviewCard,
 } from '../shared/plugin.js';
 import { createElement } from '../shared/dom.js';
-import { object, text } from '../shared/validate.js';
+import { ensure, object, text } from '../shared/validate.js';
 import { editOf, type EditData } from './edit/data.js';
 import { createEditor } from './edit/editor.js';
 import { createPreviews, type Editing } from './edit/previews.js';
@@ -166,8 +166,8 @@ export const edit: Plugin = {
   kind: 'edit',
   // Repeated edits keep the original text.
   contract: {
-    target: true,
-    validate({ data }, previous) {
+    validateReview({ data, target }, previous) {
+      ensure(target, 'An edit review requires a target');
       object(data, 'Edit');
       const saved = previous?.data as EditData | undefined;
       return {

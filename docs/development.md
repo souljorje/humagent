@@ -38,10 +38,16 @@ A plugin is one module in `src/plugins/` that exports one object. Its `kind` is 
 
 ```ts
 import type { Plugin } from '../shared/plugin.js';
+import { ensure } from '../shared/validate.js';
 
 export const flag: Plugin = {
   kind: 'flag',
-  contract: { target: true, validate: () => undefined },
+  contract: {
+    validateReview(review) {
+      ensure(review.target, 'A flag requires a target');
+      return undefined;
+    },
+  },
   page(host) { /* behavior in the page */ return {}; },
   card: { title: () => 'Flag' },
 };
@@ -49,7 +55,7 @@ export const flag: Plugin = {
 
 | Member | Purpose |
 | --- | --- |
-| `contract` | Data rules. The workspace applies them before it saves a review. `validate` checks the whole review and returns its `data`. `local` checks the local data of a pending review. |
+| `contract` | `validateReview` checks the review, including any target rule, and returns the data for the agent. Optional `validateLocal` checks private data such as form labels. |
 | `page` | Behavior in the page. It saves pending reviews through the page host. It can register a tool with element targeting. Page authors mark its elements with `host.attribute`, which is `data-humagent-<kind>`. |
 | `card` | Sets the title, optional body, and styles of a pending review in the bar. |
 

@@ -335,12 +335,12 @@ const card: ReviewCard = {
 export const form: Plugin = {
   kind: 'form',
   contract: {
-    target: false,
-    validate({ data }) {
+    validateReview({ data, target }) {
+      ensure(target === undefined, 'A form review cannot include a target');
       object(data, 'Form');
       return data;
     },
-    local(value) {
+    validateLocal(value) {
       if (value === undefined) return undefined;
       object(value, 'Local data');
       return { labels: labels(value.labels) };
