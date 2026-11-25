@@ -42,7 +42,21 @@ test('a text edit, a comment, and form choices reach the agent as one feedback w
   await humagent.annotate();
   await page.locator('#instruction').fill('Apply these together.');
   await humagent.connect();
-  await page.locator('#send').click();
+  await expect.poll(() => humagent.session().instruction).not.toBe('');
+  // Send waits for typed form text that is not saved yet.
+  await humagent.evaluate(() => {
+    const form = document.querySelector('form')!;
+    form.append(
+      Object.assign(document.createElement('input'), { name: 'note' }),
+    );
+  });
+  await Promise.all([
+    humagent.frame.locator('[name=note]').evaluate((el: HTMLInputElement) => {
+      el.value = 'Typed last.';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }),
+    page.locator('#send').click(),
+  ]);
   const delivered = await humagent.receive();
   expect(delivered.feedback).toHaveLength(1);
   const [sent] = delivered.feedback;
@@ -54,7 +68,7 @@ test('a text edit, a comment, and form choices reach the agent as one feedback w
     {
       kind: 'form',
       comment: expect.stringMatching(/^Apply these/),
-      data: values,
+      data: { ...values, note: 'Typed last.' },
     },
   ]);
   // `data` comes before `target`. An edit without a note has no `comment`.
@@ -270,6 +284,20 @@ test('a stale form review blocks Send and its removal preserves the current form
   await page.getByRole('button', { name: 'Delete review 1' }).click();
   await expect(page.locator('.review')).toHaveCount(0);
   await expect(choice).toBeChecked();
+
+  // Input that failed to save blocks the automatic reload. A manual reload still works.
+  await page.route('**/api/sessions/*/reviews', (route) => route.abort(), {
+    times: 1,
+  });
+  await choice.dispatchEvent('change');
+  await expect(
+    humagent.frame.locator('[data-humagent-form-status]'),
+  ).not.toBeEmpty();
+  fs.appendFileSync(humagent.file, '<p>Changed again.</p>');
+  await expect(page.locator('#update')).toBeVisible();
+  await expect(choice).toBeChecked();
+  await page.locator('#update').getByRole('button').click();
+  await expect(humagent.frame.getByText('Changed again.')).toBeVisible();
 });
 
 test('the page cannot use control routes, learn the session key, save through a foreign message, or save a review that breaks its plugin rules', async ({

@@ -1,5 +1,9 @@
 /** Workspace logic: session state, page attachment, and the feedback flow. It builds no markup. */
-import type { SavedReview, WorkspaceView } from '../shared/feedback.js';
+import type {
+  SavedReview,
+  Unsaved,
+  WorkspaceView,
+} from '../shared/feedback.js';
 import type { PageMessage, Presentation } from '../shared/bridge.js';
 import type { Plugin } from '../shared/plugin.js';
 import { prepareEdit, prepareSave } from './reviews.js';
@@ -97,6 +101,8 @@ export function createWorkspace(
   const connected = signal(false);
   const annotating = signal(false);
   const editorDirty = signal(false);
+  /** Plugin input on the page that the server does not hold yet. */
+  const unsaved = signal<Unsaved | null>(null);
   const sending = signal(false);
   const sent = signal(false);
   /** The typed instruction is not saved yet. */
@@ -107,6 +113,8 @@ export function createWorkspace(
   const connecting = signal(true);
   const scrollbars = signal({ right: 0, bottom: 0 });
   const available = signal(new Map<string, boolean>());
+  /** Resolve the Send that waits for plugin input. */
+  let resume: (() => void) | undefined;
   // Not shown in the bar, so no effect depends on these.
   let attaching: string | undefined,
     instruction = '',
@@ -219,12 +227,13 @@ export function createWorkspace(
     const next = model();
     const current = session();
     // An HTML file reloads on its own when its source changes, once per revision.
-    // Unfinished input blocks it. App pages keep the button: their HTML can differ on each request.
+    // Unfinished or unsaved input blocks it. App pages keep the button: their HTML can differ on each request.
     if (
       current &&
       next.changed &&
       current.source.kind === 'file' &&
       !editorDirty() &&
+      !unsaved() &&
       reloadedFor !== current.revision
     ) {
       reloadedFor = current.revision;
@@ -264,6 +273,13 @@ export function createWorkspace(
     clearTimeout(sentTimer);
     try {
       if (instructionPending()) await saveInstruction();
+      if (unsaved() === 'saving') {
+        await new Promise<void>((resolve) => {
+          resume = resolve;
+        });
+        if (unsaved())
+          throw new Error('Some page input is not saved. Check it, then send.');
+      }
       if (editorDirty())
         throw new Error('Save or cancel your review before sending.');
       await write('send', 'POST', { revision: page()?.revision });
@@ -328,6 +344,7 @@ export function createWorkspace(
     // The bar stops guarding the old page's unfinished input.
     page.set(undefined);
     editorDirty.set(false);
+    setUnsaved(null);
     lastPresentation = '';
     available.set(new Map());
     try {
@@ -347,6 +364,10 @@ export function createWorkspace(
     const params = presentation(current);
     lastPresentation = JSON.stringify(params);
     bridge.post('init', { ...params, annotating: annotating() });
+  }
+  function setUnsaved(state: Unsaved | null) {
+    unsaved.set(state);
+    if (state !== 'saving') resume?.();
   }
   function connect() {
     bridge = connectPage({
@@ -398,6 +419,7 @@ export function createWorkspace(
         editing({ dirty }) {
           editorDirty.set(dirty);
         },
+        unsaved: ({ state }) => setUnsaved(state),
         notice({ message: text }) {
           fail(text);
         },

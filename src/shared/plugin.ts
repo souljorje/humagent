@@ -5,6 +5,7 @@ import type {
   Review,
   Target,
   SaveResult,
+  Unsaved,
 } from './feedback.js';
 import type { Json } from './json.js';
 import type { Envelope } from './validate.js';
@@ -100,6 +101,11 @@ export interface PageHost {
     review: Omit<NewReview, 'kind'>,
     options?: { key?: string; local?: Json },
   ): Promise<SaveResult>;
+  /**
+   * Report input that the plugin has not saved. Nothing means that all input is saved.
+   * Send waits while a plugin is saving. An HTML file does not reload on its own while a plugin has unsaved input.
+   */
+  unsaved(state?: Unsaved): void;
   /** Show a problem to the human in the bar. */
   notice(message: string): void;
   annotating: Annotating;

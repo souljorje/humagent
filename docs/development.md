@@ -59,6 +59,8 @@ export const flag: Plugin = {
 | `page` | Behavior in the page. It saves pending reviews through the page host. It can supply a tool for annotating. Page authors mark its elements with `host.attribute`, which is `data-humagent-<kind>`. |
 | `summary` | Sets the title, optional body, and styles for the review summary. The bar displays it. |
 
+A plugin reports input that it has not saved through `host.unsaved`. Send waits while a plugin is saving. Unsaved input blocks the automatic reload.
+
 The page receives `discard` before the workspace removes a keyed review on the current revision. Forms use it to cancel pending saves and reset their controls.
 
 1. Write the module. The interfaces are in `src/shared/plugin.ts`.

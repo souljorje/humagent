@@ -4,6 +4,7 @@ import type {
   SavedReview,
   NewReview,
   SaveResult,
+  Unsaved,
 } from './feedback.js';
 import type { Json } from './json.js';
 
@@ -42,6 +43,8 @@ export interface PageEvents {
   hello: Record<string, never>;
   annotating: { enabled: boolean };
   editing: { dirty: boolean };
+  /** Plugin input that the server does not hold yet. */
+  unsaved: { state: Unsaved | null };
   notice: { message: string };
   availability: { items: Availability[] };
   /** Scrollbar sizes in CSS pixels. The bar outside the frame keeps clear of them. */

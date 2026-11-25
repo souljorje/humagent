@@ -8,7 +8,7 @@ import type {
   WorkspaceEvents,
   WorkspaceMessage,
 } from '../shared/bridge.js';
-import type { NewReview, SavedReview } from '../shared/feedback.js';
+import type { NewReview, SavedReview, Unsaved } from '../shared/feedback.js';
 import type { PagePlugin, PluginView } from '../shared/plugin.js';
 import { plugins } from '../plugins/index.js';
 import { errorMessage } from '../shared/errors.js';
@@ -73,12 +73,26 @@ if (window.parent === window.top) {
     remove: (reviewId) => request('remove', { reviewId }),
   });
   const pages = new Map<string, PagePlugin>();
+  const unsaved = new Map<string, Unsaved | undefined>();
+  let reported: Unsaved | null = null;
+  /** The workspace gets one state for all plugins. Saving comes before failed. */
+  function reportUnsaved(kind: string, state?: Unsaved) {
+    unsaved.set(kind, state);
+    const states = [...unsaved.values()];
+    const next =
+      (['saving', 'failed'] as const).find((item) => states.includes(item)) ??
+      null;
+    if (next === reported) return;
+    reported = next;
+    post('unsaved', { state: next });
+  }
   const api: Record<string, unknown> = {};
   for (const [kind, plugin] of plugins) {
     const page = plugin.page?.({
       attribute: `data-humagent-${kind}`,
       annotating: annotating.api,
       notice,
+      unsaved: (state) => reportUnsaved(kind, state),
       save: (review, options) => save({ ...review, kind }, options),
     });
     if (!page) continue;

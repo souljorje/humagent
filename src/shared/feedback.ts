@@ -86,6 +86,8 @@ export interface SaveResult {
   reviewId: string;
   status: 'pending';
 }
+/** `saving` ends with a reply. `failed` lasts until the human changes the input or reloads the page. */
+export type Unsaved = 'saving' | 'failed';
 export interface Availability {
   id: string;
   available: boolean;

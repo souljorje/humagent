@@ -209,10 +209,22 @@ function page(host: PageHost): PagePlugin {
   const key = (form: HTMLFormElement) => form.getAttribute(host.attribute)!;
   // Forms with typed text that is not saved yet.
   const typing = new Map<HTMLFormElement, ReturnType<typeof setTimeout>>();
+  const saving = new Set<HTMLFormElement>();
+  const failed = new Set<HTMLFormElement>();
   const settle = (form: HTMLFormElement) => {
     clearTimeout(typing.get(form));
     typing.delete(form);
   };
+  function report() {
+    for (const form of failed) if (!form.isConnected) failed.delete(form);
+    host.unsaved(
+      typing.size || saving.size
+        ? 'saving'
+        : failed.size
+          ? 'failed'
+          : undefined,
+    );
+  }
   // An older reply must not clear an error from a newer form change.
   const latestSave = new WeakMap<HTMLFormElement, symbol>();
   const forms = () => document.querySelectorAll<HTMLFormElement>(FORMS);
@@ -220,6 +232,8 @@ function page(host: PageHost): PagePlugin {
   let quiet = false;
   function silently(form: HTMLFormElement, change: () => void) {
     settle(form);
+    failed.delete(form);
+    report();
     quiet = true;
     try {
       change();
@@ -232,6 +246,9 @@ function page(host: PageHost): PagePlugin {
     settle(form);
     const attempt = Symbol();
     latestSave.set(form, attempt);
+    failed.delete(form);
+    saving.add(form);
+    report();
     let message = '';
     try {
       const formKey = key(form);
@@ -245,6 +262,9 @@ function page(host: PageHost): PagePlugin {
       message = errorMessage(error);
     }
     if (latestSave.get(form) !== attempt) return;
+    saving.delete(form);
+    if (message) failed.add(form);
+    report();
     showStatus(form, message);
     if (message) host.notice(message);
   }
@@ -259,6 +279,7 @@ function page(host: PageHost): PagePlugin {
         form,
         setTimeout(() => void save(form), 300),
       );
+      report();
     });
   document.addEventListener(
     'submit',
