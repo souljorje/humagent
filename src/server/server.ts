@@ -33,12 +33,16 @@ const ASSET =
 /**
  * The credential each control path needs. Paths without a rule need the control token.
  * A `session` path also accepts the page key of its session. An `agent` path does not.
+ * Only the operations that the workspace uses are `session` paths. Each other operation is an `agent` path.
  */
 const ACCESS: [RegExp, 'none' | 'session' | 'agent'][] = [
   [/^\/(?:health)?$/, 'none'],
   [ASSET, 'none'],
-  [/^\/api\/sessions\/([\w-]+)\/(?:wait|complete)(?:\/[^/]+)?$/, 'agent'],
-  [/^\/api\/sessions\/([\w-]+)(?:\/\w+(?:\/[^/]+)?)?$/, 'session'],
+  [
+    /^\/api\/sessions\/([\w-]+)(?:\/(?:reviews(?:\/[^/]+)?|instruction|send|page|end))?$/,
+    'session',
+  ],
+  [/^\/api\/sessions\/([\w-]+)\/.+$/, 'agent'],
 ];
 function accessOf(pathname: string) {
   for (const [pattern, access] of ACCESS) {

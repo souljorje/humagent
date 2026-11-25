@@ -85,6 +85,8 @@ test('control routes refuse foreign origins, missing credentials, session keys o
     ['/api/sessions'],
     [`${first.base}/wait`, {}],
     [`${first.base}/complete`, {}],
+    // An operation without a rule needs the agent credential too.
+    [`${first.base}/unlisted`, {}],
     ['/api/open', { source: second.source }],
   ] as [string, unknown?][])
     assert.equal(
