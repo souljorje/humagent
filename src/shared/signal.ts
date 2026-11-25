@@ -24,7 +24,7 @@ export function signal<T>(value: T): Signal<T> {
   read.set = (next) => {
     if (Object.is(next, value)) return;
     value = next;
-    for (const reader of readers) schedule(reader);
+    readers.forEach(schedule);
   };
   return read;
 }
@@ -35,7 +35,7 @@ function schedule(effect: Effect) {
     queueMicrotask(() => {
       const batch = queued!;
       queued = undefined;
-      for (const item of batch) item.run();
+      batch.forEach((item) => item.run());
     });
   }
   queued.add(effect);
@@ -48,7 +48,7 @@ export function effect(fn: () => void) {
   const self: Effect = {
     sources: new Set(),
     run() {
-      for (const readers of self.sources) readers.delete(self);
+      self.sources.forEach((readers) => readers.delete(self));
       self.sources.clear();
       const outer = running;
       running = self;

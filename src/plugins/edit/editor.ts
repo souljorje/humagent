@@ -7,7 +7,7 @@ function plainText(node: Node): string {
   if (node instanceof Text) return node.data;
   if (node instanceof HTMLBRElement)
     return node.hasAttribute('data-humagent-placeholder') ? '' : '\n';
-  return [...node.childNodes].map(plainText).join('');
+  return Array.from(node.childNodes, plainText).join('');
 }
 
 export function createEditor(
@@ -42,10 +42,10 @@ export function createEditor(
     if (!element.contains(range.commonAncestorContainer)) return;
     range.deleteContents();
     const fragment = document.createDocumentFragment();
-    for (const [index, line] of value.split('\n').entries()) {
+    value.split('\n').forEach((line, index) => {
       if (index) fragment.append(createElement('br'));
       fragment.append(document.createTextNode(line));
-    }
+    });
     const last = fragment.lastChild as Text;
     range.insertNode(fragment);
     // A trailing line break needs a following node, or the browser does not show the new line.

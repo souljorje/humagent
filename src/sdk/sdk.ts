@@ -121,7 +121,7 @@ if (window.parent === window.top) {
       if (!initialized) {
         initialized = true;
         clearInterval(hello);
-        for (const [kind, page] of pages) page.init?.(share(kind, params));
+        pages.forEach((page, kind) => page.init?.(share(kind, params)));
         resolveReady();
         // The workspace ignores reports from before the page attached.
         if (reported) post('unsaved', { state: reported });
@@ -132,7 +132,7 @@ if (window.parent === window.top) {
     update(params) {
       ended = !params.writable;
       pending = params.pending;
-      for (const [kind, page] of pages) page.present?.(share(kind, params));
+      pages.forEach((page, kind) => page.present?.(share(kind, params)));
       annotating.present(params);
     },
     annotate(params) {

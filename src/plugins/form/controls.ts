@@ -37,8 +37,9 @@ const text = (node: Node | null | undefined) =>
 function labelText(label: Element | null | undefined) {
   if (!label) return '';
   const copy = label.cloneNode(true) as Element;
-  for (const control of copy.querySelectorAll('input,select,textarea,button'))
-    control.remove();
+  copy
+    .querySelectorAll('input,select,textarea,button')
+    .forEach((control) => control.remove());
   return text(copy);
 }
 function accessibleName(el: Element | null | undefined) {
@@ -105,7 +106,7 @@ export function readForm(form: HTMLFormElement, key: string) {
     if (group) group.push(el);
     else groups.set(el.name, [el]);
   }
-  for (const [name, group] of groups) {
+  groups.forEach((group, name) => {
     const first = group[0]!;
     const single = group.length === 1;
     const radio = group.every((el) => isInput(el, 'radio'));
@@ -116,7 +117,7 @@ export function readForm(form: HTMLFormElement, key: string) {
         : readValues(group);
     values[name] = value;
     fields.push({ label: clip(label || name), value: clip(shown) });
-  }
+  });
   const title = accessibleName(form) || key;
   return {
     values,

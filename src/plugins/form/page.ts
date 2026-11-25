@@ -129,15 +129,16 @@ export function page(host: PageHost): PagePlugin {
   return {
     /** Refill forms from their pending reviews after a reload. Stale pending reviews stay untouched. */
     init({ pending }) {
-      for (const form of forms()) {
+      forms().forEach((form) => {
         const values = formOf(pending.find((saved) => saved.key === key(form)));
         if (values) silently(form, () => fill(form, values));
-      }
+      });
     },
     /** Reset the form of a keyed pending review to its HTML defaults. */
     discard(saved) {
-      for (const form of forms())
+      forms().forEach((form) => {
         if (key(form) === saved.key) silently(form, () => form.reset());
+      });
     },
     api: { submit },
   };

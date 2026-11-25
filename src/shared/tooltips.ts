@@ -116,22 +116,25 @@ export function installTooltips(root: Document | ShadowRoot) {
       wrapper.setAttribute('aria-label', text);
     if (wrapper.dataset.tooltip !== text) wrapper.dataset.tooltip = text;
   }
-  for (const button of root.querySelectorAll<HTMLButtonElement>(
-    'button:not(.marker)',
-  ))
-    prepare(button);
+  root
+    .querySelectorAll<HTMLButtonElement>('button:not(.marker)')
+    .forEach(prepare);
   new MutationObserver((records) => {
     const buttons = new Set<HTMLButtonElement>();
+    function collect(el: Element) {
+      if (el instanceof HTMLButtonElement) buttons.add(el);
+    }
     for (const record of records) {
       if (record.target === tooltip) continue;
       if (record.target instanceof Element) {
         const button = record.target.closest('button');
         if (button) buttons.add(button);
       }
-      for (const node of record.addedNodes)
-        if (node instanceof Element)
-          for (const button of [node, ...node.querySelectorAll('button')])
-            if (button instanceof HTMLButtonElement) buttons.add(button);
+      record.addedNodes.forEach((node) => {
+        if (!(node instanceof Element)) return;
+        collect(node);
+        node.querySelectorAll('button').forEach(collect);
+      });
     }
     for (const button of buttons) if (button.isConnected) prepare(button);
     if (active && !tooltip.hidden && tooltip.textContent !== label(active)) {

@@ -9,13 +9,11 @@ import { form } from './form/index.js';
 
 /** Index plugins by kind, in the given order. Two plugins with one kind are a programming error. */
 function registry(plugins: Plugin[]): ReadonlyMap<string, Plugin> {
-  const byKind = new Map<string, Plugin>();
-  for (const plugin of plugins) {
+  return plugins.reduce((byKind, plugin) => {
     if (byKind.has(plugin.kind))
       throw new Error(`Duplicate plugin kind: ${plugin.kind}`);
-    byKind.set(plugin.kind, plugin);
-  }
-  return byKind;
+    return byKind.set(plugin.kind, plugin);
+  }, new Map<string, Plugin>());
 }
 
 export const plugins = registry([edit, comment, form]);
