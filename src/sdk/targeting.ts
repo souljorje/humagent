@@ -2,7 +2,13 @@
  * Shared element picking. The page owns geometry and temporary editors. The parent owns saved feedback.
  * Tools decide which kind of review a pick becomes. This module names no kind and builds no markup.
  */
-import { context, isNativeInteractiveControl } from './targets.js';
+import {
+  describeTarget,
+  findTarget,
+  isNativeInteractiveControl,
+  isTarget,
+  resolveTarget,
+} from './targets.js';
 import {
   createOverlayView,
   type MarkerModel,
@@ -105,10 +111,6 @@ export function createTargeting(bridge: TargetingBridge) {
     },
   });
 
-  const ignored = (el: EventTarget | null) =>
-    !(el instanceof Element) ||
-    el.closest('[data-humagent-ui],script,style,head') ||
-    el === document.documentElement;
   // Page shadow roots are not traversed. At document level, an event inside one targets its host.
   const eventElement = (event: Event) =>
     event.target instanceof Element ? event.target : undefined;
@@ -127,10 +129,7 @@ export function createTargeting(bridge: TargetingBridge) {
     if (node instanceof Text) return node.data;
     return [...node.childNodes].map(textOf).join('');
   }
-  const targetOf = (el: Element): Target => ({
-    ...context(el, textOf(el)),
-    url: boot.sourceUrl,
-  });
+  const resolve = (saved: SavedReview) => resolveTarget(saved, boot);
   /** Ask the tool with the open editor to build a review, then the other tools in registry order. */
   function build(target: Target): NewReview | undefined {
     if (!captured) return undefined;
@@ -252,7 +251,7 @@ export function createTargeting(bridge: TargetingBridge) {
           'h1,h2,h3,h4,p,li,td,th,img,a,button,input,select,textarea,label,[data-humagent-id],[role]',
         ),
       ]
-        .filter((el) => !ignored(el) && el.getClientRects().length)
+        .filter((el) => isTarget(el) && el.getClientRects().length)
         .slice(0, 2000);
       cursor = -1;
       cursorAt(1);
@@ -283,29 +282,20 @@ export function createTargeting(bridge: TargetingBridge) {
       : undefined;
   }
   /** Open the comment panel on an element. No tool claimed the pick. */
-  function show(el: EventTarget | null, range?: Range, point?: Point) {
-    if (!(el instanceof Element) || ignored(el) || !writable() || outside())
-      return;
-    const before = range ? range.toString() : textOf(el);
-    if (before.length > LIMITS.text) {
+  function show(el: Element, range?: Range, point?: Point) {
+    if (!isTarget(el) || !writable() || outside()) return;
+    const text = range ? range.toString() : textOf(el);
+    if (text.length > LIMITS.text) {
       notice('Select a smaller section (maximum 50,000 characters).');
       return;
     }
     reopen();
-    const target = targetOf(el);
-    if (range) {
-      const prefix = range.cloneRange(),
-        suffix = range.cloneRange();
-      prefix.selectNodeContents(el);
-      prefix.setEnd(range.startContainer, range.startOffset);
-      suffix.selectNodeContents(el);
-      suffix.setStart(range.endContainer, range.endOffset);
-      target.anchor = {
-        quote: before,
-        prefix: prefix.toString().slice(-32),
-        suffix: suffix.toString().slice(0, 32),
-      };
-    }
+    const target = describeTarget(
+      el,
+      boot.sourceUrl,
+      range ? textOf(el) : text,
+      range,
+    );
     captured = { target, el, point: anchor(el, point) };
     showEditor();
   }
@@ -314,7 +304,9 @@ export function createTargeting(bridge: TargetingBridge) {
     if (!writable() || outside()) return;
     reopen(hit.saved && view.marker(hit.saved.review.id));
     // The target and the press position describe the element before the editor changes it.
-    const described = hit.saved?.review.target || targetOf(hit.el);
+    const described =
+      hit.saved?.review.target ||
+      describeTarget(hit.el, boot.sourceUrl, textOf(hit.el));
     const offset = anchor(hit.el, point);
     const editor = hit.open();
     captured = {
@@ -383,7 +375,7 @@ export function createTargeting(bridge: TargetingBridge) {
     const range = selection.getRangeAt(0).cloneRange();
     const node = range.commonAncestorContainer;
     const el = node instanceof Element ? node : node.parentElement;
-    if (ignored(el)) return false;
+    if (!isTarget(el)) return false;
     if (!point) {
       const endpoint = range.cloneRange();
       endpoint.collapse(
@@ -395,7 +387,7 @@ export function createTargeting(bridge: TargetingBridge) {
       const rect = endpoint.getBoundingClientRect();
       if (rect.height) point = { x: rect.left, y: rect.bottom };
     }
-    pick({ el: el as Element, range, ...(point ? { point } : {}) });
+    pick({ el, range, ...(point ? { point } : {}) });
     return true;
   }
   async function save(remove = false) {
@@ -449,8 +441,8 @@ export function createTargeting(bridge: TargetingBridge) {
     (event) => {
       if (!enabled()) return;
       if (ownEvent(event)) return;
-      if (captured || ignored(event.target)) return;
-      hovered = event.target as Element;
+      if (captured || !isTarget(event.target)) return;
+      hovered = event.target;
       schedule();
     },
     { passive: true },
@@ -497,11 +489,11 @@ export function createTargeting(bridge: TargetingBridge) {
         return;
       case 'click': {
         if (markerPress || (captured && outside())) return stop(event, true);
-        if (ignored(event.target) || !enabled()) return;
+        if (!isTarget(event.target) || !enabled()) return;
         stop(event, true);
         if (document.getSelection()?.toString().trim()) return;
         pick({
-          el: (eventElement(event) || event.target) as Element,
+          el: event.target,
           ...(point ? { point } : {}),
         });
         return;
@@ -512,7 +504,7 @@ export function createTargeting(bridge: TargetingBridge) {
       case 'mouseup':
         if (!enabled()) return;
         // The selection settles only after the default mouseup action.
-        if (!captured && !ignored(event.target))
+        if (!captured && isTarget(event.target))
           setTimeout(() => selectedText(point), 0);
         if (from === 'control') stop(event);
     }
@@ -559,7 +551,7 @@ export function createTargeting(bridge: TargetingBridge) {
         }
         return;
       }
-      if (!enabled() || captured || ignored(event.target)) return;
+      if (!enabled() || captured || !isTarget(event.target)) return;
       if (
         ['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft'].includes(event.key)
       ) {
@@ -575,30 +567,6 @@ export function createTargeting(bridge: TargetingBridge) {
     },
     true,
   );
-  function findTarget(target: Target): Element | null {
-    try {
-      const matches = target.id
-        ? document.querySelectorAll(
-            `[data-humagent-id="${CSS.escape(String(target.id))}"],#${CSS.escape(String(target.id))}`,
-          )
-        : document.querySelectorAll(String(target.selector || ''));
-      if (matches.length !== 1 || ignored(matches[0]!)) return null;
-      return matches[0]!;
-    } catch {
-      return null;
-    }
-  }
-  function resolve(saved: SavedReview): Element | null {
-    const target = saved.review.target;
-    if (
-      !target ||
-      saved.revision !== boot.revision ||
-      target.url !== boot.sourceUrl
-    )
-      return null;
-    return findTarget(target);
-  }
-
   function position() {
     scheduled = false;
     for (const tool of tools) tool.layout?.();

@@ -374,6 +374,14 @@ test('a proxied app keeps its own behavior and accepts comments and SDK submissi
     ).toBe('delivered');
     await closed;
     await humagent.addComment('#headline', 'Comment on an existing app.');
+    // Two elements now claim the same saved ID. Reopening requires one match.
+    const openComment = page.getByRole('button', { name: 'Edit review 2' });
+    await counter.evaluate((el) =>
+      el.setAttribute('data-humagent-id', 'headline'),
+    );
+    await expect(openComment).toBeDisabled();
+    await counter.evaluate((el) => el.removeAttribute('data-humagent-id'));
+    await expect(openComment).toBeEnabled();
     const saved = await humagent.evaluate(() =>
       window.humagent.submit({ data: { choice: 'keep' } }),
     );
