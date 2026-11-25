@@ -8,6 +8,8 @@ import type {
 } from './feedback.js';
 import type { Json } from './json.js';
 
+/** The element of the page HTML that holds the bootstrap as JSON. */
+export const BOOTSTRAP_ID = '__humagent-bootstrap';
 export interface Bootstrap {
   session: string;
   channel: string;
@@ -74,9 +76,3 @@ export type WorkspaceMessage = { channel: string } & (
   | { method: 'result'; id: string; result?: unknown; error?: string }
   | Messages<WorkspaceEvents>
 );
-
-declare global {
-  interface Window {
-    __HUMAGENT__?: Bootstrap;
-  }
-}

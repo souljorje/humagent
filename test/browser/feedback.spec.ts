@@ -324,9 +324,11 @@ test('the page cannot use control routes, learn the session key, save through a 
   }, humagent.origin);
   expect([403, 'blocked']).toContain(denied);
   expect(humagent.key).not.toBe('');
-  expect(
-    await humagent.evaluate(() => JSON.stringify(window.__HUMAGENT__)),
-  ).not.toContain(humagent.key);
+  const html = await humagent.evaluate(
+    () => document.documentElement.outerHTML,
+  );
+  expect(html).toContain('__humagent-bootstrap');
+  expect(html).not.toContain(humagent.key);
   const sandbox = await page.locator('#frame').getAttribute('sandbox');
   expect(sandbox).not.toContain('allow-top-navigation');
   expect(sandbox).not.toContain('allow-popups');
@@ -375,6 +377,8 @@ test('a proxied app keeps its own behavior and accepts comments and SDK submissi
     else
       response
         .setHeader('content-type', 'text/html')
+        // The app allows no inline script.
+        .setHeader('content-security-policy', "script-src 'self'")
         .end(
           '<!doctype html><h1 id="headline">A page that was already here.</h1><button id="blocked">Skip me</button><button id="counter">Count: 0</button><script type="module" src="/app.js"></script>',
         );

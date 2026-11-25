@@ -7,7 +7,7 @@ import { ensure, Failure, localUrl } from './validate.js';
 import type { Source } from '../shared/feedback.js';
 import type { Store } from './store.js';
 import { browserAsset, noStore } from './assets.js';
-import type { Bootstrap } from '../shared/bridge.js';
+import { BOOTSTRAP_ID, type Bootstrap } from '../shared/bridge.js';
 
 const LIMIT = 8 * 1024 * 1024;
 const MIME: Record<string, string> = {
@@ -158,14 +158,12 @@ export async function sourceRevision(source: Source) {
       : await fetchDocument(new URL(source.value)),
   );
 }
-function initializeFrame(bootstrap: Bootstrap) {
-  if (parent === top) window.__HUMAGENT__ = bootstrap;
-}
+/** The bootstrap is inert data, so an application policy without inline scripts still allows it. */
 function inject(html: string, bootstrap: Bootstrap) {
   // Insert after the initial doctype, not a regex-matched </body> inside a script.
   const prefix = /^\s*<!doctype[^>]*>/i.exec(html)?.[0] ?? '';
   const encoded = JSON.stringify(bootstrap).replaceAll('<', '\\u003c');
-  return `${prefix}<script>(${initializeFrame.toString()})(${encoded})</script><script type="module" src="/__humagent/sdk/sdk.js"></script>${html.slice(prefix.length)}`;
+  return `${prefix}<script type="application/json" id="${BOOTSTRAP_ID}">${encoded}</script><script type="module" src="/__humagent/sdk/sdk.js"></script>${html.slice(prefix.length)}`;
 }
 type Decorate = (bytes: Buffer, route: string) => string;
 

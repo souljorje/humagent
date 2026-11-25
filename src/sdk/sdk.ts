@@ -1,12 +1,13 @@
 /** The page host: bridge to the workspace, and the plugins of this page document. */
 import { cloneJson } from '../shared/json.js';
 import { createAnnotating } from './annotating.js';
-import type {
-  Bootstrap,
-  Presentation,
-  Requests,
-  WorkspaceEvents,
-  WorkspaceMessage,
+import {
+  BOOTSTRAP_ID,
+  type Bootstrap,
+  type Presentation,
+  type Requests,
+  type WorkspaceEvents,
+  type WorkspaceMessage,
 } from '../shared/bridge.js';
 import type { NewReview, SavedReview, Unsaved } from '../shared/feedback.js';
 import type { PagePlugin, PluginView } from '../shared/plugin.js';
@@ -14,9 +15,10 @@ import { plugins } from '../plugins/index.js';
 import { errorMessage } from '../shared/errors.js';
 
 if (window.parent === window.top) {
-  if (!window.__HUMAGENT__ || window.parent === window)
+  const bootstrap = document.getElementById(BOOTSTRAP_ID)?.textContent;
+  if (!bootstrap || window.parent === window)
     throw new Error('Humagent SDK requires an attached workspace');
-  const boot: Bootstrap = window.__HUMAGENT__;
+  const boot: Bootstrap = JSON.parse(bootstrap);
   let initialized = false,
     ended = false,
     resolveReady!: () => void;
