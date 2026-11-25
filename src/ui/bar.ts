@@ -62,7 +62,7 @@ export function createBar(
     document,
     [
       inputStyles,
-      ...[...plugins.values()].map((plugin) => plugin.card?.styles),
+      ...[...plugins.values()].map((plugin) => plugin.summary?.styles),
     ].join('\n'),
   );
 
@@ -134,7 +134,7 @@ export function createBar(
       { saved, stale, unavailable },
     ] of current.pending.entries()) {
       const review = saved.review;
-      const card = plugins.get(review.kind)?.card;
+      const summary = plugins.get(review.kind)?.summary;
       const li = createElement('li', {
         className: 'review',
         dataset: { reviewId: review.id, stale: String(stale) },
@@ -144,10 +144,10 @@ export function createBar(
       content.append(
         createElement('div', {
           className: 'review-title',
-          textContent: card?.title(saved) ?? review.kind,
+          textContent: summary?.title(saved) ?? review.kind,
         }),
       );
-      const body = card?.body?.(saved);
+      const body = summary?.body?.(saved);
       if (body) content.append(body);
       if (review.comment)
         content.append(createElement('p', { textContent: review.comment }));

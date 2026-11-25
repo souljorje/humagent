@@ -49,7 +49,7 @@ export const flag: Plugin = {
     },
   },
   page(host) { /* behavior in the page */ return {}; },
-  card: { title: () => 'Flag' },
+  summary: { title: () => 'Flag' },
 };
 ```
 
@@ -57,7 +57,7 @@ export const flag: Plugin = {
 | --- | --- |
 | `contract` | `validateReview` checks the review, including any target rule, and returns the data for the agent. Optional `validateLocal` checks private data such as form labels. |
 | `page` | Behavior in the page. It saves pending reviews through the page host. It can register a tool with element targeting. Page authors mark its elements with `host.attribute`, which is `data-humagent-<kind>`. |
-| `card` | Sets the title, optional body, and styles of a pending review in the bar. |
+| `summary` | Sets the title, optional body, and styles for the review summary. The bar displays it. |
 
 The page receives `discard` before the workspace removes a keyed review on the current revision. Forms use it to cancel pending saves and reset their controls.
 

@@ -24,8 +24,8 @@ export interface Contract {
   validateLocal?(value: unknown): Json | undefined;
 }
 
-/** The pending review of one kind in the workspace bar. */
-export interface ReviewCard {
+/** How a plugin presents a pending review. */
+export interface ReviewSummary {
   title(saved: SavedReview): string;
   /** Draw content between the title and the comment. */
   body?(saved: SavedReview): Node | undefined;
@@ -142,5 +142,5 @@ export interface Plugin {
   contract: Contract;
   /** Behavior in the page. The host calls it one time for each page document. */
   page?(host: PageHost): PagePlugin;
-  card?: ReviewCard;
+  summary?: ReviewSummary;
 }

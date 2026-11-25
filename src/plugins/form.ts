@@ -5,7 +5,7 @@ import type {
   Plugin,
   PageHost,
   PagePlugin,
-  ReviewCard,
+  ReviewSummary,
 } from '../shared/plugin.js';
 import { createElement } from '../shared/dom.js';
 import { errorMessage } from '../shared/errors.js';
@@ -305,7 +305,7 @@ function showStatus(form: HTMLFormElement, message: string) {
 
 const labelsOf = (local: unknown) => (local as FormLocal | undefined)?.labels;
 
-const card: ReviewCard = {
+const summary: ReviewSummary = {
   title: (saved) => labelsOf(saved.local)?.title ?? 'Form',
   body(saved) {
     const data = formOf(saved);
@@ -347,5 +347,5 @@ export const form: Plugin = {
     },
   },
   page,
-  card,
+  summary,
 };

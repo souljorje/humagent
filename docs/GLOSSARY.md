@@ -15,6 +15,7 @@ Change the glossary first when a name changes.
 | session | One source with its saved reviews, instruction, and feedback. |
 | feedback | Everything that one Send delivers to the agent: the instruction and the reviews that were pending. |
 | review | One piece of feedback, such as a comment, a text edit, or form values. |
+| summary | The title and optional details a plugin shows for a pending review. |
 | comment | The human's text on one review. A review of kind `comment` has only this text. |
 | kind | The type of a review. One plugin defines each kind. |
 | target | The page element that a review refers to. |

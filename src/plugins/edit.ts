@@ -5,7 +5,7 @@ import type {
   Hit,
   PageHost,
   PagePlugin,
-  ReviewCard,
+  ReviewSummary,
 } from '../shared/plugin.js';
 import { createElement } from '../shared/dom.js';
 import { ensure, object, text } from '../shared/validate.js';
@@ -126,7 +126,7 @@ function page(host: PageHost): PagePlugin {
 }
 
 const DIFF_TAG = { remove: 'del', add: 'ins', same: 'span' } as const;
-const card: ReviewCard = {
+const summary: ReviewSummary = {
   title: () => 'Text edit',
   body(saved) {
     const data = editOf(saved);
@@ -179,5 +179,5 @@ export const edit: Plugin = {
     },
   },
   page,
-  card,
+  summary,
 };

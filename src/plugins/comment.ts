@@ -20,7 +20,7 @@ export const comment: Plugin = {
       build: (comment) => (comment.trim() ? { comment } : undefined),
     },
   }),
-  card: {
+  summary: {
     title: ({ review }) =>
       String(review.target?.id || review.target?.tag || 'Comment'),
   },
