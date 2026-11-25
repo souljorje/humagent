@@ -1,28 +1,25 @@
 /** The workspace bar. It draws a model and reports input. It makes no requests. */
-import type { Plugin } from '../shared/plugin.js';
-import type {
-  AgentStatus,
-  BarActions,
-  BarModel,
-  BarView,
-} from './workspace.js';
+import type { Plugin } from '../../shared/plugin.js';
 import {
   adoptStyles,
   autosize,
   createElement,
   setText,
-} from '../shared/dom.js';
-import { icon } from '../shared/icons.js';
-import { installTooltips } from '../shared/tooltips.js';
-import { inputStyles } from '../shared/input-styles.js';
-import { effect, signal } from '../shared/signal.js';
+} from '../../shared/dom.js';
+import { icon } from '../../shared/icons.js';
+import { installTooltips } from '../../shared/tooltips.js';
+import { inputStyles } from '../../shared/input-styles.js';
+import { effect, signal } from '../../shared/signal.js';
+import type {
+  AgentStatus,
+  BarActions,
+  BarModel,
+  BarView,
+} from '../workspace/model.js';
+import { $ } from './controls.js';
+import { guardOutsidePress } from './outside-press.js';
+import { renderPending } from './pending.js';
 
-type Controls = Record<string, HTMLElement> & {
-  frame: HTMLIFrameElement;
-  instruction: HTMLTextAreaElement;
-  send: HTMLButtonElement;
-  end: HTMLButtonElement;
-};
 const AGENT_STATUS: Record<AgentStatus, string> = {
   ended: 'Session ended',
   offline: 'Connection unavailable',
@@ -32,42 +29,10 @@ const AGENT_STATUS: Record<AgentStatus, string> = {
   idle: 'No agent connected',
 };
 
-function guardOutsidePress(dirty: () => boolean, outside: () => void) {
-  // While the page has unfinished input, the first outside press refocuses it instead of acting.
-  let blockedClick = false;
-  document.addEventListener(
-    'pointerdown',
-    (event) => {
-      blockedClick = dirty();
-      if (!blockedClick) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      outside();
-    },
-    true,
-  );
-  document.addEventListener(
-    'click',
-    (event) => {
-      if (!blockedClick && !dirty()) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (!blockedClick) outside();
-      blockedClick = false;
-    },
-    true,
-  );
-  document.addEventListener('keydown', () => {
-    blockedClick = false;
-  });
-}
-
 export function createBar(
   plugins: ReadonlyMap<string, Plugin>,
   actions: BarActions,
 ): BarView {
-  const $ = <K extends keyof Controls>(name: K): Controls[K] =>
-    document.getElementById(name as string) as Controls[K];
   let model: BarModel | undefined;
 
   $('toggle-icon').innerHTML = icon('comment');
@@ -125,108 +90,6 @@ export function createBar(
       actions.annotate(false, false);
     else setOpen(false);
   }
-  const rendered = new WeakMap<HTMLElement, string>();
-  /** Redraw only on change, and keep keyboard focus on the same pending review control. */
-  function renderChanged(
-    target: HTMLElement,
-    value: unknown,
-    draw: () => void,
-  ) {
-    const key = JSON.stringify(value);
-    if (rendered.get(target) === key) return;
-    const active = document.activeElement;
-    const focusedId =
-      active && target.contains(active)
-        ? active.closest<HTMLElement>('[data-review-id]')?.dataset.reviewId
-        : undefined;
-    const label = active?.getAttribute('aria-label') ?? active?.textContent;
-    target.replaceChildren();
-    draw();
-    rendered.set(target, key);
-    if (focusedId) {
-      const buttons = [
-        ...(target
-          .querySelector(`[data-review-id="${CSS.escape(focusedId)}"]`)
-          ?.querySelectorAll('button') || []),
-      ];
-      const next =
-        buttons.find(
-          (el) =>
-            (el.getAttribute('aria-label') ?? el.textContent) === label &&
-            !el.disabled,
-        ) || buttons.find((el) => !el.disabled);
-      next?.focus({ preventScroll: true });
-    }
-  }
-  function drawPending(current: BarModel, mutable: boolean) {
-    current.pending.forEach(({ saved, stale, unavailable }, index) => {
-      const review = saved.review;
-      const summary = plugins.get(review.kind)?.summary;
-      const li = createElement('li', {
-        className: 'review',
-        dataset: { reviewId: review.id, stale: String(stale) },
-      });
-      const content = createElement('div', { className: 'review-content' });
-      li.append(content);
-      content.append(
-        createElement('div', {
-          className: 'review-title',
-          textContent: summary?.title(saved) ?? review.kind,
-        }),
-      );
-      const body = summary?.body?.(saved);
-      if (body) content.append(body);
-      if (review.comment)
-        content.append(createElement('p', { textContent: review.comment }));
-      const status = stale
-        ? 'Stale revision. Recreate or remove this review.'
-        : unavailable
-          ? 'Target unavailable. Inspect or remove this review.'
-          : '';
-      if (status)
-        content.append(
-          createElement('p', {
-            className: 'review-status',
-            textContent: status,
-          }),
-        );
-      if (review.target) {
-        const open = createElement('button', {
-          className: 'review-open',
-          disabled: !mutable || !!status,
-          ariaLabel: `Edit review ${index + 1}`,
-          ariaHasPopup: 'dialog',
-          dataset: { tooltip: status || 'Edit review' },
-          onclick() {
-            $('frame').focus();
-            actions.open(review.id);
-          },
-        });
-        li.prepend(open);
-        content.onclick = () => open.click();
-        li.onpointerenter = () => actions.highlight(review.id);
-        li.onpointerleave = () => actions.highlight();
-        li.addEventListener('focusin', () => actions.highlight(review.id));
-        li.addEventListener('focusout', (event) => {
-          if (
-            !li.contains(event.relatedTarget as Node | null) &&
-            !li.matches(':hover')
-          )
-            actions.highlight();
-        });
-      }
-      li.append(
-        createElement('button', {
-          className: 'review-remove',
-          disabled: !mutable,
-          ariaLabel: `Delete review ${index + 1}`,
-          innerHTML: icon('trash'),
-          onclick: () => actions.remove(saved),
-        }),
-      );
-      $('pending').append(li);
-    });
-  }
   function update(current: BarModel) {
     // The bar follows annotating: the page can turn it off, and can refuse to.
     if (model && model.annotating !== current.annotating)
@@ -261,10 +124,8 @@ export function createBar(
     $('toggle-count').hidden = !count;
     setText($('toggle-count'), String(count));
     $('pending-count').hidden = !count;
-    $('pending-count').textContent = count ? `Pending (${count})` : '';
-    renderChanged($('pending'), [current.pending, mutable], () =>
-      drawPending(current, mutable),
-    );
+    setText($('pending-count'), count ? `Pending (${count})` : '');
+    renderPending(current.pending, mutable, plugins, actions);
     if (
       !current.instructionPending &&
       document.activeElement !== $('instruction')

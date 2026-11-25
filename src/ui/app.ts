@@ -1,6 +1,6 @@
-/** Workspace saved: connect the logic, the bar, and the plugins. */
-import { createWorkspace } from './workspace.js';
-import { createBar } from './bar.js';
+/** Workspace entry: connect the logic, the bar, and the plugins. */
+import { createWorkspace } from './workspace/workspace.js';
+import { createBar } from './bar/bar.js';
 import { plugins } from '../plugins/index.js';
 
 const id = new URL(location.href).searchParams.get('session') ?? '';

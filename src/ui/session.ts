@@ -1,14 +1,24 @@
+import {
+  SESSION_HEADER,
+  type SaveReply,
+  type WriteReply,
+} from '../shared/api.js';
 import type { WorkspaceView } from '../shared/feedback.js';
+import type { prepareEdit, prepareSave } from './reviews.js';
+
+interface Options {
+  /** The newest session view. */
+  view(view: WorkspaceView): void;
+  /** A write failed, so the shown view can be old. */
+  failed(): void;
+}
 
 /**
  * Credentialed access to one session. Writes run one at a time, in order.
- * A response reaches `onView` only if no request sent later has already reached it,
+ * A response reaches `view` only if no request sent later has already reached it,
  * so a slow read never replaces the result of a newer write.
  */
-export function createSession(
-  id: string,
-  onView: (view: WorkspaceView) => void,
-) {
+export function createSession(id: string, options: Options) {
   const key = `humagent:key:${id}`;
   // The URL fragment carries the credential once. Session storage keeps it for this tab.
   if (location.hash) {
@@ -27,7 +37,7 @@ export function createSession(
       {
         method,
         headers: {
-          'x-humagent-session': credential,
+          [SESSION_HEADER]: credential,
           'content-type': 'application/json',
         },
         ...(data === undefined ? {} : { body: JSON.stringify(data) }),
@@ -38,24 +48,44 @@ export function createSession(
     const view: WorkspaceView | undefined = action ? body.session : body;
     if (view && ticket > shown) {
       shown = ticket;
-      onView(view);
+      options.view(view);
     }
     return body as T;
   }
   let writes: Promise<unknown> = Promise.resolve();
+  /** Every write returns the fresh session view. */
+  function write<T extends WriteReply = WriteReply>(
+    action: string,
+    method: string,
+    data?: unknown,
+  ) {
+    const result = writes.then(() => request<T>(action, method, data));
+    writes = result.catch(() => {});
+    return result.catch((error: unknown) => {
+      options.failed();
+      throw error;
+    });
+  }
+  const review = (reviewId: string) =>
+    `reviews/${encodeURIComponent(reviewId)}`;
   return {
     read: () => request<WorkspaceView>('', 'GET'),
-    /** Every write returns the fresh session view. */
-    write<T extends object = object>(
-      action: string,
-      method: string,
-      data?: unknown,
-    ) {
-      const result = writes.then(() =>
-        request<T & { session: WorkspaceView }>(action, method, data),
-      );
-      writes = result.catch(() => {});
-      return result;
-    },
+    attachPage: (documentId: string) => write('page', 'POST', { documentId }),
+    saveReview: (
+      checked: ReturnType<typeof prepareSave> & { revision: string },
+    ) => write<SaveReply>('reviews', 'POST', checked),
+    editReview: (
+      reviewId: string,
+      changes: ReturnType<typeof prepareEdit> & { revision: string },
+    ) => write(review(reviewId), 'PATCH', changes),
+    removeReview: (reviewId: string, revision: string) =>
+      write(
+        `${review(reviewId)}?revision=${encodeURIComponent(revision)}`,
+        'DELETE',
+      ),
+    setInstruction: (instruction: string) =>
+      write('instruction', 'PUT', { instruction }),
+    send: (revision: string | undefined) => write('send', 'POST', { revision }),
+    end: () => write('end', 'POST', {}),
   };
 }

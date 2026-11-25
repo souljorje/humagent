@@ -98,6 +98,7 @@ test('control routes refuse foreign origins, missing credentials, session keys o
   // Browser modules are public at any depth. Runtime modules are not.
   const module = async (route: string) =>
     (await runtime.app.request(runtime.origin + route)).status;
+  assert.equal(await module('/ui/workspace/workspace.js'), 200);
   assert.equal(await module('/plugins/edit/index.js'), 200);
   for (const route of [
     '/server/server.js',
