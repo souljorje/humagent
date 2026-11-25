@@ -326,22 +326,18 @@ export function createAnnotating(bridge: AnnotatingBridge) {
     }
     showEditor(!editor.element);
   }
-  /** Give a pick to the first tool that claims it. Without a claim, the pick opens a comment. */
-  function pick(next: Pick) {
+  /** The first tool to claim or block a pick decides it. */
+  function firstHit(next: Pick) {
     for (const tool of tools) {
       const hit = tool.hit?.(next);
-      if (hit === 'blocked') return;
-      if (hit) return showTool(tool, hit, next.point);
+      if (hit) return { tool, hit };
     }
-    show(next.el, next.range, next.point);
   }
-  /** Whether a tool claims a press at this point. */
-  const claims = (el: Element | undefined, point: Point) =>
-    !!el &&
-    tools.some((tool) => {
-      const hit = tool.hit?.({ el, point });
-      return !!hit && hit !== 'blocked';
-    });
+  function pick(next: Pick) {
+    const match = firstHit(next);
+    if (!match) return show(next.el, next.range, next.point);
+    if (match.hit !== 'blocked') showTool(match.tool, match.hit, next.point);
+  }
   /** Reopen a saved pending review. */
   function edit(reviewId: string, point?: Point) {
     const saved = pending.find((d) => d.review.id === reviewId);
@@ -478,14 +474,13 @@ export function createAnnotating(bridge: AnnotatingBridge) {
       case 'mousedown':
         if (changed()) stop(event, true);
         // A press on a control's plain label may start an inline editor, so only that keeps its default.
-        else if (enabled() && from === 'control')
-          stop(
-            event,
-            !claims(eventElement(event), {
-              x: event.clientX,
-              y: event.clientY,
-            }),
-          );
+        else if (enabled() && from === 'control') {
+          const el = eventElement(event);
+          const match =
+            el &&
+            firstHit({ el, point: { x: event.clientX, y: event.clientY } });
+          stop(event, !match || match.hit === 'blocked');
+        }
         return;
       case 'click': {
         if (markerPress || (captured && outside())) return stop(event, true);

@@ -332,14 +332,35 @@ test('a proxied app keeps its own behavior and accepts comments and SDK submissi
       response
         .setHeader('content-type', 'text/html')
         .end(
-          '<!doctype html><h1 id="headline">A page that was already here.</h1><button id="counter">Count: 0</button><script type="module" src="/app.js"></script>',
+          '<!doctype html><h1 id="headline">A page that was already here.</h1><button id="blocked">Skip me</button><button id="counter">Count: 0</button><script type="module" src="/app.js"></script>',
         );
   });
   await new Promise<void>((resolve) => app.listen(0, '127.0.0.1', resolve));
   try {
     const source = `http://127.0.0.1:${(app.address() as AddressInfo).port}/`;
+    // The first tool blocks a button whose text the edit tool would accept.
+    await page.route('**/__humagent/plugins/index.js', (route) =>
+      route.fulfill({
+        contentType: 'text/javascript',
+        body: `
+          import { plugins as builtins } from './index.js?builtins';
+          const tool = {
+            name: 'Block',
+            hit: ({ el }) => el.id === 'blocked' ? 'blocked' : undefined,
+          };
+          export const plugins = new Map([['block', { page: () => ({ tool }) }], ...builtins]);
+        `,
+      }),
+    );
     await humagent.open(source);
     const counter = humagent.frame.locator('#counter');
+    await humagent.annotate();
+    const blocked = humagent.frame.getByRole('button', { name: 'Skip me' });
+    await blocked.click();
+    await expect(blocked).not.toBeFocused();
+    await expect(
+      humagent.frame.getByRole('dialog', { name: 'Review' }),
+    ).toBeHidden();
     await humagent.replace('#counter', 'Count visitors');
     const reopen = page.getByRole('button', {
       name: 'Edit review 1',
