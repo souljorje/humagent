@@ -1,6 +1,10 @@
 import type { Plugin } from '@/shared/plugin';
 import { ensure } from '@/shared/validate';
 
+export function commentDraft(comment: string, kind = 'comment') {
+  return comment.trim() ? { kind, comment } : undefined;
+}
+
 /** A comment on a page element. */
 export const comment: Plugin = {
   kind: 'comment',
@@ -13,13 +17,6 @@ export const comment: Plugin = {
       return undefined;
     },
   },
-  // The last tool: a pick with a comment and no other review becomes a comment.
-  page: () => ({
-    tool: {
-      name: 'Comment',
-      build: (comment) => (comment.trim() ? { comment } : undefined),
-    },
-  }),
   summary: {
     title: ({ review }) => String(review.target?.id || 'Comment'),
   },

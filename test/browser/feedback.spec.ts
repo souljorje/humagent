@@ -154,6 +154,9 @@ test('the keyboard picks an element, a marker reopens its review, a noted text p
   await expect(
     frame.getByRole('textbox', { name: 'Edit text', exact: true }),
   ).toBeVisible();
+  await expect(
+    frame.getByRole('button', { name: 'Confirm text edit' }),
+  ).toBeDisabled();
   await note.fill('Only a note on this text.');
   await frame.getByRole('button', { name: 'Confirm text edit' }).click();
   await expect(dialog).toBeHidden();
@@ -174,6 +177,24 @@ test('the keyboard picks an element, a marker reopens its review, a noted text p
   await frame.locator('h1').click();
   await expect(dialog).toBeHidden();
   expect(humagent.session().pending).toHaveLength(2);
+
+  await humagent.replace('#controls-title', '');
+  const deletion = humagent.session().pending[2].review;
+  expect(deletion).toMatchObject({
+    kind: 'edit',
+    data: { before: 'Controls', after: '' },
+  });
+  await frame.getByRole('button', { name: /^Review 3:/ }).click();
+  await frame
+    .getByRole('textbox', { name: 'Edit text', exact: true })
+    .fill('Controls');
+  await frame.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect(humagent.session().pending[2].review).toMatchObject({
+    id: deletion.id,
+    kind: 'edit',
+    data: { before: 'Controls', after: 'Controls' },
+  });
 });
 
 test('sending requires a connected agent, and an ended session accepts no input', async ({

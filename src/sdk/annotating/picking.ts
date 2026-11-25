@@ -5,7 +5,7 @@ import { describeTarget, isTarget } from '@/sdk/targets';
 import { LIMITS } from '@/shared/feedback';
 import { openCapture, prepareCapture, pressOutside } from './capture';
 import { resolve, type Annotator } from './state';
-import { findTool, hitTools, originalText, type RegisteredTool } from './tools';
+import { findTool, hitTools, originalText } from './tools';
 import type { Hit, Pick } from './types';
 
 const TOO_LONG = 'Select a smaller section (maximum 50,000 characters).';
@@ -51,12 +51,7 @@ function openPanel(a: Annotator, { el, range, point }: Pick) {
 }
 
 /** Open a tool's inline editor for a claimed pick. The comment panel opens beside it. */
-function openTool(
-  a: Annotator,
-  tool: RegisteredTool,
-  hit: Hit,
-  point: Point | undefined,
-) {
+function openTool(a: Annotator, hit: Hit, point: Point | undefined) {
   const { el, saved } = hit;
   if (!a.writable() || pressOutside(a)) return;
   prepareCapture(a, saved && markerOf(a.view, saved.review.id));
@@ -71,16 +66,14 @@ function openTool(
     el,
     ...(saved ? { saved } : {}),
     point: offset,
-    tool,
     editor,
   });
 }
 
 export function pick(a: Annotator, next: Pick) {
-  const match = hitTools(a.tools, next);
-  if (!match) openPanel(a, next);
-  else if (match.hit !== 'blocked')
-    openTool(a, match.tool, match.hit, next.point);
+  const hit = hitTools(a.tools, next);
+  if (!hit) openPanel(a, next);
+  else if (hit !== 'blocked') openTool(a, hit, next.point);
 }
 
 /** Reopen a saved pending review. */
@@ -95,9 +88,9 @@ export function openReview(a: Annotator, reviewId: string, point?: Point) {
     a.bridge.notice(UNAVAILABLE);
     return;
   }
-  if (tool && hit) {
+  if (hit) {
     scrollToTarget(el);
-    openTool(a, tool, hit, point || center(marker));
+    openTool(a, hit, point || center(marker));
     return;
   }
   prepareCapture(a, marker);

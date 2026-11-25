@@ -17,6 +17,7 @@ Change the glossary first when a name changes.
 | review | One piece of feedback, such as a comment, a text edit, or form values. |
 | summary | The title and optional details a plugin shows for a pending review. |
 | comment | The human's text on one review. A review of kind `comment` has only this text. |
+| draft | The review that the current page input proposes before the human saves it. |
 | kind | The type of a review. One plugin defines each kind. |
 | target | The page element that a review refers to. |
 | pending | Not sent. A review is pending until the human chooses Send. |

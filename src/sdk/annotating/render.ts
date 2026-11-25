@@ -7,7 +7,7 @@ export function render(a: Annotator) {
   const { markers, highlight, panel } = a.placement.layout;
   const { current } = a.capture;
   updateOverlay(a.view, {
-    panel: current && panelModel(a.tools, current, a.writable(), panel),
+    panel: current && panelModel(current, a.writable(), panel),
     markers,
     pendingIds: a.pending.map((saved) => saved.review.id),
     highlight,

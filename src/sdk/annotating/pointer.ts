@@ -48,7 +48,7 @@ const onPress: Handler = (a, event, origin) => {
   const point = { x: event.clientX, y: event.clientY };
   const match = el && hitTools(a.tools, { el, point });
   // A press on a control's plain label may start an inline editor, so only that keeps its default.
-  stop(event, !match || match.hit === 'blocked');
+  stop(event, !match || match === 'blocked');
 };
 
 const onClick: Handler = (a, event) => {

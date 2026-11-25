@@ -134,7 +134,7 @@ The page receives `discard` before the workspace removes a keyed review on the c
 
 A plugin runs only in the browser. To style it, import `./index.css` in `index.ts`. The registry refuses two plugins with one kind. The page host refuses two plugins with one `window.humagent` member. The transport, the server, and the CLI need no change.
 
-The SDK manages annotating, markers, the highlight, and the comment panel for all plugins. A tool claims a pick with `hit`, opens an inline editor with `open`, and returns its review from `build`. The SDK asks the tool with the open editor first, then the other tools in registry order. The first review wins. A saved review asks only the tool of its kind.
+The SDK manages annotating, markers, the highlight, and the comment panel for all plugins. A tool claims a pick with `hit`, opens an inline editor with `open`, and returns its review from `build`. The editor builds the draft and chooses its kind. A text selection with only a note becomes a comment. Reopening a saved review preserves its kind.
 
 ## Test coverage
 

@@ -1,4 +1,5 @@
 /** Text edits on the page: what the human can edit, and the open editor. */
+import { commentDraft } from '../comment';
 import type { Annotating, Editor, Hit, Pick } from '@/sdk/annotating/types';
 import { LIMITS, type SavedReview } from '@/shared/feedback';
 import type { PageHost, PagePlugin, PluginView } from '@/shared/plugin';
@@ -54,8 +55,10 @@ function buildEdit(
   comment: string,
   saved: SavedReview | undefined,
 ) {
-  if (!saved && after === before) return undefined;
+  if (after.length > LIMITS.text) return undefined;
+  if (!saved && after === before) return commentDraft(comment);
   return {
+    kind: 'edit',
     ...(comment.trim() ? { comment } : {}),
     data: { before, after },
   };
@@ -91,7 +94,6 @@ function openEditor(
     element,
     confirmLabel: 'Confirm text edit',
     changed: () => editorText(element) !== initial,
-    valid: () => editorText(element).length <= LIMITS.text,
     setReadOnly: (value) => setReadOnly(element, value),
     close: () => closeEditor(state),
     build: (comment) => buildEdit(before, editorText(element), comment, saved),

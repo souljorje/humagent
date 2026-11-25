@@ -3,14 +3,17 @@ import type { Point } from '@/sdk/layout';
 import { focusComment, setComment, shake } from '@/sdk/overlay';
 import { findTarget } from '@/sdk/targets';
 import { errorMessage } from '@/shared/errors';
-import type { Target } from '@/shared/feedback';
-import { canSave, isUnfinished } from './panel';
+import type { SavedReview, Target } from '@/shared/feedback';
+import { draftOf, isChanged, isUnfinished } from './panel';
 import { hover, position, schedule } from './placement';
 import { render } from './render';
 import { report, type Annotator } from './state';
-import { buildReview, layoutTools, type Draft } from './tools';
+import { layoutTools } from './tools';
+import type { Draft, Editor } from './types';
 
-export interface Capture extends Draft {
+export interface Capture {
+  saved?: SavedReview;
+  editor?: Editor;
   target: Target;
   el: Element;
   point: Point;
@@ -28,10 +31,7 @@ export interface CaptureState {
   /** The element that gets focus after the editor closes. */
   returnFocus: Element | null;
 }
-type Opening = Pick<
-  Capture,
-  'target' | 'el' | 'saved' | 'point' | 'tool' | 'editor'
->;
+type Opening = Pick<Capture, 'target' | 'el' | 'saved' | 'point' | 'editor'>;
 
 /** Draw the editor and report its state. */
 export function updateCapture(a: Annotator) {
@@ -129,7 +129,7 @@ export function openCapture(a: Annotator, opening: Opening) {
   if (!inline) focusComment(a.view);
 }
 
-async function saveNew({ bridge, tools }: Annotator, capture: Capture) {
+async function saveNew({ bridge }: Annotator, capture: Capture, draft: Draft) {
   const { el, point, target } = capture;
   const rect = el.getBoundingClientRect();
   const coordinates = {
@@ -137,30 +137,17 @@ async function saveNew({ bridge, tools }: Annotator, capture: Capture) {
     y: Math.round(rect.top + point.y + scrollY),
     space: 'document',
   };
-  const review = buildReview(tools, capture, { ...target, coordinates });
-  if (!review) throw new Error('Add a comment or a change.');
-  await bridge.save(review, { marker: point });
-}
-
-/** An edit keeps the kind. It takes the comment field and the built data. */
-async function saveEdit(
-  { bridge, tools }: Annotator,
-  capture: Capture,
-  reviewId: string,
-) {
-  const { comment, target } = capture;
-  const data = buildReview(tools, capture, target)?.data;
-  await bridge.edit({
-    reviewId,
-    comment,
-    ...(data !== undefined ? { data } : {}),
-  });
+  await bridge.save(
+    { ...draft, target: { ...target, coordinates } },
+    { marker: point },
+  );
 }
 
 export async function saveCapture(a: Annotator, remove = false) {
   const { current } = a.capture;
   if (!current || current.saving || !a.writable()) return;
-  if (!remove && !canSave(a.tools, current)) return;
+  const draft = remove ? undefined : draftOf(current);
+  if (!remove && (!draft || (current.saved && !isChanged(current)))) return;
   const el = findTarget(current.target);
   if (!el) {
     current.error =
@@ -173,9 +160,14 @@ export async function saveCapture(a: Annotator, remove = false) {
   current.saving = true;
   updateCapture(a);
   try {
-    if (id === undefined) await saveNew(a, current);
-    else if (remove) await a.bridge.remove(id);
-    else await saveEdit(a, current, id);
+    if (id !== undefined && remove) await a.bridge.remove(id);
+    else if (id !== undefined && draft) {
+      await a.bridge.edit({
+        reviewId: id,
+        comment: current.comment,
+        ...(draft.data !== undefined ? { data: draft.data } : {}),
+      });
+    } else if (draft) await saveNew(a, current, draft);
     current.saving = false;
     // A presentation can close this editor during the save. Another editor can be open now.
     if (a.capture.current === current) closeCapture(a);

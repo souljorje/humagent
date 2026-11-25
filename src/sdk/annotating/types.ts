@@ -20,10 +20,8 @@ export interface Hit {
   saved?: SavedReview;
   open(): Editor;
 }
-/** Return review fields when this editor or tool accepts the input. */
-type BuildReview = (
-  comment: string,
-) => Omit<NewReview, 'kind' | 'target'> | undefined;
+/** The editor chooses the kind. The SDK supplies the captured target when saving. */
+export type Draft = Omit<NewReview, 'target'>;
 /** A tool's inline editor for one pick. */
 export interface Editor {
   /** Target fields that the editor adds, such as a text node index. */
@@ -31,9 +29,8 @@ export interface Editor {
   /** The input that takes focus in place of the comment field. */
   element?: HTMLElement;
   confirmLabel: string;
-  build: BuildReview;
+  build(comment: string): Draft | undefined;
   changed(): boolean;
-  valid(): boolean;
   setReadOnly(value: boolean): void;
   close(): void;
 }
@@ -43,8 +40,6 @@ export interface Tool {
   name: string;
   /** Claim a pick. `blocked` stops the pick without an editor. */
   hit?(pick: Pick): Hit | 'blocked' | undefined;
-  /** Build a review when the open editor supplies none. */
-  build?: BuildReview;
   /** The original text of a node that this tool changed on the page. */
   textOf?(node: Node): string | undefined;
   /** The start of each positioning pass. */

@@ -1,13 +1,9 @@
-/**
- * The page host and the workspace use these built-in plugins.
- * The SDK asks tools in registry order. `comment` builds a review from any comment, so it stays after `edit`.
- */
 import type { Plugin } from '@/shared/plugin';
 import { comment } from './comment';
 import { edit } from './edit';
 import { form } from './form';
 
-/** Index plugins by kind, in the given order. Two plugins with one kind are a programming error. */
+/** Index plugins by kind. Two plugins with one kind are a programming error. */
 function registry(plugins: Plugin[]): ReadonlyMap<string, Plugin> {
   const byKind = new Map<string, Plugin>();
   for (const plugin of plugins) {
