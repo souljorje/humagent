@@ -32,6 +32,36 @@ const AGENT_STATUS: Record<AgentStatus, string> = {
   idle: 'No agent connected',
 };
 
+function guardOutsidePress(dirty: () => boolean, outside: () => void) {
+  // While the page has unfinished input, the first outside press refocuses it instead of acting.
+  let blockedClick = false;
+  document.addEventListener(
+    'pointerdown',
+    (event) => {
+      blockedClick = dirty();
+      if (!blockedClick) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      outside();
+    },
+    true,
+  );
+  document.addEventListener(
+    'click',
+    (event) => {
+      if (!blockedClick && !dirty()) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!blockedClick) outside();
+      blockedClick = false;
+    },
+    true,
+  );
+  document.addEventListener('keydown', () => {
+    blockedClick = false;
+  });
+}
+
 export function createBar(
   plugins: ReadonlyMap<string, Plugin>,
   actions: BarActions,
@@ -263,32 +293,11 @@ export function createBar(
     if (confirm('End this session? Pending feedback stays saved.'))
       actions.end();
   };
-  // While the page has unfinished input, the first outside press refocuses it instead of acting.
-  let blockedClick = false;
-  document.addEventListener(
-    'pointerdown',
-    (event) => {
-      blockedClick = !!model?.editorDirty;
-      if (!blockedClick) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      actions.outside();
-    },
-    true,
-  );
-  document.addEventListener(
-    'click',
-    (event) => {
-      if (!blockedClick && !model?.editorDirty) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (!blockedClick) actions.outside();
-      blockedClick = false;
-    },
-    true,
+  guardOutsidePress(
+    () => !!model?.editorDirty,
+    () => actions.outside(),
   );
   document.addEventListener('keydown', (event) => {
-    blockedClick = false;
     if (event.key === 'Escape' && isOpen()) {
       toggle();
       $('bar-toggle').focus();
