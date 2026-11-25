@@ -56,6 +56,59 @@ interface Capture {
 }
 const HINT = 'Arrow keys choose an element. Enter comments. Escape exits.';
 
+function observeLayout(schedule: () => void) {
+  document.addEventListener('scroll', schedule, {
+    capture: true,
+    passive: true,
+  });
+  window.addEventListener('resize', schedule);
+  window.visualViewport?.addEventListener('resize', schedule);
+  const observer = new MutationObserver((records) => {
+    if (
+      records.every(
+        (record) =>
+          record.target instanceof Element &&
+          record.target.closest('[data-humagent-ui]') &&
+          !record.target.closest('[data-humagent-text]'),
+      )
+    )
+      return;
+    schedule();
+  });
+  observer.observe(document.body || document.documentElement, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: [
+      'class',
+      'style',
+      'id',
+      'data-humagent-id',
+      'hidden',
+      'role',
+      'contenteditable',
+      'href',
+    ],
+  });
+}
+
+function enableTextSelection(enabled: () => boolean) {
+  const selectionStyle = new CSSStyleSheet();
+  selectionStyle.replaceSync(
+    '*:not([data-humagent-ui],input,textarea,select,option){user-select:text!important;-webkit-user-select:text!important}',
+  );
+  // Pages can block text selection with CSS. Selection must work while annotating.
+  effect(() => {
+    const active = enabled();
+    const sheets = document.adoptedStyleSheets;
+    if (active === sheets.includes(selectionStyle)) return;
+    document.adoptedStyleSheets = active
+      ? [...sheets, selectionStyle]
+      : sheets.filter((sheet) => sheet !== selectionStyle);
+  });
+}
+
 export function createAnnotating(bridge: AnnotatingBridge) {
   const { boot, notice, post } = bridge;
   const tools: RegisteredTool[] = [];
@@ -532,39 +585,34 @@ export function createAnnotating(bridge: AnnotatingBridge) {
     render();
     schedule();
   }
-  document.addEventListener(
-    'keydown',
-    (event) => {
-      if (event.isComposing || event.keyCode === 229) return;
-      if (event.key === 'Escape') {
-        if (captured) {
-          event.preventDefault();
-          close();
-        } else if (enabled()) {
-          event.preventDefault();
-          setMode(false);
-        }
-        return;
-      }
-      if (!enabled() || captured || !isTarget(event.target)) return;
-      if (
-        ['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft'].includes(event.key)
-      ) {
+  function keydown(event: KeyboardEvent) {
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === 'Escape') {
+      if (captured) {
         event.preventDefault();
-        if (!candidates.length) setMode(true, true);
-        else cursorAt(['ArrowDown', 'ArrowRight'].includes(event.key) ? 1 : -1);
-        hint = hintText;
-        render();
-      } else if (event.key === 'Enter' && hovered) {
+        close();
+      } else if (enabled()) {
         event.preventDefault();
-        pick({ el: hovered, keyboard: true });
+        setMode(false);
       }
-    },
-    true,
-  );
-  function position() {
-    scheduled = false;
-    for (const tool of tools) tool.layout?.();
+      return;
+    }
+    if (!enabled() || captured || !isTarget(event.target)) return;
+    if (
+      ['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft'].includes(event.key)
+    ) {
+      event.preventDefault();
+      if (!candidates.length) setMode(true, true);
+      else cursorAt(['ArrowDown', 'ArrowRight'].includes(event.key) ? 1 : -1);
+      hint = hintText;
+      render();
+    } else if (event.key === 'Enter' && hovered) {
+      event.preventDefault();
+      pick({ el: hovered, keyboard: true });
+    }
+  }
+  document.addEventListener('keydown', keydown, true);
+  function reviewMarkers() {
     const available: Availability[] = [];
     const markers: MarkerModel[] = [];
     for (const [index, saved] of pending.entries()) {
@@ -587,6 +635,12 @@ export function createAnnotating(bridge: AnnotatingBridge) {
         ...markerPoint(rect, (saved.local as MarkerLocal | undefined)?.marker),
       });
     }
+    return { available, markers };
+  }
+  function position() {
+    scheduled = false;
+    for (const tool of tools) tool.layout?.();
+    const { available, markers } = reviewMarkers();
     const target = captured ? findTarget(captured.target) : hovered;
     const highlighted = highlightedReview
       ? pending.find((saved) => saved.review.id === highlightedReview)
@@ -644,59 +698,13 @@ export function createAnnotating(bridge: AnnotatingBridge) {
       requestAnimationFrame(position);
     }
   }
-  document.addEventListener('scroll', schedule, {
-    capture: true,
-    passive: true,
-  });
-  window.addEventListener('resize', schedule);
-  window.visualViewport?.addEventListener('resize', schedule);
+  observeLayout(schedule);
   window.addEventListener('beforeunload', (event) => {
     if (!saving && !changed()) return;
     event.preventDefault();
     event.returnValue = '';
   });
-  const observer = new MutationObserver((records) => {
-    if (
-      records.every(
-        (record) =>
-          record.target instanceof Element &&
-          record.target.closest('[data-humagent-ui]') &&
-          !record.target.closest('[data-humagent-text]'),
-      )
-    )
-      return;
-    schedule();
-  });
-  const observation = {
-    subtree: true,
-    childList: true,
-    characterData: true,
-    attributes: true,
-    attributeFilter: [
-      'class',
-      'style',
-      'id',
-      'data-humagent-id',
-      'hidden',
-      'role',
-      'contenteditable',
-      'href',
-    ],
-  };
-  const selectionStyle = new CSSStyleSheet();
-  selectionStyle.replaceSync(
-    '*:not([data-humagent-ui],input,textarea,select,option){user-select:text!important;-webkit-user-select:text!important}',
-  );
-  observer.observe(document.body || document.documentElement, observation);
-  // Pages can block text selection with CSS. Selection must work while annotating.
-  effect(() => {
-    const active = enabled();
-    const sheets = document.adoptedStyleSheets;
-    if (active === sheets.includes(selectionStyle)) return;
-    document.adoptedStyleSheets = active
-      ? [...sheets, selectionStyle]
-      : sheets.filter((sheet) => sheet !== selectionStyle);
-  });
+  enableTextSelection(enabled);
   /** What page plugins use. */
   const api: Annotating = {
     resolve,
