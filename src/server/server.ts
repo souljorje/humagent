@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { getRequestListener } from '@hono/node-server';
 import { Hono } from 'hono';
+import type { HonoRequest } from 'hono/request';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,6 +47,56 @@ function accessOf(pathname: string) {
   }
   return ['control', undefined] as const;
 }
+function authorize(
+  req: HonoRequest,
+  origin: string,
+  token: string,
+  store: Store,
+) {
+  const from = req.header('origin');
+  ensure(
+    !from || from === origin,
+    'Cross-origin control requests are forbidden',
+    'FORBIDDEN',
+    403,
+  );
+  const [access, session] = accessOf(req.path);
+  if (access === 'none') return;
+  const control = equal(req.header('authorization'), `Bearer ${token}`);
+  if (session === undefined)
+    ensure(control, 'Unauthorized', 'UNAUTHORIZED', 401);
+  else {
+    let sessionKey: string | undefined;
+    try {
+      sessionKey = store.get(session).sessionKey;
+    } catch (error) {
+      // Without the control token, an unknown session looks like a wrong key.
+      const unknown = error instanceof Failure && error.code === 'NOT_FOUND';
+      if (control || !unknown) throw error;
+    }
+    ensure(
+      control ||
+        (sessionKey !== undefined &&
+          equal(req.header('x-humagent-session'), sessionKey)),
+      'Unauthorized',
+      'UNAUTHORIZED',
+      401,
+    );
+    ensure(
+      control || access !== 'agent',
+      'This operation requires the control token',
+      'UNAUTHORIZED',
+      401,
+    );
+  }
+  // Hono dispatches HEAD through GET, but control routes do not allow it.
+  if (req.method === 'HEAD')
+    throw new Failure(
+      404,
+      'NOT_FOUND',
+      session ? 'Unknown session operation' : 'Not found',
+    );
+}
 /** A wait can last hours. Regular spaces keep idle-connection and fetch timeouts from ending it. */
 const HEARTBEAT_MS = 5000;
 
@@ -70,13 +121,7 @@ async function body(req: Request) {
   return value;
 }
 
-export interface ServerOptions {
-  directory: string;
-  port?: number;
-}
-/** One runtime owns a directory. Files stay read-only; agents apply proposals. */
-export async function createServer(options: ServerOptions) {
-  const directory = path.resolve(options.directory);
+function claimDirectory(directory: string) {
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   // The record claims the directory before the store opens. It gains origin and token after listen.
   const record = path.join(directory, 'server.json');
@@ -109,129 +154,19 @@ export async function createServer(options: ServerOptions) {
     fs.unlinkSync(record);
     claim();
   }
-  let store: Store;
-  try {
-    store = new Store(directory);
-  } catch (error) {
-    fs.unlinkSync(record);
-    throw error;
-  }
-  const token = randomBytes(32).toString('hex');
-  const pageServers = new Map<string, Promise<PageServer>>();
-  let origin = '';
-  let closing: Promise<void> | undefined;
-  function pageServer(id: string) {
-    store.get(id);
-    if (!pageServers.has(id)) {
-      const p = startPageServer(store, id, origin).catch((e) => {
-        pageServers.delete(id);
-        throw e;
-      });
-      pageServers.set(id, p);
-    }
-    return pageServers.get(id)!;
-  }
-  const view = (id: string) => store.view(id);
-  async function snapshot(id: string): Promise<WorkspaceView> {
-    store.get(id);
-    const panel = await pageServers.get(id);
-    ensure(
-      panel,
-      'Session is not attached. Open its source again.',
-      'NOT_ATTACHED',
-      409,
-    );
-    return {
-      ...view(id),
-      page: {
-        origin: panel.origin,
-        frameUrl: panel.frameUrl,
-        channel: panel.channel,
-      },
-    };
-  }
+  return record;
+}
+
+const sessionPath = '/api/sessions/:id{[\\w-]+}';
+function registerSessionActions(
+  app: Hono,
+  store: Store,
+  pageServer: (id: string) => Promise<PageServer>,
+  snapshot: (id: string) => Promise<WorkspaceView>,
+) {
   /** Workspace writes return the fresh session, so the browser never guesses the result. */
   const reply = async (id: string, extra: object = {}) =>
     json(200, { ...extra, session: await snapshot(id) });
-  const app = new Hono({ getPath: (request) => new URL(request.url).pathname });
-  app.onError((error) => fail(error));
-  app.use('*', async (c, next) => {
-    const from = c.req.header('origin');
-    ensure(
-      !from || from === origin,
-      'Cross-origin control requests are forbidden',
-      'FORBIDDEN',
-      403,
-    );
-    const [access, session] = accessOf(c.req.path);
-    if (access === 'none') return next();
-    const control = equal(c.req.header('authorization'), `Bearer ${token}`);
-    if (session === undefined)
-      ensure(control, 'Unauthorized', 'UNAUTHORIZED', 401);
-    else {
-      let sessionKey: string | undefined;
-      try {
-        sessionKey = store.get(session).sessionKey;
-      } catch (error) {
-        // Without the control token, an unknown session looks like a wrong key.
-        const unknown = error instanceof Failure && error.code === 'NOT_FOUND';
-        if (control || !unknown) throw error;
-      }
-      ensure(
-        control ||
-          (sessionKey !== undefined &&
-            equal(c.req.header('x-humagent-session'), sessionKey)),
-        'Unauthorized',
-        'UNAUTHORIZED',
-        401,
-      );
-      ensure(
-        control || access !== 'agent',
-        'This operation requires the control token',
-        'UNAUTHORIZED',
-        401,
-      );
-    }
-    // Hono dispatches HEAD through GET, but control routes do not allow it.
-    if (c.req.method === 'HEAD')
-      throw new Failure(
-        404,
-        'NOT_FOUND',
-        session ? 'Unknown session operation' : 'Not found',
-      );
-    await next();
-  });
-
-  app.all('/health', () =>
-    json(200, { app: 'humagent', pid: process.pid, version }),
-  );
-  for (const route of [
-    '/:root{ui|shared|plugins}/:file',
-    '/plugins/:plugin/:file',
-  ])
-    app.get(route, async (c) => {
-      const { body, headers } = await browserAsset(c.req.path, ASSET);
-      return new Response(body, { headers });
-    });
-  app.all('/', (c) => {
-    ensure(c.req.method === 'GET', 'Method not allowed', 'METHOD', 405);
-    return new Response(fs.readFileSync(path.join(UI, 'index.html')), {
-      headers: noStore('text/html; charset=utf-8', {
-        'referrer-policy': 'no-referrer',
-        'content-security-policy':
-          "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src http://127.0.0.1:*; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-      }),
-    });
-  });
-
-  const sessionPath = '/api/sessions/:id{[\\w-]+}';
-  /** When a workspace last read each session. An open workspace reads about once per second. */
-  const viewed = new Map<string, number>();
-  app.get(sessionPath, async (c) => {
-    const id = c.req.param('id');
-    if (c.req.header('x-humagent-session')) viewed.set(id, Date.now());
-    return json(200, await snapshot(id));
-  });
   app.post(`${sessionPath}/reviews`, async (c) => {
     const id = c.req.param('id');
     const reviewId = store.addReview(id, await body(c.req.raw));
@@ -257,7 +192,7 @@ export async function createServer(options: ServerOptions) {
     const value = await body(c.req.raw);
     await (await pageServer(id)).checkRevision();
     ensure(
-      store.get(id).ended || view(id).agent !== 'idle',
+      store.get(id).ended || store.view(id).agent !== 'idle',
       'Connect an agent before sending feedback.',
       'AGENT_UNAVAILABLE',
       409,
@@ -280,7 +215,7 @@ export async function createServer(options: ServerOptions) {
   app.post(`${sessionPath}/complete`, async (c) => {
     const id = c.req.param('id');
     store.complete(id, (await body(c.req.raw)).receipt);
-    return json(200, view(id));
+    return json(200, store.view(id));
   });
   app.post(`${sessionPath}/wait`, async (c) => {
     await body(c.req.raw);
@@ -317,6 +252,93 @@ export async function createServer(options: ServerOptions) {
       { headers: JSON_HEADERS },
     );
   });
+}
+
+export interface ServerOptions {
+  directory: string;
+  port?: number;
+}
+/** One runtime owns a directory. Files stay read-only; agents apply proposals. */
+export async function createServer(options: ServerOptions) {
+  const directory = path.resolve(options.directory);
+  const record = claimDirectory(directory);
+  let store: Store;
+  try {
+    store = new Store(directory);
+  } catch (error) {
+    fs.unlinkSync(record);
+    throw error;
+  }
+  const token = randomBytes(32).toString('hex');
+  const pageServers = new Map<string, Promise<PageServer>>();
+  let origin = '';
+  let closing: Promise<void> | undefined;
+  function pageServer(id: string) {
+    store.get(id);
+    if (!pageServers.has(id)) {
+      const p = startPageServer(store, id, origin).catch((e) => {
+        pageServers.delete(id);
+        throw e;
+      });
+      pageServers.set(id, p);
+    }
+    return pageServers.get(id)!;
+  }
+  async function snapshot(id: string): Promise<WorkspaceView> {
+    store.get(id);
+    const panel = await pageServers.get(id);
+    ensure(
+      panel,
+      'Session is not attached. Open its source again.',
+      'NOT_ATTACHED',
+      409,
+    );
+    return {
+      ...store.view(id),
+      page: {
+        origin: panel.origin,
+        frameUrl: panel.frameUrl,
+        channel: panel.channel,
+      },
+    };
+  }
+  const app = new Hono({ getPath: (request) => new URL(request.url).pathname });
+  app.onError((error) => fail(error));
+  app.use('*', async (c, next) => {
+    authorize(c.req, origin, token, store);
+    await next();
+  });
+
+  app.all('/health', () =>
+    json(200, { app: 'humagent', pid: process.pid, version }),
+  );
+  for (const route of [
+    '/:root{ui|shared|plugins}/:file',
+    '/plugins/:plugin/:file',
+  ])
+    app.get(route, async (c) => {
+      const { body, headers } = await browserAsset(c.req.path, ASSET);
+      return new Response(body, { headers });
+    });
+  app.all('/', (c) => {
+    ensure(c.req.method === 'GET', 'Method not allowed', 'METHOD', 405);
+    return new Response(fs.readFileSync(path.join(UI, 'index.html')), {
+      headers: noStore('text/html; charset=utf-8', {
+        'referrer-policy': 'no-referrer',
+        'content-security-policy':
+          "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src http://127.0.0.1:*; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      }),
+    });
+  });
+
+  /** When a workspace last read each session. An open workspace reads about once per second. */
+  const viewed = new Map<string, number>();
+  app.get(sessionPath, async (c) => {
+    const id = c.req.param('id');
+    if (c.req.header('x-humagent-session')) viewed.set(id, Date.now());
+    return json(200, await snapshot(id));
+  });
+  registerSessionActions(app, store, pageServer, snapshot);
 
   app.post('/api/open', async (c) => {
     const value = await body(c.req.raw);
@@ -355,7 +377,7 @@ export async function createServer(options: ServerOptions) {
   });
   app.get('/api/sessions', () =>
     json(200, {
-      sessions: store.list().map((s) => view(s.id)),
+      sessions: store.list().map((s) => store.view(s.id)),
       errors: store.errors(),
     }),
   );
