@@ -52,6 +52,23 @@ export interface OverlayActions {
   marker(id: string, point: Point | undefined, press: boolean): void;
 }
 
+/** Every element of the overlay that its code uses. */
+interface Controls {
+  highlight: HTMLElement;
+  markers: HTMLElement;
+  'keyboard-hint': HTMLElement;
+  panel: HTMLElement;
+  editor: HTMLFormElement;
+  comment: HTMLTextAreaElement;
+  confirm: HTMLButtonElement;
+  'editor-status': HTMLElement;
+  'local-error': HTMLElement;
+  actions: HTMLElement;
+  remove: HTMLButtonElement;
+  cancel: HTMLButtonElement;
+  save: HTMLButtonElement;
+}
+
 export function createOverlayView(actions: OverlayActions) {
   const host = createElement('div', { dataset: { humagentUi: '' } });
   const shadow = host.attachShadow({ mode: 'open' });
@@ -157,15 +174,8 @@ export function createOverlayView(actions: OverlayActions) {
   </section>`;
   (document.body || document.documentElement).append(host);
   installTooltips(shadow);
-  type Controls = Record<string, HTMLElement> & {
-    editor: HTMLFormElement;
-    comment: HTMLTextAreaElement;
-    confirm: HTMLButtonElement;
-    save: HTMLButtonElement;
-    remove: HTMLButtonElement;
-  };
   const $ = <K extends keyof Controls>(id: K): Controls[K] =>
-    shadow.getElementById(id as string) as Controls[K];
+    shadow.getElementById(id) as unknown as Controls[K];
   const markers = new Map<string, HTMLButtonElement>();
 
   function place(el: HTMLElement, x: number, y: number) {

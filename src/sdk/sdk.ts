@@ -1,6 +1,6 @@
 /** The page host: bridge to the workspace, and the plugins of this page document. */
 import { cloneJson } from '../shared/json.js';
-import { createAnnotating } from './annotating.js';
+import { createAnnotating } from './annotating/annotating.js';
 import {
   BOOTSTRAP_ID,
   type Bootstrap,
