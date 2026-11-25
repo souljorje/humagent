@@ -1,5 +1,5 @@
 /** Forms: named values from a marked form or from `window.humagent.submit()`. */
-import { cloneJson, type Json, type ObjectValue } from '../shared/json.js';
+import { cloneJson, type ObjectValue } from '../shared/json.js';
 import type { SavedReview, SaveResult } from '../shared/feedback.js';
 import type {
   Plugin,
@@ -114,6 +114,40 @@ function groupName(el: FormControl) {
 const ownLabel = (el: FormControl) =>
   accessibleName(el) || labelText(el.labels?.[0]);
 
+function readChoices(group: HTMLInputElement[], radio: boolean) {
+  if (!radio && group.length === 1) {
+    const checked = group[0]!.checked;
+    return { value: checked, shown: checked ? 'Yes' : 'No' };
+  }
+  const checked = group.filter((el) => el.checked);
+  return {
+    value: radio ? (checked[0]?.value ?? null) : checked.map((el) => el.value),
+    shown: checked.map((el) => ownLabel(el) || el.value).join(', '),
+  };
+}
+
+function readValues(group: FormControl[]) {
+  const first = group[0]!;
+  const scalar =
+    group.length === 1 && !(hasTag(first, 'select') && first.multiple);
+  return {
+    value: scalar
+      ? first.value
+      : group.flatMap((el) =>
+          hasTag(el, 'select') && el.multiple
+            ? Array.from(el.selectedOptions, (option) => option.value)
+            : [el.value],
+        ),
+    shown: group
+      .flatMap((el) =>
+        hasTag(el, 'select')
+          ? Array.from(el.selectedOptions, text)
+          : [el.value],
+      )
+      .join(', '),
+  };
+}
+
 /** Read named values for the agent and readable labels for the bar. */
 function readForm(form: HTMLFormElement, key: string) {
   const values: ObjectValue = Object.create(null);
@@ -122,38 +156,19 @@ function readForm(form: HTMLFormElement, key: string) {
   for (const el of controls(form)) {
     if (['__proto__', 'prototype', 'constructor'].includes(el.name))
       throw new Error('Reserved field name');
-    groups.set(el.name, [...(groups.get(el.name) || []), el]);
+    const group = groups.get(el.name);
+    if (group) group.push(el);
+    else groups.set(el.name, [el]);
   }
   for (const [name, group] of groups) {
     const first = group[0]!;
     const single = group.length === 1;
     const radio = group.every((el) => isInput(el, 'radio'));
     const label = single && !radio ? ownLabel(first) : groupName(first);
-    let value: Json, shown: string;
-    if (radio || group.every((el) => isInput(el, 'checkbox'))) {
-      const checked = group.filter((el) => (el as HTMLInputElement).checked);
-      value = radio
-        ? (checked[0]?.value ?? null)
-        : checked.map((el) => el.value);
-      shown = checked.map((el) => ownLabel(el) || el.value).join(', ');
-      if (!radio && single) {
-        value = checked.length === 1;
-        shown = value ? 'Yes' : 'No';
-      }
-    } else {
-      const multiple = (el: FormControl) => hasTag(el, 'select') && el.multiple;
-      const options = (el: FormControl) =>
-        hasTag(el, 'select') ? [...el.selectedOptions] : [];
-      const parts = group.flatMap((el) =>
-        multiple(el) ? options(el).map((option) => option.value) : [el.value],
-      );
-      value = single && !multiple(first) ? parts[0]! : parts;
-      shown = group
-        .flatMap((el) =>
-          hasTag(el, 'select') ? options(el).map((o) => text(o)) : [el.value],
-        )
-        .join(', ');
-    }
+    const { value, shown } =
+      radio || group.every((el) => isInput(el, 'checkbox'))
+        ? readChoices(group, radio)
+        : readValues(group);
     values[name] = value;
     fields.push({ label: clip(label || name), value: clip(shown) });
   }
