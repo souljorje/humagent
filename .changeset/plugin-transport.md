@@ -7,6 +7,8 @@ Feedback reviews now share one envelope: `{ id, kind, comment?, data?, target? }
 The server is transport only. It checks the review envelope and limits. The workspace applies the rules of each kind.
 Each plugin owns the attribute `data-humagent-<kind>`. Marked forms now use `data-humagent-form` and `data-humagent-form-comment`.
 Built-in plugins declare their kind once and return their tool for annotating from `page()`. The page host supplies the kind when saving.
+Use `contract.validateReview` to check review data and target requirements. Use `contract.validateLocal` for optional page and bar data.
+Use `summary` to display a pending review in the bar and `host.annotating` to interact with the page editor.
 The package entry exports `createServer` in place of `createRuntime`.
 Session files from 0.3 are reported as unreadable.
 `humagent SOURCE [--done RECEIPT]` runs the whole agent loop: open, complete a receipt, wait. The `open`, `wait`, and `ack` commands are removed. `--no-wait` exits after the command opens the page or completes the receipt.
