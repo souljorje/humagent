@@ -20,7 +20,7 @@ export interface Contract {
    * `previous` is set for an edit and for a keyed replacement.
    */
   validateReview(review: Envelope, previous?: Review): Json | undefined;
-  /** Validate plugin-specific local data. Targeting owns the marker field on targeted reviews. */
+  /** Validate plugin-specific local data. The SDK owns the marker field on reviews with a target. */
   validateLocal?(value: unknown): Json | undefined;
 }
 
@@ -45,7 +45,7 @@ export interface Pick {
   /** A keyboard choice of the element. */
   keyboard?: boolean;
 }
-/** A tool's claim on a pick. Targeting opens it after recording the target. */
+/** A tool's claim on a pick. The SDK opens its editor after recording the target. */
 export interface Hit {
   el: Element;
   /** The saved pending review that the pick reopens. */
@@ -69,7 +69,7 @@ export interface Editor {
   setReadOnly(value: boolean): void;
   close(): void;
 }
-/** A plugin's part in element picking. Targeting asks tools in registry order. */
+/** A plugin's part in element picking. The SDK asks tools in registry order. */
 export interface Tool {
   /** The marker label of a pending review without a comment. */
   name: string;
@@ -82,8 +82,8 @@ export interface Tool {
   /** The start of each positioning pass. */
   layout?(): void;
 }
-/** Shared element picking: pick mode, markers, highlight, and the comment panel. */
-export interface Targeting {
+/** Page plugins use these methods to resolve saved targets and operate the open editor. */
+export interface Annotating {
   /** The element of a pending review's target on this page revision. */
   resolve(saved: SavedReview): Element | null;
   /** An inline editor reports input, confirm, and cancel. */
@@ -102,7 +102,7 @@ export interface PageHost {
   ): Promise<SaveResult>;
   /** Show a problem to the human in the bar. */
   notice(message: string): void;
-  targeting: Targeting;
+  annotating: Annotating;
 }
 /** A plugin's share of the saved feedback. */
 export interface PluginView {
@@ -124,7 +124,7 @@ declare global {
  * A reload makes a new document, so the interface has no disposal.
  */
 export interface PagePlugin {
-  /** The plugin's tool for element targeting. */
+  /** The plugin's tool for annotating. */
   tool?: Tool;
   /** The first presentation after the page attaches. */
   init?(view: PluginView): void;

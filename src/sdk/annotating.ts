@@ -1,5 +1,5 @@
 /**
- * Shared element picking. The page owns geometry and temporary editors. The parent owns saved feedback.
+ * Annotating on the page. The page owns geometry and temporary editors. The parent owns saved feedback.
  * Tools decide which kind of review a pick becomes. This module names no kind and builds no markup.
  */
 import {
@@ -30,13 +30,13 @@ import {
   type NewReview,
   type Target,
 } from '../shared/feedback.js';
-import type { Editor, Hit, Pick, Targeting, Tool } from '../shared/plugin.js';
+import type { Annotating, Editor, Hit, Pick, Tool } from '../shared/plugin.js';
 import { clickPoint } from '../shared/dom.js';
 import { effect, signal } from '../shared/signal.js';
 import { errorMessage } from '../shared/errors.js';
 import type { MarkerLocal } from '../shared/marker.js';
 
-interface TargetingBridge {
+interface AnnotatingBridge {
   boot: Bootstrap;
   save(review: NewReview, options: { local: MarkerLocal }): Promise<SaveResult>;
   edit(params: Requests['edit']['params']): Promise<null>;
@@ -56,7 +56,7 @@ interface Capture {
 }
 const HINT = 'Arrow keys choose an element. Enter comments. Escape exits.';
 
-export function createTargeting(bridge: TargetingBridge) {
+export function createAnnotating(bridge: AnnotatingBridge) {
   const { boot, notice, post } = bridge;
   const tools: RegisteredTool[] = [];
   let pending: SavedReview[] = [];
@@ -703,7 +703,7 @@ export function createTargeting(bridge: TargetingBridge) {
       : sheets.filter((sheet) => sheet !== selectionStyle);
   });
   /** What page plugins use. */
-  const api: Targeting = {
+  const api: Annotating = {
     resolve,
     input,
     confirm: () => void save(),

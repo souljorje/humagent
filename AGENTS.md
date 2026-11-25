@@ -11,7 +11,7 @@ Preserve application behavior. Keep task-specific requests as data, not backend 
 | `src/cli/` | Commands and startup |
 | `src/server/` | Server, sessions, storage, page serving |
 | `src/ui/` | Workspace state, bar, page bridge |
-| `src/sdk/` | Injected page host: bridge, targeting, overlay |
+| `src/sdk/` | Injected page host, bridge, annotating, targets, and overlay |
 | `src/plugins/` | One review kind per module |
 | `src/shared/` | Contracts, validation, helpers |
 | `src/examples/` | Example pages |

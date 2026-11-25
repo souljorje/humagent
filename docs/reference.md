@@ -185,7 +185,7 @@ Targets describe rendered content, not guaranteed source lines. Missing or ambig
 
 Source revisions hash served HTML with SHA-256, excluding other assets. An HTTP revision follows the attached document, not nested frames, fragments, or status reads. File changes also trigger revision checks. After a file change, the workspace reloads the page once, unless an editor is open. Stale feedback cannot be silently rebound. See [refresh and recovery](usage.md#refresh-and-recovery).
 
-The server owns pending reviews and delivery. The SDK owns targeting and temporary editors. A new Send requires a waiting agent or unfinished feedback. Stored feedback remains available after disconnection or session ending.
+The server owns pending reviews and delivery. The SDK manages annotating and temporary editors. A new Send requires a waiting agent or unfinished feedback. Stored feedback remains available after disconnection or session ending.
 
 ## Status
 

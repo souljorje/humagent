@@ -22,7 +22,7 @@ Change the glossary first when a name changes.
 | pending | Not sent. A review is pending until the human chooses Send. |
 | instruction | The human's text for the whole feedback. |
 | receipt | The agent's hold on delivered feedback. The agent completes the receipt after it applies the feedback. |
-| annotating | The mode in which a press on the page selects an element for a review. The open bar turns it on. |
+| annotating | The mode in which the human selects a target for a review with the pointer or keyboard. The open bar turns it on. |
 | marker | The numbered pin of a pending review on the page. |
 | preview | A text edit that the page shows in place before the agent applies it. |
 | revision | The version of the page's HTML. A review belongs to one revision. A stale review belongs to an older one. |

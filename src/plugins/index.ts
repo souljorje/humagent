@@ -1,6 +1,6 @@
 /**
  * The page host and the workspace use these built-in plugins.
- * The order is the order in which targeting asks tools. `comment` stays after `edit`.
+ * The SDK asks tools in registry order. `comment` stays after `edit`.
  */
 import type { Plugin } from '../shared/plugin.js';
 import { comment } from './comment.js';

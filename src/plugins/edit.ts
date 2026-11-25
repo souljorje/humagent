@@ -16,13 +16,13 @@ import { textDiff } from './edit/text-diff.js';
 import { hitTestText, isEditableText, selectedRun } from './edit/text-hit.js';
 
 function page(host: PageHost): PagePlugin {
-  const { targeting } = host;
+  const { annotating } = host;
   let pending: SavedReview[] = [],
     shown: SavedReview[] = [],
     writable = false;
   let editing: Editing | undefined;
   const previews = createPreviews({
-    resolve: targeting.resolve,
+    resolve: annotating.resolve,
     editing: () => editing,
   });
   /** Text that shows a sent preview takes no new edit. A pending review's preview takes more edits. */
@@ -49,7 +49,7 @@ function page(host: PageHost): PagePlugin {
       open() {
         close();
         const initial = editOf(saved)?.after ?? node.data;
-        const view = createEditor(initial, targeting);
+        const view = createEditor(initial, annotating);
         const textNode = [...el.childNodes].indexOf(node);
         editing = { node, element: view.element, parent: el, before };
         node.replaceWith(view.element);

@@ -1,6 +1,6 @@
 /** The page host: bridge to the workspace, and the plugins of this page document. */
 import { cloneJson } from '../shared/json.js';
-import { createTargeting } from './targeting.js';
+import { createAnnotating } from './annotating.js';
 import type {
   Bootstrap,
   Presentation,
@@ -64,7 +64,7 @@ if (window.parent === window.top) {
       local: local === undefined ? undefined : cloneJson(local),
     });
   }
-  const targeting = createTargeting({
+  const annotating = createAnnotating({
     boot,
     post,
     notice,
@@ -77,13 +77,13 @@ if (window.parent === window.top) {
   for (const [kind, plugin] of plugins) {
     const page = plugin.page?.({
       attribute: `data-humagent-${kind}`,
-      targeting: targeting.api,
+      annotating: annotating.api,
       notice,
       save: (review, options) => save({ ...review, kind }, options),
     });
     if (!page) continue;
     pages.set(kind, page);
-    if (page.tool) targeting.register(kind, page.tool);
+    if (page.tool) annotating.register(kind, page.tool);
     for (const [name, member] of Object.entries(page.api ?? {})) {
       if (Object.hasOwn(api, name))
         throw new Error(`Duplicate page API member: ${name}`);
@@ -111,20 +111,20 @@ if (window.parent === window.top) {
         resolveReady();
       }
       handlers.update(params);
-      targeting.setMode(params.annotating);
+      annotating.setMode(params.annotating);
     },
     update(params) {
       ended = !params.writable;
       pending = params.pending;
       for (const [kind, page] of pages) page.present?.(share(kind, params));
-      targeting.present(params);
+      annotating.present(params);
     },
     annotate(params) {
-      if (!ended) targeting.setMode(params.enabled, params.keyboard);
+      if (!ended) annotating.setMode(params.enabled, params.keyboard);
     },
-    open: (params) => targeting.open(params.reviewId),
-    highlight: (params) => targeting.highlight(params.reviewId),
-    outside: () => targeting.outside(),
+    open: (params) => annotating.open(params.reviewId),
+    highlight: (params) => annotating.highlight(params.reviewId),
+    outside: () => annotating.outside(),
     discard({ reviewId, revision }) {
       const saved = pending.find((d) => d.review.id === reviewId);
       if (saved?.revision === revision && revision === boot.revision)

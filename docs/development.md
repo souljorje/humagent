@@ -30,7 +30,7 @@ The transport moves feedback reviews between the page, the workspace, the server
 
 Each review has one envelope: `{ id, kind, comment?, data?, target? }`. A pending review adds `revision`, `key?`, and `local?`. `local` holds plugin data for the page and the bar. Agents do not receive it.
 
-Rendering code builds Humagent's own DOM from a model and reports input through callbacks. It makes no requests. Logic holds state, rules, and transport calls. It builds no Humagent markup. In the hosts, `src/ui/bar.ts` and `src/sdk/overlay.ts` render. `src/ui/workspace.ts` and `src/sdk/targeting.ts` hold the logic.
+Rendering code builds Humagent's own DOM from a model and reports input through callbacks. It makes no requests. Logic holds state, rules, and transport calls. It builds no Humagent markup. In the hosts, `src/ui/bar.ts` and `src/sdk/overlay.ts` render. `src/ui/workspace.ts` manages workspace state. `src/sdk/annotating.ts` manages annotation input and the editor. `src/sdk/targets.ts` describes and resolves targets.
 
 ## Add a plugin
 
@@ -56,18 +56,18 @@ export const flag: Plugin = {
 | Member | Purpose |
 | --- | --- |
 | `contract` | `validateReview` checks the review, including any target rule, and returns the data for the agent. Optional `validateLocal` checks private data such as form labels. |
-| `page` | Behavior in the page. It saves pending reviews through the page host. It can register a tool with element targeting. Page authors mark its elements with `host.attribute`, which is `data-humagent-<kind>`. |
+| `page` | Behavior in the page. It saves pending reviews through the page host. It can supply a tool for annotating. Page authors mark its elements with `host.attribute`, which is `data-humagent-<kind>`. |
 | `summary` | Sets the title, optional body, and styles for the review summary. The bar displays it. |
 
 The page receives `discard` before the workspace removes a keyed review on the current revision. Forms use it to cancel pending saves and reset their controls.
 
 1. Write the module. The interfaces are in `src/shared/plugin.ts`.
-2. Add the plugin to `src/plugins/index.ts`. The order is the order in which targeting asks tools.
+2. Add the plugin to `src/plugins/index.ts`. The SDK asks tools in registry order.
 3. Extend a browser test in `test/browser/feedback.spec.ts` with the new workflow.
 
 A plugin runs only in the browser. A large plugin can keep helper files in `src/plugins/<kind>/`. The registry refuses two plugins with one kind. The page host refuses two plugins with one `window.humagent` member. The transport, the server, and the CLI need no change.
 
-Element targeting serves every plugin that acts on page elements. It owns pick mode, markers, the highlight, and the comment panel. A tool claims a pick with `hit`, opens an inline editor with `open`, and returns its review from `build`. Targeting asks the tool with the open editor first, then the other tools in registry order. The first review wins.
+The SDK manages annotating, markers, the highlight, and the comment panel for all plugins. A tool claims a pick with `hit`, opens an inline editor with `open`, and returns its review from `build`. The SDK asks the tool with the open editor first, then the other tools in registry order. The first review wins.
 
 ## Test coverage
 
