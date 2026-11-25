@@ -274,10 +274,13 @@ export function createWorkspace(
     try {
       if (instructionPending()) await saveInstruction();
       if (unsaved() === 'saving') {
+        const waiting = page()?.documentId;
+        // A page that went away never reports the end of its save.
         await new Promise<void>((resolve) => {
           resume = resolve;
+          setTimeout(resolve, 5000);
         });
-        if (unsaved())
+        if (unsaved() || page()?.documentId !== waiting)
           throw new Error('Some page input is not saved. Check it, then send.');
       }
       if (editorDirty())

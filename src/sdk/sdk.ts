@@ -123,6 +123,8 @@ if (window.parent === window.top) {
         clearInterval(hello);
         for (const [kind, page] of pages) page.init?.(share(kind, params));
         resolveReady();
+        // The workspace ignores reports from before the page attached.
+        if (reported) post('unsaved', { state: reported });
       }
       handlers.update(params);
       annotating.setMode(params.annotating);
