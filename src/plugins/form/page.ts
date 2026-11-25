@@ -9,7 +9,8 @@ import type {
 import { cloneJson, type ObjectValue } from '@/shared/json';
 import type { Json } from '@/shared/json';
 import { fill, readForm } from './controls';
-import { formOf } from './data';
+import { readSaved } from '@/shared/plugin';
+import { formContract } from './data';
 
 /** What a page script passes to `window.humagent.submit()`. */
 export interface Submission {
@@ -141,12 +142,11 @@ function saveTyped(state: State) {
 function restore(state: State, pending: readonly SavedReview[]) {
   for (const form of document.querySelectorAll<Form>(selector)) {
     const key = formKey(form);
-    const values = formOf(
-      pending.find(
-        (saved) => saved.review.kind === 'form' && saved.key === key,
-      ),
+    const saved = pending.find(
+      (item) => item.review.kind === 'form' && item.key === key,
     );
-    if (values) silently(state, form, () => fill(form, values));
+    const decoded = saved && readSaved(formContract, saved);
+    if (decoded) silently(state, form, () => fill(form, decoded.review.data));
   }
 }
 

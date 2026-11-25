@@ -2,10 +2,28 @@
 import type { Annotating } from '@/sdk/annotating/types';
 import type { Presentation } from '@/shared/bridge';
 import type { SavedReview } from '@/shared/feedback';
+import { savedEdits, type SavedEdit } from './edit/data';
 import { textTool } from './edit/page';
 import { attachForms, type FormHost } from './form/page';
 
-export type PageView = Omit<Presentation, 'bar'>;
+export interface PageView {
+  readonly pending: readonly SavedReview[];
+  readonly edits: readonly SavedEdit[];
+  readonly writable: boolean;
+}
+
+export const pageView = (
+  revision: string,
+  { pending, previews, writable }: Omit<Presentation, 'bar'> = {
+    pending: [],
+    previews: [],
+    writable: false,
+  },
+): PageView => ({
+  pending: pending.filter((saved) => saved.revision === revision),
+  edits: savedEdits(previews),
+  writable,
+});
 
 export function pageInputs(
   annotating: Annotating,

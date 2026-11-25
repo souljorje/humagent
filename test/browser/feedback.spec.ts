@@ -268,20 +268,38 @@ test('a server restart keeps pending reviews, the instruction, and form choices'
   const marker = humagent.session().pending[0]!.marker;
   expect(marker).toEqual({ x: expect.any(Number), y: expect.any(Number) });
 
+  // The server also holds data written by clients with different plugin rules.
+  const stored = await page.request.post(
+    `${humagent.origin}/api/sessions/${session}/reviews`,
+    {
+      headers: { 'x-humagent-session': humagent.key },
+      data: {
+        revision: humagent.session().revision,
+        review: {
+          kind: 'edit',
+          target: { id: 'headline' },
+          data: { replacement: 'From another client' },
+        },
+      },
+    },
+  );
+  expect(stored.ok()).toBe(true);
+
   await humagent.restart();
   expect(await humagent.open()).toBe(session);
   expect(humagent.session().pending[0]!.marker).toEqual(marker);
   await expect(page.locator('#instruction')).toHaveValue(
     'Keep this unsent instruction.',
   );
-  await expect(page.locator('.review')).toHaveCount(2);
+  await expect(page.locator('.review')).toHaveCount(3);
+  await expect(page.locator('.review-title').last()).toHaveText('edit');
   await expect(
     page.locator('.review', { hasText: 'Keep this saved.' }),
   ).toHaveCount(1);
   await expect(choice).toBeChecked();
   await humagent.annotate();
   await page.getByRole('button', { name: 'Delete review 2' }).click();
-  await expect(page.locator('.review')).toHaveCount(1);
+  await expect(page.locator('.review')).toHaveCount(2);
   await expect(choice).not.toBeChecked();
 });
 

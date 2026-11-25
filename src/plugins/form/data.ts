@@ -1,4 +1,3 @@
-import type { SavedReview } from '@/shared/feedback';
 import type { ObjectValue } from '@/shared/json';
 import type { Contract } from '@/shared/plugin';
 import { ensure, object, text as limited } from '@/shared/validate';
@@ -32,11 +31,7 @@ function labels(value: unknown): FormLabels {
     fields: fields.map(fieldLabel),
   };
 }
-/** Read the form values from a review that the host gave this plugin. */
-export const formOf = (saved: SavedReview | undefined) =>
-  saved?.review.data as ObjectValue | undefined;
-
-export const contract: Contract = {
+export const formContract: Contract<ObjectValue, FormLocal> = {
   validateReview({ data, target }) {
     ensure(target === undefined, 'A form review cannot include a target');
     object(data, 'Form');

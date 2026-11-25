@@ -5,7 +5,7 @@
 Feedback reviews now share one envelope: `{ id, kind, comment?, data?, target? }`. `kind` names the plugin and `data` holds its content.
 `edit` and `form` keys are now `data`. `window.humagent.submit()` takes `{ data, comment? }`.
 The server is transport only. It checks the review envelope and limits. The workspace applies the rules of each kind.
-Each plugin owns the attribute `data-humagent-<kind>`. Marked forms now use `data-humagent-form` and `data-humagent-form-comment`.
+Marked forms now use `data-humagent-form` and `data-humagent-form-comment`.
 TypeScript exposes feedback, session snapshots, and JSON values as read-only. Create a new value when editing a snapshot.
 The package entry exports `createServer` in place of `createRuntime`.
 Session files from 0.3 are reported as unreadable.

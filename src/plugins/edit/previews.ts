@@ -1,9 +1,9 @@
 /** Text previews on the page. Own only the edited text node. Restore it only while no one else wrote to it. */
 import type { SavedReview } from '@/shared/feedback';
-import { editOf, textNodeOf } from './data';
+import { textNodeOf, type SavedEdit } from './data';
 
 interface Preview {
-  saved: SavedReview;
+  saved: SavedEdit;
   readonly node: Text;
   readonly target: Element;
   readonly before: string;
@@ -55,16 +55,16 @@ function valid(preview: Preview, editing: Editing | undefined) {
   return owned && (inPage || inEditor) && node.data === written;
 }
 
-function textNodeAt(saved: SavedReview, target: Element): Text | null {
+function textNodeAt(saved: SavedEdit, target: Element): Text | null {
   const index = textNodeOf(saved);
-  if (typeof index !== 'number' || !Number.isInteger(index)) return null;
+  if (index === undefined || !Number.isInteger(index)) return null;
   const node = target.childNodes[index];
   return node instanceof Text ? node : null;
 }
 
 /** Whether the open editor edits the text of a review. */
 function inEditor(
-  saved: SavedReview,
+  saved: SavedEdit,
   preview: Preview | undefined,
   { editing, resolve }: PageState,
 ) {
@@ -74,16 +74,12 @@ function inEditor(
   return (
     index !== undefined &&
     resolve(saved) === editing.parent &&
-    editing.parent.childNodes[Number(index)] === editing.element
+    editing.parent.childNodes[index] === editing.element
   );
 }
 
-function createPreview(
-  saved: SavedReview,
-  node: Text,
-  target: Element,
-): Preview {
-  const { before, after } = editOf(saved)!;
+function createPreview(saved: SavedEdit, node: Text, target: Element): Preview {
+  const { before, after } = saved.review.data;
   const preview: Preview = {
     saved,
     node,
@@ -99,8 +95,8 @@ function createPreview(
 }
 
 /** Show the text of a review in its preview. */
-function write(preview: Preview, saved: SavedReview) {
-  const { after } = editOf(saved)!;
+function write(preview: Preview, saved: SavedEdit) {
+  const { after } = saved.review.data;
   preview.saved = saved;
   preview.written = after;
   if (preview.node.data === after) return;
@@ -108,11 +104,11 @@ function write(preview: Preview, saved: SavedReview) {
   preview.node.data = after;
 }
 
-function draw(previews: Previews, saved: SavedReview, page: PageState) {
+function draw(previews: Previews, saved: SavedEdit, page: PageState) {
   const { byNode, byReview, suppressed } = previews;
   const { id } = saved.review;
-  const edit = editOf(saved);
-  if (!edit || suppressed.has(id)) return;
+  const edit = saved.review.data;
+  if (suppressed.has(id)) return;
   const previous = byReview.get(id);
   if (inEditor(saved, previous, page)) return;
   const target = previous?.target ?? page.resolve(saved);
@@ -131,7 +127,7 @@ function draw(previews: Previews, saved: SavedReview, page: PageState) {
 /** Draw the wanted previews. Remove the others. */
 export function reconcile(
   previews: Previews,
-  shown: readonly SavedReview[],
+  shown: readonly SavedEdit[],
   page: PageState,
 ) {
   const wanted = new Map(shown.map((saved) => [saved.review.id, saved]));
@@ -154,16 +150,14 @@ export function reconcile(
 }
 
 /** Reopen the text node only while this review still owns its preview. */
-export function ownedNode(
+export function ownedPreview(
   previews: Previews,
   saved: SavedReview,
   target: Element,
   editing: Editing | undefined,
 ) {
   const preview = previews.byReview.get(saved.review.id);
-  return preview?.target === target && valid(preview, editing)
-    ? preview.node
-    : null;
+  return preview?.target === target && valid(preview, editing) ? preview : null;
 }
 
 function validAt(

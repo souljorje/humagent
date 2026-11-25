@@ -11,12 +11,12 @@ import { LIMITS, type SavedReview } from '@/shared/feedback';
 import type { PageView } from '../inputs';
 import { effect } from '@/shared/signal';
 import './index.css';
-import { editOf, type EditTarget } from './data';
+import type { EditTarget, SavedEdit } from './data';
 import { createEditor, editorText, selectText, setReadOnly } from './editor';
 import {
   createPreviews,
   originalText,
-  ownedNode,
+  ownedPreview,
   reconcile,
   reviewAt,
   type Editing,
@@ -61,7 +61,7 @@ function buildEdit(
   before: string,
   after: string,
   comment: string,
-  saved: SavedReview | undefined,
+  saved: SavedEdit | undefined,
 ) {
   if (after.length > LIMITS.text) return undefined;
   if (!saved && after === before) return commentDraft(comment);
@@ -86,11 +86,11 @@ function openEditor(
   state: State,
   { node, start, end }: Run,
   before: string,
-  saved: SavedReview | undefined,
+  saved: SavedEdit | undefined,
 ): Editor {
   closeEditor(state);
   const parent = node.parentElement!;
-  const initial = editOf(saved)?.after ?? node.data;
+  const initial = saved?.review.data.after ?? node.data;
   const textNode = [...parent.childNodes].indexOf(node);
   const target: EditTarget = { textNode, anchor: { quote: before } };
   const element = createEditor(initial, state.annotating);
@@ -114,7 +114,7 @@ function claim(
   run: Run,
   saved = reviewAt(state.previews, run.node, state.editing),
 ): Hit | 'blocked' {
-  const before = editOf(saved)?.before ?? run.node.data;
+  const before = saved?.review.data.before ?? run.node.data;
   if (!before.trim() || before.length > LIMITS.text) return 'blocked';
   return {
     el: run.node.parentElement!,
@@ -124,10 +124,17 @@ function claim(
 }
 
 function hitSaved(state: State, el: Element, saved: SavedReview) {
-  const data = editOf(saved);
-  const node = data && ownedNode(state.previews, saved, el, state.editing);
-  return node
-    ? claim(state, { node, start: 0, end: data.after.length }, saved)
+  const preview = ownedPreview(state.previews, saved, el, state.editing);
+  return preview
+    ? claim(
+        state,
+        {
+          node: preview.node,
+          start: 0,
+          end: preview.saved.review.data.after.length,
+        },
+        preview.saved,
+      )
     : 'blocked';
 }
 
@@ -160,11 +167,7 @@ function hit(state: State, { el, saved, range, point, keyboard }: Pick) {
 }
 
 function showPreviews({ annotating, editing, previews, view }: State) {
-  reconcile(
-    previews,
-    view().previews.filter((saved) => saved.review.kind === 'edit'),
-    { resolve: annotating.resolve, editing },
-  );
+  reconcile(previews, view().edits, { resolve: annotating.resolve, editing });
 }
 
 export function textTool(annotating: Annotating, view: () => PageView): Tool {

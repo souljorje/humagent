@@ -56,14 +56,14 @@ function statusOf({ stale, unavailable }: SavedReviewModel) {
 function contentElement({ plugin, saved, status }: Row) {
   const { comment, kind } = saved.review;
   const content = createElement('div', { className: 'review-content' });
-  const body = plugin?.summary?.body?.(saved);
+  const summary = plugin?.summary?.(saved);
   content.append(
     createElement('div', {
       className: 'review-title',
-      textContent: plugin?.summary?.title(saved) ?? kind,
+      textContent: summary?.title ?? kind,
     }),
   );
-  if (body) content.append(body);
+  if (summary?.body) content.append(summary.body);
   if (comment) content.append(createElement('p', { textContent: comment }));
   if (status)
     content.append(

@@ -100,10 +100,13 @@ Import from another directory with `@`, which is `src/`: `import { ensure } from
 Use `src/plugins/<kind>.ts` or `src/plugins/<kind>/index.ts` for one review kind.
 Register the module under its kind in `src/plugins/index.ts`.
 The workspace uses that key to find the data rules and summary.
+Use `definePlugin(contract, summarize)` to give the summary typed review data and local fields.
 
 - `validateReview` checks the envelope against the kind's rules and returns its data.
 - `validateLocal` checks optional private data such as form labels.
-- `summary` supplies the title and optional details for the bar.
+- `summarize` returns the title and optional details for the bar.
+
+The bar shows a generic row when a saved kind or its data is unknown.
 
 Wire page inputs in `src/plugins/inputs.ts`. Each input chooses the kind of its draft.
 The SDK asks pickers in order until one claims or blocks a new selection.

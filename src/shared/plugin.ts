@@ -1,30 +1,58 @@
-/** Plugin interfaces. A plugin adds one kind of feedback review. The transport names no kind. */
-import type { SavedReview, Review } from './feedback';
+/** A review kind owns its data rules and the summary of its saved reviews. */
+import type { Review, SavedReview } from './feedback';
 import type { Json } from './json';
-import type { Envelope } from './validate';
+import { Failure, type Envelope } from './validate';
 
-/**
- * The data rules of one plugin. The workspace applies them to each review from the page, before it saves the review.
- * The server checks only the envelope and the limits.
- */
-export interface Contract {
-  /**
-   * Check the whole review after the envelope check. Cross-field rules belong here.
-   * Return the review's data, or nothing for a kind without data.
-   * `previous` is set for an edit and for a keyed replacement.
-   */
-  validateReview(review: Envelope, previous?: Review): Json | undefined;
-  /** Validate the plugin's private data. */
-  validateLocal?(value: unknown): Json | undefined;
+export interface Contract<
+  Data extends Json | undefined = Json | undefined,
+  Local extends Json = Json,
+> {
+  /** An edit or a keyed replacement also receives the previous review. */
+  validateReview(review: Envelope, previous?: Review): Data;
+  validateLocal?(value: unknown): Local | undefined;
 }
 
-/** How a plugin presents a pending review. */
-export interface ReviewSummary {
-  title(saved: SavedReview): string;
-  /** Draw content between the title and the comment. */
-  body?(saved: SavedReview): Node | undefined;
+export type DecodedReview<
+  Data extends Json | undefined,
+  Local extends Json = Json,
+> = SavedReview & {
+  readonly review: Review & { readonly data: Data };
+  readonly local?: Local;
+};
+
+interface Summary {
+  title: string;
+  body?: Node;
 }
 
 export interface Plugin extends Contract {
-  readonly summary?: ReviewSummary;
+  summary?(saved: SavedReview): Summary | undefined;
+}
+
+/** The server stores opaque JSON. A review with unrecognized data keeps its generic row. */
+export function readSaved<Data extends Json | undefined, Local extends Json>(
+  contract: Contract<Data, Local>,
+  saved: SavedReview,
+): DecodedReview<Data, Local> | undefined {
+  try {
+    const data = contract.validateReview(saved.review);
+    const local = contract.validateLocal?.(saved.local);
+    return { ...saved, review: { ...saved.review, data }, local };
+  } catch (error) {
+    if (error instanceof Failure) return undefined;
+    throw error;
+  }
+}
+
+export function definePlugin<Data extends Json | undefined, Local extends Json>(
+  contract: Contract<Data, Local>,
+  summarize: (saved: DecodedReview<Data, Local>) => Summary,
+): Plugin {
+  return {
+    ...contract,
+    summary(saved) {
+      const decoded = readSaved(contract, saved);
+      return decoded && summarize(decoded);
+    },
+  };
 }

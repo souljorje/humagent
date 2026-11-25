@@ -100,7 +100,7 @@ Humagent injects its SDK into supported local HTML and HTTP localhost apps. Gene
 | `data-humagent-form-comment` | Add the form review's comment |
 | `data-humagent-id` | Give any element a stable target ID for comments and text edits |
 
-Each plugin owns the attribute `data-humagent-<kind>`. Attributes that start with that name belong to the plugin.
+Use `data-humagent-form` to mark a form that saves its named values as a pending review.
 
 A marked form owns one pending review. Each change saves it. Choices save at once. Typed text saves 300 milliseconds after typing stops. The submit button adds the form unchanged. Marked forms do not send feedback.
 
@@ -156,7 +156,7 @@ Each **Send** delivers one feedback. `humagent SOURCE` returns them in `feedback
 
 `instruction` is optional and applies to the whole feedback. `deliveries` counts how often the agent received the feedback. A value above 1 means a redelivery.
 
-Each review has the same envelope. `kind` names the plugin that made the review. `data` holds the content of that kind. `comment` and `target` are common fields.
+Each review has the same envelope. `kind` selects the plugin that reads the review. `data` holds the content of that kind. `comment` and `target` are common fields.
 
 | Kind | `data` | `comment` | `target` |
 | --- | --- | --- | --- |

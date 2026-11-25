@@ -3,7 +3,7 @@ import type { Presentation, Requests, WorkspaceEvents } from '@/shared/bridge';
 import { errorMessage } from '@/shared/errors';
 import type { NewReview, Unsaved } from '@/shared/feedback';
 import { cloneJson } from '@/shared/json';
-import type { pageInputs, PageView } from '@/plugins/inputs';
+import { pageView, type pageInputs, type PageView } from '@/plugins/inputs';
 import { effect, signal, type Signal } from '@/shared/signal';
 import {
   createAnnotating,
@@ -47,11 +47,7 @@ const save = (
 function update(host: Host, params: Presentation) {
   const { boot } = host.bridge;
   host.bridge.ended = !params.writable;
-  host.view.set({
-    pending: params.pending.filter((saved) => saved.revision === boot.revision),
-    previews: params.previews,
-    writable: params.writable,
-  });
+  host.view.set(pageView(boot.revision, params));
   present(host.annotator, params);
 }
 
@@ -106,7 +102,7 @@ export function startHost(bridge: Bridge, install: typeof pageInputs): Host {
     edit: (params) => request(bridge, 'edit', cloneJson(params)),
     remove: (reviewId) => request(bridge, 'remove', { reviewId }),
   });
-  const view = signal<PageView>({ pending: [], previews: [], writable: false });
+  const view = signal(pageView(bridge.boot.revision));
   const unsaved = signal<Unsaved | null>(null);
   const inputs = install(pluginApi(annotator), view, {
     save: (review, options) => save(bridge, review, options),

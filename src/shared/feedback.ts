@@ -39,7 +39,7 @@ export interface Target {
     readonly space: string;
   };
 }
-/** One feedback review. `kind` names the plugin that made it. `data` holds that plugin's content. */
+/** One feedback review. `kind` selects the plugin that reads its data. */
 export interface Review {
   readonly id: string;
   readonly kind: string;

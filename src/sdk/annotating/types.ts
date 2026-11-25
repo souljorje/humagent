@@ -34,7 +34,7 @@ export interface Editor {
   setReadOnly(value: boolean): void;
   close(): void;
 }
-/** A plugin's part in element picking. The SDK asks tools in registry order. */
+/** A picker for new selections and saved reviews of its kind. */
 export interface Tool {
   /** Reopen saved reviews of this kind. New drafts can use any kind. */
   kind: string;
