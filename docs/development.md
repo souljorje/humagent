@@ -12,7 +12,7 @@ bunx --no-install playwright install chromium
 
 | Command | Purpose |
 | --- | --- |
-| `bun run format` | Format source and tests with Bun. Options live in `bunfig.toml`. |
+| `bun run format` | Format source, tests, and scripts with Bun. Options live in `bunfig.toml`. |
 | `bun run check` | Run formatting checks, lint, build, type checks, and fast tests. |
 | `bun run test:browser:built` | Run browser tests against an existing build. |
 | `bun run test` | Run all checks, including browser tests, through Turbo. |
@@ -22,7 +22,7 @@ Turbo caches successful tasks and build outputs in `.turbo/`. Source, configurat
 
 Formatting, lint, and build can run together. Type checks, fast tests, and browser tests run together after the build. Local checks finish independent tasks after failures and show full logs. CI stops at the first test failure and cancels remaining tasks.
 
-`tsconfig.json` emits the package. `tsconfig.test.json` checks tests against generated declarations, including browser globals, without emitting files.
+`tsconfig.json` emits the package. `tsconfig.test.json` checks tests and `scripts/` against generated declarations, including browser globals, without emitting files.
 
 ## Architecture
 
@@ -30,7 +30,13 @@ The transport moves feedback reviews between the page, the workspace, the server
 
 Each review has one envelope: `{ id, kind, comment?, data?, target? }`. A pending review adds `revision`, `key?`, and `local?`. `local` holds plugin data for the page and the bar. Agents do not receive it.
 
-Rendering code builds Humagent's own DOM from a model and reports input through callbacks. It makes no requests. Logic holds state, rules, and transport calls. It builds no Humagent markup. In the hosts, `src/ui/bar.ts` and `src/sdk/overlay.ts` render. `src/ui/workspace.ts` manages workspace state. `src/sdk/annotating.ts` manages annotation input and the editor. `src/sdk/targets.ts` describes and resolves targets.
+Rendering code builds Humagent's own DOM from a model and reports input through callbacks. It makes no requests. Logic holds state, rules, and transport calls. It builds no Humagent markup. In the hosts, `src/ui/bar/` and `src/sdk/overlay.ts` render. `src/ui/workspace/` manages workspace state. `src/sdk/annotating/` manages annotation input and the editor. `src/sdk/targets.ts` describes and resolves targets.
+
+Each part of annotating owns its state. `capture.ts` owns the open editor. `placement.ts` owns the pointed element and the overlay positions. `pointer.ts` owns the marker press. `keyboard.ts` owns the cursor. `tools.ts` owns the registry.
+
+`src/shared/api.ts` holds the control-route types that the server, the workspace, and the commands share. `src/server/client.ts` is the client of the commands. `src/ui/session.ts` is the client of the workspace.
+
+Browsers load modules from `ui`, `sdk`, `shared`, and `plugins` at any depth. The rules are in `src/server/assets.ts`.
 
 ## Add a plugin
 

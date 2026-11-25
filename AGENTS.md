@@ -10,13 +10,20 @@ Treat inputs and shared snapshots as read-only. Prefer collection methods that r
 
 | Path | Contains |
 | --- | --- |
-| `src/cli/` | Commands and startup |
-| `src/server/` | Server, sessions, storage, page serving |
-| `src/ui/` | Workspace state, bar, page bridge |
-| `src/sdk/` | Injected page host, bridge, annotating, targets, and overlay |
+| `src/cli/` | Commands, options, and server startup |
+| `src/server/` | Server startup, the client of a running server, assets |
+| `src/server/control/` | Control routes and their access rules |
+| `src/server/pages/` | Page serving, sources, and the app proxy |
+| `src/server/sessions/` | Sessions and their store |
+| `src/ui/` | Workspace entry, session access, page bridge |
+| `src/ui/workspace/` | Workspace state and logic |
+| `src/ui/bar/` | Bar rendering |
+| `src/sdk/` | Injected page host, bridge, targets, and overlay |
+| `src/sdk/annotating/` | Annotation input, the editor, and placement |
 | `src/plugins/` | One review kind per module |
 | `src/shared/` | Contracts, validation, helpers |
 | `src/examples/` | Example pages |
+| `scripts/` | Build script |
 | `test/` | CLI, server, and browser tests |
 
 ## Invariants

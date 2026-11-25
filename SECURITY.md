@@ -24,7 +24,7 @@ File pages block external resources and connections through Content Security Pol
 
 App sources require HTTP loopback addresses with fixed hosts and ports. Humagent rejects URL credentials, remote hosts, HTTPS, and redirects outside the selected origin.
 
-The proxy strips cookies and keeps upstream CSP and frame restrictions. It does not support cookie authentication or guarantee service-worker behavior. Absolute URLs, CSP, and WebSocket settings can prevent attachment. Test the intended app.
+The proxy strips cookies. It forwards other request headers, including `authorization`, to the app. It keeps upstream CSP and frame restrictions. It does not support cookie authentication or guarantee service-worker behavior. Absolute URLs, CSP, and WebSocket settings can prevent attachment. Test the intended app.
 
 The proxy can reach the app's normal APIs. Do not attach privileged internal services or expose Humagent's ports publicly.
 
