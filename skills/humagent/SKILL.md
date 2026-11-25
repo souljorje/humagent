@@ -27,6 +27,8 @@ Without a source, use the page from the task. If the task has none, ask the user
 3. Apply the project's brand and domain instructions.
 4. Do not replace the application's renderer or server.
 
+For custom pages, prefer local project styles that respect the user's light or dark preference (`prefers-color-scheme`).
+
 For structured input, put named controls in a form with a stable, unique `data-humagent-form` value.
 Use `data-humagent-form-comment` to tell the agent what the answers mean.
 Give each form an accessible name, such as `aria-labelledby`. Label each control.
