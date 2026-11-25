@@ -1,16 +1,17 @@
 {
   "compilerOptions": {
     "target": "ESNext",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "strict": true,
     "moduleDetection": "force",
-    "declaration": true,
-    "outDir": "dist",
-    "rootDir": "src",
-    "types": ["node"],
+    "types": ["node", "vite/client"],
     "skipLibCheck": true,
-    "noUncheckedIndexedAccess": true
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src"]
 }

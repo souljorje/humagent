@@ -5,10 +5,10 @@ import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fixture } from './fixtures.ts';
+import { fixture } from './fixtures';
 
 const execute = promisify(execFile);
-const cli = fileURLToPath(new URL('../dist/cli/index.js', import.meta.url));
+const cli = fileURLToPath(new URL('../dist/node/cli.js', import.meta.url));
 const pkg = JSON.parse(
   fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 );
@@ -119,7 +119,7 @@ for (const runtime of ['bun', 'node'])
     }
   }, 30000);
 
-test('the demo opens the editable plan and keeps local edits on the next run', async () => {
+test('the demo opens the editable page and keeps local edits on the next run', async () => {
   const home = fixture('demo');
   const { run, stop } = cliRunner(home);
   try {
@@ -129,9 +129,7 @@ test('the demo opens the editable plan and keeps local edits on the next run', a
       await (await fetch(snapshot.page.frameUrl)).text(),
       /Show your agent what you mean/,
     );
-    const styles = await fetch(
-      new URL('css-variables.css', snapshot.page.frameUrl),
-    );
+    const styles = await fetch(new URL('index.css', snapshot.page.frameUrl));
     assert.equal(styles.status, 200);
     assert.match(await styles.text(), /--ha-unit: 4px/);
     fs.appendFileSync(snapshot.source.value, '\n<!-- Local demo edit -->');
@@ -162,7 +160,7 @@ test('help, version, invalid commands, and old Node versions do not start a serv
         '--eval',
         `Object.defineProperty(process.versions, 'node', { value: '${version}' });
          process.argv = [process.execPath, ${JSON.stringify(cli)}, 'status', '--home', ${JSON.stringify(home)}, '--json'];
-         await import(${JSON.stringify(new URL('../dist/cli/index.js', import.meta.url).href)});`,
+         await import(${JSON.stringify(new URL('../dist/node/cli.js', import.meta.url).href)});`,
       ],
       { encoding: 'utf8', timeout: 10000 },
     );

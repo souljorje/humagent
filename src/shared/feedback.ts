@@ -1,5 +1,6 @@
 /** Feedback contracts shared by the server, the workspace, the page SDK, and agents. */
-import type { Json } from './json.js';
+import type { Json } from './json';
+import type { MarkerPosition } from './marker';
 
 export const LIMITS = {
   bodyBytes: 256 * 1024,
@@ -54,6 +55,8 @@ export interface SavedReview {
   readonly revision: string;
   /** A session holds at most one pending review per kind and key. A new pending review with a known key replaces it. */
   readonly key?: string;
+  /** The SDK's marker position for this target. */
+  readonly marker?: MarkerPosition;
   /** The plugin's private data for the page and the bar. Agents do not receive it. */
   readonly local?: Json;
 }

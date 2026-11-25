@@ -1,5 +1,5 @@
 /** What the server, the workspace, and the agent's commands share about the control routes. */
-import type { WorkspaceView } from './feedback.js';
+import type { WorkspaceView } from './feedback';
 
 /** The header that carries a session key. */
 export const SESSION_HEADER = 'x-humagent-session';

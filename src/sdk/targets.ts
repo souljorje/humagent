@@ -1,5 +1,5 @@
 /** Capture a page element and find it again on the same revision. */
-import type { SavedReview, Target } from '../shared/feedback.js';
+import type { SavedReview, Target } from '@/shared/feedback';
 
 export function isTarget(el: EventTarget | null): el is Element {
   return (

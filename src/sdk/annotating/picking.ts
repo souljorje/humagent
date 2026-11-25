@@ -1,20 +1,16 @@
 /** Turn what the human points at into an open editor. */
-import type { Bootstrap } from '../../shared/bridge.js';
-import { LIMITS, type SavedReview } from '../../shared/feedback.js';
-import type { Hit, Pick } from '../../shared/plugin.js';
-import type { Point } from '../layout.js';
-import type { OverlayView } from '../overlay.js';
-import { describeTarget, isTarget } from '../targets.js';
-import type { CaptureState } from './capture.js';
-import type { RegisteredTool, Tools } from './tools.js';
+import type { Point } from '@/sdk/layout';
+import { markerOf } from '@/sdk/overlay';
+import { describeTarget, isTarget } from '@/sdk/targets';
+import { LIMITS } from '@/shared/feedback';
+import { openCapture, prepareCapture, pressOutside } from './capture';
+import { resolve, type Annotator } from './state';
+import { findTool, hitTools, originalText, type RegisteredTool } from './tools';
+import type { Hit, Pick } from './types';
 
-interface Hooks {
-  boot: Bootstrap;
-  notice(message: string): void;
-  writable(): boolean;
-  pending(): readonly SavedReview[];
-  resolve(saved: SavedReview): Element | null;
-}
+const TOO_LONG = 'Select a smaller section (maximum 50,000 characters).';
+const UNAVAILABLE =
+  'Target unavailable. Inspect or remove this review in the bar.';
 
 /** A point as an offset in an element. Without a point, its center. */
 function anchor(el: Element, point?: Point): Point {
@@ -23,6 +19,7 @@ function anchor(el: Element, point?: Point): Point {
     ? { x: point.x - rect.left, y: point.y - rect.top }
     : { x: rect.width / 2, y: rect.height / 2 };
 }
+
 /** The center of an element in the viewport. */
 export function center(el: Element | undefined): Point | undefined {
   const rect = el?.getBoundingClientRect();
@@ -31,103 +28,109 @@ export function center(el: Element | undefined): Point | undefined {
     : undefined;
 }
 
-export function createPicking(
-  view: OverlayView,
-  tools: Tools,
-  capture: CaptureState,
-  hooks: Hooks,
-) {
-  /** Open the comment panel on an element. No tool claimed the pick. */
-  function show(el: Element, range?: Range, point?: Point) {
-    if (!isTarget(el) || !hooks.writable() || capture.outside()) return;
-    const text = range ? range.toString() : tools.textOf(el);
-    if (text.length > LIMITS.text) {
-      hooks.notice('Select a smaller section (maximum 50,000 characters).');
-      return;
-    }
-    capture.reopen();
-    const target = describeTarget(
-      el,
-      hooks.boot.sourceUrl,
-      range ? tools.textOf(el) : text,
-      range,
-    );
-    capture.open({ target, el, point: anchor(el, point) });
-  }
-  /** Open a tool's inline editor for a claimed pick. The comment panel opens beside it. */
-  function showTool(tool: RegisteredTool, hit: Hit, point?: Point) {
-    if (!hooks.writable() || capture.outside()) return;
-    capture.reopen(hit.saved && view.marker(hit.saved.review.id));
-    // The target and the press position describe the element before the editor changes it.
-    const described =
-      hit.saved?.review.target ||
-      describeTarget(hit.el, hooks.boot.sourceUrl, tools.textOf(hit.el));
-    const offset = anchor(hit.el, point);
-    const editor = hit.open();
-    capture.open({
-      target: hit.saved?.review.target || { ...described, ...editor.target },
-      el: hit.el,
-      ...(hit.saved ? { saved: hit.saved } : {}),
-      point: offset,
-      tool,
-      editor,
-    });
-  }
-  function pick(next: Pick) {
-    const match = tools.hit(next);
-    if (!match) return show(next.el, next.range, next.point);
-    if (match.hit !== 'blocked') showTool(match.tool, match.hit, next.point);
-  }
-  /** Reopen a saved pending review. */
-  function edit(reviewId: string, point?: Point) {
-    const saved = hooks.pending().find((d) => d.review.id === reviewId);
-    if (!saved || capture.outside()) return;
-    const el = hooks.resolve(saved);
-    const tool = tools.find(saved.review.kind);
-    const hit = el && tool?.hit?.({ el, saved });
-    if (!el || hit === 'blocked') {
-      hooks.notice(
-        'Target unavailable. Inspect or remove this review in the bar.',
-      );
-      return;
-    }
-    if (tool && hit) {
-      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-      showTool(tool, hit, point || center(view.marker(reviewId)));
-      return;
-    }
-    capture.reopen(view.marker(reviewId));
-    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    capture.open({
-      target: saved.review.target!,
-      el,
-      saved,
-      point: anchor(el, point || center(view.marker(reviewId))),
-    });
-  }
-  /** Pick the current text selection. */
-  function selectedText(point?: Point) {
-    const selection = document.getSelection();
-    if (!selection || !selection.rangeCount || !selection.toString().trim())
-      return false;
-    const range = selection.getRangeAt(0).cloneRange();
-    const node = range.commonAncestorContainer;
-    const el = node instanceof Element ? node : node.parentElement;
-    if (!isTarget(el)) return false;
-    if (!point) {
-      const endpoint = range.cloneRange();
-      endpoint.collapse(
-        (selection as Selection & { direction?: string }).direction ===
-          'backward' ||
-          (selection.focusNode === range.startContainer &&
-            selection.focusOffset === range.startOffset),
-      );
-      const rect = endpoint.getBoundingClientRect();
-      if (rect.height) point = { x: rect.left, y: rect.bottom };
-    }
-    pick({ el, range, ...(point ? { point } : {}) });
-    return true;
-  }
-  return { pick, edit, selectedText };
+function scrollToTarget(el: Element) {
+  el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
-export type Picking = ReturnType<typeof createPicking>;
+
+/** Open the comment panel on an element. No tool claimed the pick. */
+function openPanel(a: Annotator, { el, range, point }: Pick) {
+  if (!isTarget(el) || !a.writable() || pressOutside(a)) return;
+  const text = range ? range.toString() : originalText(a.tools, el);
+  if (text.length > LIMITS.text) {
+    a.bridge.notice(TOO_LONG);
+    return;
+  }
+  prepareCapture(a);
+  const target = describeTarget(
+    el,
+    a.bridge.boot.sourceUrl,
+    range ? originalText(a.tools, el) : text,
+    range,
+  );
+  openCapture(a, { target, el, point: anchor(el, point) });
+}
+
+/** Open a tool's inline editor for a claimed pick. The comment panel opens beside it. */
+function openTool(
+  a: Annotator,
+  tool: RegisteredTool,
+  hit: Hit,
+  point: Point | undefined,
+) {
+  const { el, saved } = hit;
+  if (!a.writable() || pressOutside(a)) return;
+  prepareCapture(a, saved && markerOf(a.view, saved.review.id));
+  // The target and the press position describe the element before the editor changes it.
+  const described =
+    saved?.review.target ??
+    describeTarget(el, a.bridge.boot.sourceUrl, originalText(a.tools, el));
+  const offset = anchor(el, point);
+  const editor = hit.open();
+  openCapture(a, {
+    target: saved?.review.target ?? { ...described, ...editor.target },
+    el,
+    ...(saved ? { saved } : {}),
+    point: offset,
+    tool,
+    editor,
+  });
+}
+
+export function pick(a: Annotator, next: Pick) {
+  const match = hitTools(a.tools, next);
+  if (!match) openPanel(a, next);
+  else if (match.hit !== 'blocked')
+    openTool(a, match.tool, match.hit, next.point);
+}
+
+/** Reopen a saved pending review. */
+export function openReview(a: Annotator, reviewId: string, point?: Point) {
+  const saved = a.pending.find(({ review }) => review.id === reviewId);
+  if (!saved || pressOutside(a)) return;
+  const marker = markerOf(a.view, reviewId);
+  const el = resolve(a, saved);
+  const tool = findTool(a.tools, saved.review.kind);
+  const hit = el && tool?.hit?.({ el, saved });
+  if (!el || hit === 'blocked') {
+    a.bridge.notice(UNAVAILABLE);
+    return;
+  }
+  if (tool && hit) {
+    scrollToTarget(el);
+    openTool(a, tool, hit, point || center(marker));
+    return;
+  }
+  prepareCapture(a, marker);
+  scrollToTarget(el);
+  openCapture(a, {
+    target: saved.review.target!,
+    el,
+    saved,
+    point: anchor(el, point || center(marker)),
+  });
+}
+
+/** Where the selection ended, below its line. */
+function selectionEnd(selection: Selection, range: Range): Point | undefined {
+  const backward =
+    (selection as Selection & { direction?: string }).direction ===
+      'backward' ||
+    (selection.focusNode === range.startContainer &&
+      selection.focusOffset === range.startOffset);
+  const end = range.cloneRange();
+  end.collapse(backward);
+  const rect = end.getBoundingClientRect();
+  return rect.height ? { x: rect.left, y: rect.bottom } : undefined;
+}
+
+/** Pick the current text selection. */
+export function pickSelection(a: Annotator, pressed?: Point) {
+  const selection = document.getSelection();
+  if (!selection?.rangeCount || !selection.toString().trim()) return;
+  const range = selection.getRangeAt(0).cloneRange();
+  const node = range.commonAncestorContainer;
+  const el = node instanceof Element ? node : node.parentElement;
+  if (!isTarget(el)) return;
+  const point = pressed ?? selectionEnd(selection, range);
+  pick(a, { el, range, ...(point ? { point } : {}) });
+}

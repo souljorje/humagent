@@ -4,11 +4,12 @@ import type {
   SavedReview,
   SessionView,
   Source,
-} from '../../shared/feedback.js';
-import { ensure, object } from '../../shared/validate.js';
-import { localUrl } from '../validate.js';
+} from '@/shared/feedback';
+import { ensure, object } from '@/shared/validate';
+import { isMarkerPosition } from '@/shared/marker';
+import { localUrl } from '@/server/validate';
 
-export const FORMAT = 4;
+export const FORMAT = 5;
 
 /** The feedback that the last `wait` returned. They stay unfinished until the agent completes this receipt. */
 interface Delivery {
@@ -54,11 +55,29 @@ function validPagePath(pagePath: unknown) {
       !pagePath.includes('\\'))
   );
 }
+/** Format 4 kept the marker inside the plugin's local data. */
+function restoreMarker(saved: SavedReview): SavedReview {
+  const { local, ...rest } = saved;
+  if (
+    !saved.review.target ||
+    !local ||
+    typeof local !== 'object' ||
+    !('marker' in local)
+  )
+    return saved;
+  const { marker, ...fields } = local;
+  if (!isMarkerPosition(marker)) return saved;
+  return {
+    ...rest,
+    marker,
+    ...(Object.keys(fields).length ? { local: fields } : {}),
+  };
+}
 export function readSession(saved: unknown, id: string): Session {
   object(saved);
   const s = saved.session as unknown as Session | undefined;
   ensure(
-    saved.format === FORMAT &&
+    (saved.format === FORMAT || saved.format === 4) &&
       s?.id === id &&
       typeof s.title === 'string' &&
       typeof s.revision === 'string' &&
@@ -74,7 +93,11 @@ export function readSession(saved: unknown, id: string): Session {
     'Unsupported or corrupt session',
   );
   // A previous process cannot confirm that the agent is still working.
-  return s.delivery ? { ...s, delivery: { ...s.delivery, started: false } } : s;
+  return {
+    ...s,
+    pending: saved.format === 4 ? s.pending.map(restoreMarker) : s.pending,
+    ...(s.delivery ? { delivery: { ...s.delivery, started: false } } : {}),
+  };
 }
 /** Stale input is never rebound to a newer page revision. */
 export function current(s: Session, revision: unknown) {

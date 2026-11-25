@@ -1,6 +1,38 @@
 # Development
 
-See [Contributing](../CONTRIBUTING.md) for local setup. This guide covers checks, architecture, plugins, pull requests, and release.
+See [Contributing](../CONTRIBUTING.md) for local setup. This guide covers local development, checks, architecture, plugins, pull requests, and release.
+
+## Local development
+
+```sh
+bun run dev
+```
+
+Open the printed workspace URL. It shows the page in `src/examples/`.
+
+| Change | Result |
+| --- | --- |
+| CSS | Updates in place. Open editors stay open. |
+| Browser code or HTML | Reloads the page. Saved reviews remain. |
+| A module that the server imports | Restarts Vite and the server, then reloads. |
+
+One process runs three kinds of servers:
+
+| Server | Purpose |
+| --- | --- |
+| Vite, port 5173 | Browser code and the example. It proxies `/api` to the control server. |
+| Control server, port 4170 | Sessions and agent commands |
+| Page server, one per session | The reviewed page on its own origin |
+
+The package has the last two servers only. There the control server also serves the workspace build.
+
+The data directory is `.local/dev`. To use another source, run this command while Vite runs:
+
+```sh
+bun src/cli/index.ts SOURCE --home .local/dev --network --no-wait
+```
+
+`--network` lets an HTML file page load code from Vite.
 
 ## Checks
 
@@ -12,7 +44,7 @@ bunx --no-install playwright install chromium
 
 | Command | Purpose |
 | --- | --- |
-| `bun run format` | Format source, tests, and scripts with Bun. Options live in `bunfig.toml`. |
+| `bun run format` | Format source, tests, and configuration with Bun. Options live in `bunfig.toml`. |
 | `bun run check` | Run formatting checks, lint, build, type checks, and fast tests. |
 | `bun run test:browser:built` | Run browser tests against an existing build. |
 | `bun run test` | Run all checks, including browser tests, through Turbo. |
@@ -22,29 +54,54 @@ Turbo caches successful tasks and build outputs in `.turbo/`. Source, configurat
 
 Formatting, lint, and build can run together. Type checks, fast tests, and browser tests run together after the build. Local checks finish independent tasks after failures and show full logs. CI stops at the first test failure and cancels remaining tasks.
 
-`tsconfig.json` emits the package. `tsconfig.test.json` checks tests and `scripts/` against generated declarations, including browser globals, without emitting files.
+`bun run build` writes `dist/client`, `dist/node`, and `dist/examples` with Vite, and empties them first. `dist/node` includes the public declarations. `tsconfig.json` checks all source. `tsconfig.test.json` also checks tests and the Vite configuration.
 
 ## Architecture
 
 The transport moves feedback reviews between the page, the workspace, the server, and the agent. It names no review kind. The server never imports a plugin. It checks the review envelope and the limits, and stores `data` as JSON. A plugin adds one kind of review. The built-in plugins are `comment`, `edit`, and `form`.
 
-Each review has one envelope: `{ id, kind, comment?, data?, target? }`. A pending review adds `revision`, `key?`, and `local?`. `local` holds plugin data for the page and the bar. Agents do not receive it.
+Each review has one envelope: `{ id, kind, comment?, data?, target? }`. A pending review adds `revision`, `key?`, `marker?`, and `local?`. The SDK owns the marker position. Plugins use `local` for private data. The agent receives only the review envelope.
 
-Rendering code builds Humagent's own DOM from a model and reports input through callbacks. It makes no requests. Logic holds state, rules, and transport calls. It builds no Humagent markup. In the hosts, `src/ui/bar/` and `src/sdk/overlay.ts` render. `src/ui/workspace/` manages workspace state. `src/sdk/annotating/` manages annotation input and the editor. `src/sdk/targets.ts` describes and resolves targets.
+Rendering code builds Humagent's own DOM from a model and reports input through callbacks. It makes no requests. Logic holds state, rules, and transport calls. It builds no Humagent markup. In the hosts, `src/ui/bar/` and `src/sdk/overlay.ts` render. `src/ui/workspace/` manages workspace state. `src/sdk/annotating/` manages annotation input and the editor. `src/sdk/host.ts` runs the plugins of a page. `src/sdk/bridge.ts` exchanges messages with the workspace. `src/sdk/targets.ts` describes and resolves targets.
 
-Each part of annotating owns its state. `capture.ts` owns the open editor. `placement.ts` owns the pointed element and the overlay positions. `pointer.ts` owns the marker press. `keyboard.ts` owns the cursor. `tools.ts` owns the registry.
+The functions of annotating share one state object, `Annotator` in `state.ts`. Each part changes its own field only. `capture.ts` changes the open editor. `placement.ts` changes the pointed element and the overlay positions. `pointer.ts` changes the marker press. `cursor.ts` changes the keyboard cursor. The workspace and the server do the same with `Workspace` and `Runtime`.
 
 `src/shared/api.ts` holds the control-route types that the server, the workspace, and the commands share. `src/server/client.ts` is the client of the commands. `src/ui/session.ts` is the client of the workspace.
 
-Browsers load modules from `ui`, `sdk`, `shared`, and `plugins` at any depth. The rules are in `src/server/assets.ts`.
+Browser code has the path prefix `/__humagent/` on the workspace and page origins. The rules are in `src/server/assets.ts`. Development loads it from Vite instead.
+
+## Styles
+
+Import a style sheet where you need it: `import './index.css'`. Vite loads it and updates it in place. Styles for more than one place are in `src/shared/styles/`.
+
+| Place | Sheet |
+| --- | --- |
+| Workspace | `src/ui/app.css` |
+| Overlay | `src/sdk/overlay.css` |
+| Reviewed page, while annotating | `src/sdk/annotating/selection.css` |
+| A plugin, in the workspace and the reviewed page | `index.css` of the plugin |
+| Example | `src/examples/index.css` |
+
+The overlay is a shadow root, so page styles cannot reach its content. Its sheet is the only one that code adopts. Its `:host` rules are important, because the page can match the host. A plugin's elements in the reviewed page share the page's styles. Use important rules for them.
+
+Select elements in one way:
+
+- Select a look by class only. An ID is for code, labels, and tests.
+- Select a state by `hidden`, `disabled`, or an ARIA attribute. Use a `data-` attribute when none fits.
+- Select by tag only for base rules of a document and for children without a class of their own.
+- Start each class of a plugin with `ha-<kind>-`. Its sheet also loads in the reviewed page.
+- Start each other name in the reviewed page with `data-humagent-`.
+- Set only runtime positions and sizes in TypeScript.
+
+Import from another directory with `@`, which is `src/`: `import { ensure } from '@/shared/validate'`. Import from the same directory with `./`. Omit file extensions, except `.css`.
 
 ## Add a plugin
 
-A plugin is one module in `src/plugins/` that exports one object. Its `kind` is the review kind.
+A plugin is one module in `src/plugins/` that exports one object. Use `<kind>.ts` for one file. Use `<kind>/index.ts` for more files. Its `kind` is the review kind.
 
 ```ts
-import type { Plugin } from '../shared/plugin.js';
-import { ensure } from '../shared/validate.js';
+import type { Plugin } from '@/shared/plugin';
+import { ensure } from '@/shared/validate';
 
 export const flag: Plugin = {
   kind: 'flag',
@@ -63,7 +120,9 @@ export const flag: Plugin = {
 | --- | --- |
 | `contract` | `validateReview` checks the review, including any target rule, and returns the data for the agent. Optional `validateLocal` checks private data such as form labels. |
 | `page` | Behavior in the page. It saves pending reviews through the page host. It can supply a tool for annotating. Page authors mark its elements with `host.attribute`, which is `data-humagent-<kind>`. |
-| `summary` | Sets the title, optional body, and styles for the review summary. The bar displays it. |
+| `summary` | Sets the title and optional body of the review summary. The bar displays it. |
+
+The interfaces between annotating and a tool are in `src/sdk/annotating/types.ts`.
 
 A plugin reports input that it has not saved through `host.unsaved`. Send waits while a plugin is saving. Unsaved input blocks the automatic reload.
 
@@ -73,7 +132,7 @@ The page receives `discard` before the workspace removes a keyed review on the c
 2. Add the plugin to `src/plugins/index.ts`. The SDK asks tools in registry order.
 3. Extend a browser test in `test/browser/feedback.spec.ts` with the new workflow.
 
-A plugin runs only in the browser. A plugin with multiple files exports from `src/plugins/<kind>/index.ts` and keeps its helpers in that directory. The registry refuses two plugins with one kind. The page host refuses two plugins with one `window.humagent` member. The transport, the server, and the CLI need no change.
+A plugin runs only in the browser. To style it, import `./index.css` in `index.ts`. The registry refuses two plugins with one kind. The page host refuses two plugins with one `window.humagent` member. The transport, the server, and the CLI need no change.
 
 The SDK manages annotating, markers, the highlight, and the comment panel for all plugins. A tool claims a pick with `hit`, opens an inline editor with `open`, and returns its review from `build`. The SDK asks the tool with the open editor first, then the other tools in registry order. The first review wins. A saved review asks only the tool of its kind.
 

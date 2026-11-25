@@ -1,4 +1,4 @@
-import { version } from '../server/version.js';
+import { version } from '@/server/version';
 
 export const HELP = `Humagent ${version}
 Work with your agent through a page, prototype, or local application.

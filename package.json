@@ -9,21 +9,20 @@
     "node": ">=24"
   },
   "bin": {
-    "humagent": "dist/cli/index.js"
+    "humagent": "dist/node/cli.js"
   },
   "exports": {
     ".": {
-      "types": "./dist/server/server.d.ts",
-      "import": "./dist/server/server.js"
+      "types": "./dist/node/server.d.ts",
+      "import": "./dist/node/server.js"
     },
     "./feedback": {
-      "types": "./dist/shared/feedback.d.ts",
-      "import": "./dist/shared/feedback.js"
+      "types": "./dist/node/feedback.d.ts",
+      "import": "./dist/node/feedback.js"
     }
   },
   "files": [
     "dist",
-    "!dist/examples/*.d.ts",
     "docs",
     "CONTRIBUTING.md",
     "AGENTS.md",
@@ -39,11 +38,12 @@
   "scripts": {
     "changeset": "changeset",
     "version:packages": "changeset version && bun install --lockfile-only --ignore-scripts",
-    "build": "bun scripts/build.ts",
-    "lint": "oxlint src test scripts",
-    "format": "bun fmt src test scripts tsconfig*.json package.json turbo.json",
-    "format:check": "bun fmt --check src test scripts tsconfig*.json package.json turbo.json",
-    "typecheck": "tsc -p tsconfig.test.json",
+    "dev": "vite",
+    "build": "vite build && vite build src/examples",
+    "lint": "oxlint src test vite.config.ts",
+    "format": "bun fmt src test vite.config.ts tsconfig*.json package.json turbo.json",
+    "format:check": "bun fmt --check src test vite.config.ts tsconfig*.json package.json turbo.json",
+    "typecheck": "tsrs && tsrs -p tsconfig.test.json",
     "test": "bun run check test:browser:built",
     "test:browser:built": "playwright test --config test/playwright.config.ts",
     "check": "turbo run format:check lint build typecheck test:fast --continue=$([ -n \"$CI\" ] && echo never || echo dependencies-successful)",
@@ -59,8 +59,10 @@
     "@types/bun": "1.4.4",
     "@types/node": "25.1.0",
     "oxlint": "1.90.0",
+    "rolldown-plugin-dts": "0.30.2",
+    "tsrs": "7.1.0-beta.tsrs5",
     "turbo": "2.11.12",
-    "typescript": "5.8.3"
+    "vite": "8.3.8"
   },
   "homepage": "https://github.com/souljorje/humagent#readme",
   "bugs": {

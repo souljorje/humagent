@@ -1,4 +1,4 @@
-import { LIMITS } from '../../shared/feedback.js';
+import { LIMITS } from '@/shared/feedback';
 
 /** The caret under a point, from the browser's own text geometry. */
 export function caretAtPoint(point: { x: number; y: number }): Range | null {

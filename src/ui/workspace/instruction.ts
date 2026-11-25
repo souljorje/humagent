@@ -1,47 +1,59 @@
-import { errorMessage } from '../../shared/errors.js';
-import { signal } from '../../shared/signal.js';
-
 /** The typed instruction. It saves itself shortly after typing stops. */
-export function createInstruction(
-  save: (text: string) => Promise<unknown>,
-  failed: (message: string) => void,
-) {
+import { errorMessage } from '@/shared/errors';
+import { signal, type Signal } from '@/shared/signal';
+
+const TYPING_DELAY = 300;
+
+export interface Instruction {
+  readonly save: (text: string) => Promise<unknown>;
+  readonly failed: (message: string) => void;
   /** The typed text is not saved yet. */
-  const pending = signal(false);
-  const status = signal('');
-  let text = '',
-    /** Counts edits, so an older save cannot confirm newer text. */
-    edits = 0,
-    timer: ReturnType<typeof setTimeout> | undefined;
-  /** Save the text now. */
-  function flush() {
-    clearTimeout(timer);
-    const edit = edits;
-    return save(text).then(
-      () => {
-        // A newer edit still needs its own save.
-        if (edit !== edits) return;
-        pending.set(false);
-        status.set('Saved.');
-      },
-      (e) => {
-        status.set('Not saved');
-        throw e;
-      },
-    );
+  readonly pending: Signal<boolean>;
+  readonly status: Signal<string>;
+  text: string;
+  /** Counts edits, so an older save cannot confirm newer text. */
+  edits: number;
+  timer?: ReturnType<typeof setTimeout>;
+}
+
+export const createInstruction = (
+  save: Instruction['save'],
+  failed: Instruction['failed'],
+): Instruction => ({
+  save,
+  failed,
+  pending: signal(false),
+  status: signal(''),
+  text: '',
+  edits: 0,
+});
+
+/** Save the text now. */
+export async function saveInstruction(instruction: Instruction) {
+  clearTimeout(instruction.timer);
+  const { edits, text } = instruction;
+  try {
+    await instruction.save(text);
+  } catch (error) {
+    instruction.status.set('Not saved');
+    throw error;
   }
-  return {
-    pending,
-    status,
-    flush,
-    edit(value: string) {
-      text = value;
-      edits++;
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        flush().catch((e) => failed(errorMessage(e)));
-      }, 300);
-      pending.set(true);
-    },
-  };
+  // A newer edit still needs its own save.
+  if (edits !== instruction.edits) return;
+  instruction.pending.set(false);
+  instruction.status.set('Saved.');
+}
+
+function saveTyped(instruction: Instruction) {
+  saveInstruction(instruction).catch((error) =>
+    instruction.failed(errorMessage(error)),
+  );
+}
+
+export function editInstruction(instruction: Instruction, text: string) {
+  instruction.text = text;
+  instruction.edits++;
+  clearTimeout(instruction.timer);
+  instruction.timer = setTimeout(() => saveTyped(instruction), TYPING_DELAY);
+  instruction.pending.set(true);
 }

@@ -1,0 +1,15 @@
+.ha-form-values {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) 2fr;
+  gap: var(--ha-spacing-1) var(--ha-spacing-3);
+  margin: var(--ha-spacing-2) 0;
+  font-size: var(--ha-text-small);
+}
+.ha-form-values dt {
+  color: var(--ha-fg-muted);
+}
+.ha-form-values dd {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -2,13 +2,15 @@ import { test, beforeAll, afterAll } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import path from 'node:path';
-import { createServer } from '../dist/server/server.js';
-import { Store } from '../dist/server/sessions/store.js';
-import { safeFile } from '../dist/server/pages/files.js';
-import { sourceOf } from '../dist/server/pages/sources.js';
-import { LIMITS } from '../dist/shared/feedback.js';
-import { fixture } from './fixtures.ts';
+import { createServer } from 'humagent';
+import { Store } from '@/server/sessions/store';
+import { safeFile } from '@/server/pages/files';
+import { sourceOf } from '@/server/pages/sources';
+import { LIMITS } from 'humagent/feedback';
+import type { ObjectValue } from '@/shared/json';
+import { fixture } from './fixtures';
 
 const dir = fixture('server');
 const root = path.join(dir, 'artifacts');
@@ -95,18 +97,34 @@ test('control routes refuse foreign origins, missing credentials, session keys o
       401,
       route,
     );
-  // Browser modules are public at any depth. Runtime modules are not.
-  const module = async (route: string) =>
-    (await runtime.app.request(runtime.origin + route)).status;
-  assert.equal(await module('/ui/workspace/workspace.js'), 200);
-  assert.equal(await module('/plugins/edit/index.js'), 200);
-  for (const route of [
-    '/server/server.js',
-    '/ui/../server/server.js',
-    '/ui/%2e%2e/server/server.js',
-    '/ui/workspace/workspace.d.ts',
-  ])
-    assert.equal(await module(route), 401, route);
+  // Built browser code is public. Runtime modules are not.
+  const asset = (route: string, headers = {}) =>
+    new Promise<number>((resolve, reject) => {
+      // A URL would normalize the path before the request.
+      const { hostname, port } = new URL(runtime.origin);
+      http
+        .get({ hostname, port, path: route, headers }, (res) => {
+          res.resume();
+          resolve(res.statusCode!);
+        })
+        .on('error', reject);
+    });
+  // The built page names its browser code.
+  const page = await (await fetch(runtime.origin)).text();
+  const built = Array.from(
+    page.matchAll(/(?:src|href)="(\/__humagent\/[^"]+)"/g),
+    ([, route]) => route!,
+  );
+  assert.ok(built.length >= 3, page);
+  for (const route of built) assert.equal(await asset(route), 200, route);
+  for (const [route, expected] of [
+    ['/server/server.js', 401],
+    ['/__humagent/../node/server.js', 401],
+    ['/__humagent/%2e%2e/node/server.js', 401],
+    ['/__humagent/ui/index.html', 404],
+  ] as const)
+    assert.equal(await asset(route), expected, route);
+  assert.equal(await asset(built[0]!, { origin: 'https://evil.example' }), 403);
   for (const source of [
     'https://localhost:3000',
     'http://example.com',
@@ -186,6 +204,49 @@ test('file serving refuses non-HTML sources, hidden files, traversal, and symlin
   await assert.rejects(() => safeFile(root, '/missing.css'), { status: 404 });
 });
 
+test('the app proxy keeps its fixed destination', async () => {
+  const listen = async (text: string) => {
+    const server = http.createServer((_, response) =>
+      response.setHeader('content-type', 'text/html').end(text),
+    );
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
+    return server;
+  };
+  const portOf = (server: http.Server) =>
+    (server.address() as AddressInfo).port;
+  const app = await listen('app');
+  const other = await listen('other');
+  try {
+    const { data } = await call('/api/open', 'POST', {
+      source: `http://127.0.0.1:${portOf(app)}/`,
+    });
+    const { page } = (await call(`/api/sessions/${data.session}`)).data;
+    const { hostname, port } = new URL(page.frameUrl);
+    // A URL would normalize the path before the request.
+    const status = (path: string) =>
+      new Promise<number>((resolve, reject) => {
+        http
+          .get({ hostname, port, path }, (response) => {
+            response.resume();
+            resolve(response.statusCode!);
+          })
+          .on('error', reject);
+      });
+    assert.equal(await status('/path'), 200);
+    for (const path of ['//', '/..//', '/a/../..//'])
+      assert.equal(
+        await status(`${path}127.0.0.1:${portOf(other)}/`),
+        400,
+        path,
+      );
+  } finally {
+    app.close();
+    other.close();
+  }
+});
+
 test('JSON requests enforce content type, syntax, object shape, review rules, and the byte limit', async () => {
   const error = async (...args: Parameters<typeof call>) => {
     const { status, data } = await call(...args);
@@ -230,6 +291,38 @@ test('JSON requests enforce content type, syntax, object shape, review rules, an
     );
   assert.equal((await call(base)).data.pending.length, 0);
 
+  const reviews = `${base}/reviews`;
+  const marker = { x: 4, y: 8 };
+  const review = { kind: 'flag', comment: 'Flag', target: { id: 'title' } };
+  for (const invalid of [
+    { review, marker: { x: '4', y: 8 } },
+    { review: { kind: 'flag', comment: 'Flag' }, marker },
+  ])
+    assert.equal(
+      await error(reviews, 'POST', { revision, ...invalid }),
+      '400 INVALID_INPUT',
+    );
+  const { reviewId } = (
+    await call(reviews, 'POST', { revision, review, marker })
+  ).data;
+  const edit = `${reviews}/${reviewId}`;
+  assert.equal(await error(edit, 'PATCH', { revision }), '400 INVALID_INPUT');
+  const edited = await call(edit, 'PATCH', {
+    revision,
+    comment: ' ',
+    data: null,
+  });
+  assert.deepEqual(edited.data.session.pending[0], {
+    review: {
+      id: reviewId,
+      kind: review.kind,
+      data: null,
+      target: review.target,
+    },
+    revision,
+    marker,
+  });
+
   // An ended session answers a wait at once, so the wait route can take padded bodies.
   await call(`${base}/end`, 'POST', {});
   const padded = (padding: string) => JSON.stringify({ padding });
@@ -247,11 +340,12 @@ test('JSON requests enforce content type, syntax, object shape, review rules, an
 });
 
 test('the store carries a new kind of review without a transport change', async () => {
-  const store = new Store(path.join(dir, 'kinds'));
+  const directory = path.join(dir, 'kinds');
+  const store = new Store(directory);
   const source = path.join(root, 'kinds.html');
   fs.writeFileSync(source, '<!doctype html><h1>Kinds</h1>');
   const { id } = store.open(await sourceOf(source), 'r1');
-  const save = (review: object, extra: object = {}) =>
+  const save = (review: ObjectValue, extra: ObjectValue = {}) =>
     store.addReview(id, { revision: 'r1', review, ...extra });
   // No plugin defines `flag`: a targeted kind without data.
   const flagged = (selector: string) =>
@@ -268,8 +362,31 @@ test('the store carries a new kind of review without a transport change', async 
     store.get(id).pending.map((saved) => saved.review),
     expected,
   );
-  store.send(id, 'r1');
-  const delivered = store.take(id);
+  // Format 4 kept the SDK's marker beside any plugin data.
+  const marker = { x: 0, y: 13 };
+  const session = store.get(id);
+  const file = path.join(directory, 'sessions', `${id}.json`);
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      format: 4,
+      session: {
+        ...session,
+        pending: session.pending.map((saved, i) => ({
+          ...saved,
+          local: i === 0 ? { marker, caption: 'Flag' } : { marker },
+        })),
+      },
+    }),
+  );
+  const restored = new Store(directory);
+  const [flag, comment] = restored.get(id).pending;
+  assert.deepEqual(flag?.marker, marker);
+  assert.deepEqual(flag?.local, { caption: 'Flag' });
+  assert.deepEqual(comment?.marker, marker);
+  assert.equal(comment?.local, undefined);
+  restored.send(id, 'r1');
+  const delivered = restored.take(id);
   assert.ok(delivered && delivered.status === 'feedback');
   assert.partialDeepStrictEqual(delivered.feedback[0]!.reviews, expected);
 });

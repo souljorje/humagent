@@ -1,5 +1,5 @@
 import type { ServerResponse } from 'node:http';
-import { Failure } from '../../shared/validate.js';
+import { Failure } from '@/shared/validate';
 
 /** Answer a page request with an error. After the headers, only close it. */
 export function fail(res: ServerResponse, error: unknown) {

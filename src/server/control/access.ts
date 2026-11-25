@@ -1,10 +1,10 @@
 /** Which credential each control path needs. */
 import type { HonoRequest } from 'hono/request';
 import { timingSafeEqual } from 'node:crypto';
-import { SESSION_HEADER } from '../../shared/api.js';
-import { ensure, Failure } from '../../shared/validate.js';
-import { UI_ASSET } from '../assets.js';
-import type { Store } from '../sessions/store.js';
+import { SESSION_HEADER } from '@/shared/api';
+import { ensure, Failure } from '@/shared/validate';
+import { ASSET_PREFIX } from '@/server/assets';
+import type { Store } from '@/server/sessions/store';
 
 const equal = (a: unknown, b: string) =>
   typeof a === 'string' &&
@@ -17,7 +17,7 @@ const equal = (a: unknown, b: string) =>
  */
 const ACCESS: [RegExp, 'none' | 'session' | 'agent'][] = [
   [/^\/(?:health)?$/, 'none'],
-  [UI_ASSET, 'none'],
+  [new RegExp(`^${ASSET_PREFIX}`), 'none'],
   [
     /^\/api\/sessions\/([\w-]+)(?:\/(?:reviews(?:\/[^/]+)?|instruction|send|page|end))?$/,
     'session',

@@ -1,5 +1,5 @@
 /** Pure placement rules for markers and the editor. All values are CSS pixels in the viewport. */
-import type { MarkerPosition } from '../shared/marker.js';
+import type { MarkerPosition } from '@/shared/marker';
 
 export interface Point {
   x: number;
@@ -36,6 +36,16 @@ export function markerPoint(
     y: target.top + clamp(offset.y, 0, target.height),
   };
 }
+/** The position on one axis: after the start, or before it when it does not fit. */
+function along(start: number, size: number, limit: number) {
+  const after = start + GAP;
+  const fits = after + size <= limit - MARGIN;
+  return clamp(
+    fits ? after : start - size - GAP,
+    MARGIN,
+    limit - size - MARGIN,
+  );
+}
 /** The editor opens after its anchor point, flips when it does not fit, and stays inside the viewport. */
 export function panelPoint(
   point: Point,
@@ -43,24 +53,13 @@ export function panelPoint(
   viewport: Size,
   bar?: Point,
 ): Point {
-  const along = (start: number, size: number, limit: number) =>
-    clamp(
-      start + GAP + size <= limit - MARGIN ? start + GAP : start - size - GAP,
-      MARGIN,
-      limit - size - MARGIN,
-    );
-  const position = {
-    x: along(point.x, panel.width, viewport.width),
-    y: along(point.y, panel.height, viewport.height),
-  };
-  if (
-    bar &&
-    position.x + panel.width + GAP > bar.x &&
-    position.y + panel.height + GAP > bar.y
-  ) {
-    if (bar.x >= panel.width + MARGIN + GAP)
-      position.x = bar.x - panel.width - GAP;
-    else position.y = Math.max(MARGIN, bar.y - panel.height - GAP);
-  }
-  return position;
+  const x = along(point.x, panel.width, viewport.width);
+  const y = along(point.y, panel.height, viewport.height);
+  const reachesBar =
+    bar && x + panel.width + GAP > bar.x && y + panel.height + GAP > bar.y;
+  if (!reachesBar) return { x, y };
+  // Beside the bar, or above it when there is no room.
+  return bar.x >= panel.width + MARGIN + GAP
+    ? { x: bar.x - panel.width - GAP, y }
+    : { x, y: Math.max(MARGIN, bar.y - panel.height - GAP) };
 }

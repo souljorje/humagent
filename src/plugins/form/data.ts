@@ -1,7 +1,7 @@
-import type { SavedReview } from '../../shared/feedback.js';
-import type { ObjectValue } from '../../shared/json.js';
-import type { Contract } from '../../shared/plugin.js';
-import { ensure, object, text as limited } from '../../shared/validate.js';
+import type { SavedReview } from '@/shared/feedback';
+import type { ObjectValue } from '@/shared/json';
+import type { Contract } from '@/shared/plugin';
+import { ensure, object, text as limited } from '@/shared/validate';
 
 export const FORM_LIMITS = { label: 500, labelFields: 100 } as const;
 
@@ -12,6 +12,13 @@ export type FormLabels = {
 };
 export type FormLocal = { labels: FormLabels };
 
+function fieldLabel(field: unknown) {
+  object(field, 'Field label');
+  return {
+    label: limited(field.label, 'Field label', FORM_LIMITS.label),
+    value: limited(field.value, 'Field value', FORM_LIMITS.label, true),
+  };
+}
 function labels(value: unknown): FormLabels {
   object(value, 'Labels');
   const title = limited(value.title, 'Form title', FORM_LIMITS.label);
@@ -22,13 +29,7 @@ function labels(value: unknown): FormLabels {
   );
   return {
     title,
-    fields: fields.map((field) => {
-      object(field, 'Field label');
-      return {
-        label: limited(field.label, 'Field label', FORM_LIMITS.label),
-        value: limited(field.value, 'Field value', FORM_LIMITS.label, true),
-      };
-    }),
+    fields: fields.map(fieldLabel),
   };
 }
 /** Read the form values from a review that the host gave this plugin. */

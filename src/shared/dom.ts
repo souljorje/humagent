@@ -18,12 +18,6 @@ export function autosize(field: HTMLTextAreaElement, limit = 136) {
   field.style.height = 'auto';
   field.style.height = `${Math.min(limit, field.scrollHeight)}px`;
 }
-/** Add CSS to a document or a shadow root. A constructed sheet needs no inline style permission. */
-export function adoptStyles(root: Document | ShadowRoot, css: string) {
-  const sheet = new CSSStyleSheet();
-  sheet.replaceSync(css);
-  root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
-}
 /** Where a press landed, in viewport pixels. A keyboard activation has no position. */
 export function clickPoint(
   event: MouseEvent,

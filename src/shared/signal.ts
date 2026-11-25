@@ -1,8 +1,13 @@
 /** A minimal reactive value. Effects that read a signal run again after it changes. */
 interface Effect {
-  run(): void;
-  /** The signals that the effect read in its last run. */
-  sources: Set<Set<Effect>>;
+  readonly fn: () => void;
+  /** The readers of each signal that the effect read in its last run. */
+  readonly sources: Set<Readers>;
+}
+type Readers = Set<Effect>;
+interface Cell<T> {
+  value: T;
+  readonly readers: Readers;
 }
 let running: Effect | undefined;
 let queued: Set<Effect> | undefined;
@@ -12,31 +17,47 @@ export interface Signal<T> {
   (): T;
   set(value: T): void;
 }
+
+function read<T>({ readers, value }: Cell<T>) {
+  if (running) {
+    readers.add(running);
+    running.sources.add(readers);
+  }
+  return value;
+}
+function write<T>(cell: Cell<T>, value: T) {
+  if (Object.is(value, cell.value)) return;
+  cell.value = value;
+  cell.readers.forEach(schedule);
+}
 export function signal<T>(value: T): Signal<T> {
-  const readers = new Set<Effect>();
-  const read = (() => {
-    if (running) {
-      readers.add(running);
-      running.sources.add(readers);
-    }
-    return value;
-  }) as Signal<T>;
-  read.set = (next) => {
-    if (Object.is(next, value)) return;
-    value = next;
-    readers.forEach(schedule);
-  };
-  return read;
+  const cell: Cell<T> = { value, readers: new Set() };
+  return Object.assign(() => read(cell), {
+    set: (next: T) => write(cell, next),
+  });
+}
+
+function run(effect: Effect) {
+  const outer = running;
+  for (const readers of effect.sources) readers.delete(effect);
+  effect.sources.clear();
+  running = effect;
+  try {
+    effect.fn();
+  } finally {
+    running = outer;
+  }
+}
+function runQueued() {
+  const batch = queued;
+  queued = undefined;
+  batch?.forEach(run);
 }
 /** Several changes in one task cause one run. */
 function schedule(effect: Effect) {
   if (!queued) {
     queued = new Set();
-    queueMicrotask(() => {
-      const batch = queued!;
-      queued = undefined;
-      batch.forEach((item) => item.run());
-    });
+    queueMicrotask(runQueued);
   }
   queued.add(effect);
 }
@@ -45,20 +66,7 @@ function schedule(effect: Effect) {
  * Return a function that runs it at once, for changes that no signal holds.
  */
 export function effect(fn: () => void) {
-  const self: Effect = {
-    sources: new Set(),
-    run() {
-      self.sources.forEach((readers) => readers.delete(self));
-      self.sources.clear();
-      const outer = running;
-      running = self;
-      try {
-        fn();
-      } finally {
-        running = outer;
-      }
-    },
-  };
-  self.run();
-  return self.run;
+  const self: Effect = { fn, sources: new Set() };
+  run(self);
+  return () => run(self);
 }

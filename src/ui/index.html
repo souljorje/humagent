@@ -4,9 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Humagent</title>
-    <link rel="stylesheet" href="/ui/css-variables.css" />
     <link rel="stylesheet" href="/ui/app.css" />
-    <script type="module" src="/ui/app.js"></script>
+    <script type="module" src="/ui/app.ts"></script>
   </head>
   <body>
     <main aria-label="Page">
@@ -16,29 +15,32 @@
         sandbox="allow-scripts allow-forms allow-same-origin"
         allow="clipboard-write"
       ></iframe>
-      <div id="connecting" role="status">Connecting to the page…</div>
+      <div id="connecting" class="connecting" role="status">
+        Connecting to the page…
+      </div>
     </main>
     <section
       id="bar"
-      class="glass-surface"
+      class="bar glass-surface"
       aria-label="Humagent bar"
       data-open="false"
     >
-      <div id="notices">
-        <p id="error" role="alert" hidden></p>
-        <p id="update" role="status" hidden>
+      <div class="notices">
+        <p id="error" class="error" role="alert" hidden></p>
+        <p id="update" class="update" role="status" hidden>
           The page changed. Refresh it, then check stale reviews before sending.
-          <button id="reload-page" class="primary" type="button">
+          <button id="reload-page" class="reload-page primary" type="button">
             Refresh page
           </button>
         </p>
       </div>
       <section
         id="details"
+        class="details"
         aria-label="Pending feedback and agent status"
         inert
       >
-        <div id="details-content">
+        <div class="details-content">
           <section class="connection" aria-label="Agent connection">
             <div class="connection-heading">
               <h2 class="agent-status">
@@ -51,36 +53,40 @@
               </h2>
               <button
                 id="end"
-                class="icon"
+                class="end icon"
                 aria-label="End session"
                 disabled
               ></button>
             </div>
-            <p id="agent-hint" hidden>
+            <p id="agent-hint" class="agent-hint" hidden>
               Start <code>/humagent</code> in your agent chat to connect.
             </p>
           </section>
-          <h2 id="pending-count" hidden></h2>
-          <ol id="pending" aria-label="Pending feedback"></ol>
+          <h2 id="pending-count" class="pending-count" hidden></h2>
+          <ol id="pending" class="pending" aria-label="Pending feedback"></ol>
         </div>
       </section>
       <div class="bar-controls">
         <button
           id="bar-toggle"
-          class="icon"
+          class="bar-toggle icon"
           aria-label="Give feedback"
           data-tooltip="Give feedback"
           aria-pressed="false"
           aria-expanded="false"
           aria-controls="details"
         >
-          <span id="toggle-icon"></span>
-          <span id="toggle-dot" class="agent-dot" aria-hidden="true"></span>
-          <span id="toggle-count" hidden></span>
+          <span id="toggle-icon" class="toggle-icon"></span>
+          <span
+            id="toggle-dot"
+            class="toggle-dot agent-dot"
+            aria-hidden="true"
+          ></span>
+          <span id="toggle-count" class="toggle-count" hidden></span>
         </button>
         <textarea
           id="instruction"
-          class="feedback-input"
+          class="instruction feedback-input"
           aria-label="Instruction"
           rows="1"
           maxlength="4000"
@@ -88,7 +94,7 @@
         ></textarea>
         <button
           id="send"
-          class="primary icon"
+          class="send primary icon"
           aria-live="polite"
           disabled
         ></button>

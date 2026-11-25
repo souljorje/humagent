@@ -1,11 +1,11 @@
 /** What the human gives feedback on: an HTML file or a localhost app. */
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { Source } from '../../shared/feedback.js';
-import { ensure } from '../../shared/validate.js';
-import { localUrl } from '../validate.js';
-import { digest } from './documents.js';
-import { fetchDocument } from './upstream.js';
+import type { Source } from '@/shared/feedback';
+import { ensure } from '@/shared/validate';
+import { localUrl } from '@/server/validate';
+import { digest } from './documents';
+import { fetchDocument } from './upstream';
 
 export async function sourceOf(
   value: string,

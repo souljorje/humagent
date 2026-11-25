@@ -1,6 +1,6 @@
-import { cloneJson, type Json } from '../shared/json.js';
-import type { Review } from '../shared/feedback.js';
-import { ensure, envelope, Failure } from '../shared/validate.js';
+import { cloneJson } from '@/shared/json';
+import type { NewReview } from '@/shared/feedback';
+import { ensure, Failure } from '@/shared/validate';
 
 /** Sources must be explicit HTTP loopback addresses without credentials. */
 export function localUrl(url: URL) {
@@ -26,21 +26,9 @@ export function parseJson(source: string): unknown {
   }
 }
 
-/**
- * Check a review's envelope and give it an ID. The server stores `data` as it is.
- * The workspace applies the rules of the review's kind before it sends the review.
- */
-export function review(value: unknown, id: string): Review {
-  const { kind, comment, data, target } = envelope(value);
+export function ensureReviewContent({ comment, data, target }: NewReview) {
   ensure(
     comment || data !== undefined || target,
     'Each review needs a comment, data, or a target',
   );
-  return {
-    id,
-    kind,
-    ...(comment ? { comment } : {}),
-    ...(data !== undefined ? { data: data as Json } : {}),
-    ...(target ? { target } : {}),
-  };
 }

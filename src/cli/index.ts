@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-import { runtimeName, version } from '../server/version.js';
-import { errorMessage } from '../shared/errors.js';
-import { ensure } from '../shared/validate.js';
-import { commands, loop } from './commands.js';
-import { HELP } from './help.js';
-import { parse } from './options.js';
-import { output, outputError } from './output.js';
+import { runtimeName, version } from '@/server/version';
+import { errorMessage } from '@/shared/errors';
+import { ensure } from '@/shared/validate';
+import { commands, loop } from './commands';
+import { HELP } from './help';
+import { parse } from './options';
+import { output, outputError } from './output';
 
 async function main() {
   const allFlags = [...Object.values(commands), loop].flatMap(

@@ -5,8 +5,8 @@ import type {
   NewReview,
   SaveResult,
   Unsaved,
-} from './feedback.js';
-import type { Json } from './json.js';
+} from './feedback';
+import type { Json } from './json';
 
 /** The element of the page HTML that holds the bootstrap as JSON. */
 export const BOOTSTRAP_ID = '__humagent-bootstrap';
@@ -31,7 +31,10 @@ export interface Presentation {
 export interface Requests {
   /** A `key` makes this the one pending review of its kind with that key. `local` is the plugin's private data. */
   save: {
-    params: { review: NewReview; key?: string; local?: Json };
+    params: { review: NewReview } & Pick<
+      SavedReview,
+      'key' | 'local' | 'marker'
+    >;
     result: SaveResult;
   };
   edit: {

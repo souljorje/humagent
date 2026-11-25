@@ -1,4 +1,4 @@
-import type { SavedReview, Target } from '../../shared/feedback.js';
+import type { SavedReview, Target } from '@/shared/feedback';
 
 /** Proposed wording for one text node. Empty `after` proposes deletion. */
 export type EditData = { before: string; after: string };

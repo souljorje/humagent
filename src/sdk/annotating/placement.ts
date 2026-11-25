@@ -1,142 +1,154 @@
 /** Where the overlay draws: markers, the highlight, and the panel. */
-import type { PageEvents, Presentation } from '../../shared/bridge.js';
-import type { Availability, SavedReview } from '../../shared/feedback.js';
-import type { MarkerLocal } from '../../shared/marker.js';
-import { inView, markerPoint, panelPoint, type Point } from '../layout.js';
-import type { MarkerModel, OverlayModel, OverlayView } from '../overlay.js';
-import { findTarget } from '../targets.js';
-import type { CaptureState } from './capture.js';
-import type { Tools } from './tools.js';
+import { inView, markerPoint, panelPoint, type Point } from '@/sdk/layout';
+import {
+  measurePanel,
+  type MarkerModel,
+  type OverlayModel,
+} from '@/sdk/overlay';
+import { findTarget } from '@/sdk/targets';
+import type { Presentation } from '@/shared/bridge';
+import type { SavedReview } from '@/shared/feedback';
+import { render } from './render';
+import { report, resolve, type Annotator } from './state';
+import { findTool, layoutTools } from './tools';
 
-interface Hooks {
-  pending(): readonly SavedReview[];
-  resolve(saved: SavedReview): Element | null;
-  report<M extends 'availability' | 'scrollbars'>(
-    method: M,
-    params: PageEvents[M],
-  ): void;
-  render(): void;
+export interface PlacementState {
+  /** The element that the human points at. */
+  hovered?: Element;
+  highlightedReview?: string;
+  bar?: Presentation['bar'];
+  scheduled: boolean;
+  /** The marker, highlight, and panel positions of the last positioning pass. */
+  layout: {
+    readonly markers: MarkerModel[];
+    readonly highlight?: OverlayModel['highlight'];
+    readonly panel?: Point;
+  };
+}
+/** A pending review with its target on the page. */
+interface Located {
+  readonly saved: SavedReview;
+  readonly number: string;
+  readonly el: Element | null;
 }
 
-export function createPlacement(
-  view: OverlayView,
-  tools: Tools,
-  capture: CaptureState,
-  hooks: Hooks,
+export const createPlacement = (): PlacementState => ({
+  scheduled: false,
+  layout: { markers: [] },
+});
+
+/** The marker of a review in view. */
+function markersOf(
+  { tools, capture, placement }: Annotator,
+  { saved, number, el }: Located,
+): MarkerModel[] {
+  const rect = el?.getBoundingClientRect();
+  if (!rect || !inView(rect, innerHeight)) return [];
+  const { id, kind, comment } = saved.review;
+  return [
+    {
+      id,
+      number,
+      label: `Review ${number}: ${comment || (findTool(tools, kind)?.name ?? kind)}`,
+      expanded: capture.current?.saved?.review.id === id,
+      highlighted: placement.highlightedReview === id,
+      ...markerPoint(rect, saved.marker),
+    },
+  ];
+}
+
+const connectedRect = (el: Element | null | undefined) =>
+  el?.isConnected ? el.getBoundingClientRect() : undefined;
+
+/** The panel opens at the press. One that reaches the bar stays above it. */
+function panelPosition(
+  { view, capture, placement }: Annotator,
+  anchor: DOMRect | undefined,
 ) {
-  let hovered: Element | undefined;
-  let highlightedReview: string | undefined;
-  let bar: Presentation['bar'] | undefined;
-  let scheduled = false;
-  /** The marker, highlight, and panel positions of the last positioning pass. */
-  let layout: {
-    markers: MarkerModel[];
-    highlight?: OverlayModel['highlight'];
-    panel?: Point;
-  } = { markers: [] };
-  function reviewMarkers() {
-    const available: Availability[] = [];
-    const markers: MarkerModel[] = [];
-    for (const [index, saved] of hooks.pending().entries()) {
-      if (!saved.review.target) continue;
-      const el = hooks.resolve(saved);
-      const { id, kind, comment } = saved.review;
-      available.push({ id, available: !!el });
-      if (!el) continue;
-      const rect = el.getBoundingClientRect();
-      if (!inView(rect, innerHeight)) continue;
-      const number = String(index + 1);
-      const label = comment || (tools.find(kind)?.name ?? kind);
-      markers.push({
-        id,
-        number,
-        label: `Review ${number}: ${label}`,
-        expanded: capture.current()?.saved?.review.id === id,
-        highlighted: id === highlightedReview,
-        ...markerPoint(rect, (saved.local as MarkerLocal | undefined)?.marker),
-      });
-    }
-    return { available, markers };
-  }
-  function position() {
-    scheduled = false;
-    tools.layout();
-    const captured = capture.current();
-    const { available, markers } = reviewMarkers();
-    const target = captured ? findTarget(captured.target) : hovered;
-    const highlighted = highlightedReview
-      ? hooks.pending().find((saved) => saved.review.id === highlightedReview)
-      : undefined;
-    const highlightedTarget = highlighted ? hooks.resolve(highlighted) : target;
-    const highlight = highlightedTarget?.isConnected
-      ? highlightedTarget.getBoundingClientRect()
-      : null;
-    const editorAnchor =
-      target === highlightedTarget
-        ? highlight
-        : target?.isConnected
-          ? target.getBoundingClientRect()
-          : null;
-    const height = window.visualViewport?.height || innerHeight;
-    const panelSize = view.measurePanel((width) =>
-      bar && bar.x < width + 22
-        ? Math.min(height - 24, bar.y - 22)
-        : height - 24,
-    );
-    layout = {
-      markers,
-      highlight: highlight ?? undefined,
-      panel:
-        panelSize && editorAnchor && captured
-          ? panelPoint(
-              {
-                x: editorAnchor.left + captured.point.x,
-                y: editorAnchor.top + captured.point.y,
-              },
-              panelSize,
-              { width: innerWidth, height },
-              bar,
-            )
-          : layout.panel,
-    };
-    hooks.render();
-    hooks.report('availability', { items: available });
-    hooks.report('scrollbars', {
-      right: innerWidth - document.documentElement.clientWidth,
-      bottom: innerHeight - document.documentElement.clientHeight,
-    });
-  }
-  function schedule() {
-    if (!scheduled) {
-      scheduled = true;
-      requestAnimationFrame(position);
-    }
-  }
-  return {
-    /** The positions of the last positioning pass. */
-    layout: () => layout,
-    position,
-    schedule,
-    hovered: () => hovered,
-    /** Highlight the element that the human points at. */
-    hover(el?: Element) {
-      hovered = el;
-      schedule();
-    },
-    /** Highlight the target of a pending review. */
-    highlight(reviewId?: string) {
-      highlightedReview = reviewId;
-      schedule();
-    },
-    /** Follow a presentation. A removed pending review loses its marker at once, not at the next positioning pass. */
-    present(next: Presentation['bar'], ids: ReadonlySet<string>) {
-      bar = next;
-      if (highlightedReview && !ids.has(highlightedReview))
-        highlightedReview = undefined;
-      layout = {
-        ...layout,
-        markers: layout.markers.filter((marker) => ids.has(marker.id)),
-      };
-    },
+  const { bar, layout } = placement;
+  const { current } = capture;
+  const height = window.visualViewport?.height || innerHeight;
+  const size = measurePanel(view, (width) =>
+    bar && bar.x < width + 22 ? Math.min(height - 24, bar.y - 22) : height - 24,
+  );
+  if (!size || !anchor || !current) return layout.panel;
+  return panelPoint(
+    { x: anchor.left + current.point.x, y: anchor.top + current.point.y },
+    size,
+    { width: innerWidth, height },
+    bar,
+  );
+}
+
+/** Run a positioning pass now. */
+export function position(a: Annotator) {
+  const { capture, pending, placement } = a;
+  placement.scheduled = false;
+  layoutTools(a.tools);
+  const located: Located[] = pending.flatMap((saved, index) =>
+    saved.review.target
+      ? [{ saved, number: String(index + 1), el: resolve(a, saved) }]
+      : [],
+  );
+  const pointed = capture.current
+    ? findTarget(capture.current.target)
+    : placement.hovered;
+  // A highlighted review wins over the pointed element.
+  const review = pending.find(
+    (saved) => saved.review.id === placement.highlightedReview,
+  );
+  const highlighted = review ? resolve(a, review) : pointed;
+  const highlight = connectedRect(highlighted);
+  const anchor = pointed === highlighted ? highlight : connectedRect(pointed);
+  placement.layout = {
+    markers: located.flatMap((item) => markersOf(a, item)),
+    highlight,
+    panel: panelPosition(a, anchor),
+  };
+  render(a);
+  report(a, 'availability', {
+    items: located.map(({ saved, el }) => ({
+      id: saved.review.id,
+      available: !!el,
+    })),
+  });
+  report(a, 'scrollbars', {
+    right: innerWidth - document.documentElement.clientWidth,
+    bottom: innerHeight - document.documentElement.clientHeight,
+  });
+}
+
+/** Run one positioning pass in the next frame. */
+export function schedule(a: Annotator) {
+  if (a.placement.scheduled) return;
+  a.placement.scheduled = true;
+  requestAnimationFrame(() => position(a));
+}
+
+/** Highlight the element that the human points at. */
+export function hover(a: Annotator, el?: Element) {
+  a.placement.hovered = el;
+  schedule(a);
+}
+
+/** Highlight the target of a pending review. */
+export function highlight(a: Annotator, reviewId?: string) {
+  a.placement.highlightedReview = reviewId;
+  schedule(a);
+}
+
+/** Follow a presentation. A removed pending review loses its marker at once, not at the next positioning pass. */
+export function presentPlacement(
+  { placement }: Annotator,
+  bar: Presentation['bar'],
+  ids: ReadonlySet<string>,
+) {
+  const { highlightedReview, layout } = placement;
+  placement.bar = bar;
+  if (highlightedReview && !ids.has(highlightedReview))
+    placement.highlightedReview = undefined;
+  placement.layout = {
+    ...layout,
+    markers: layout.markers.filter((marker) => ids.has(marker.id)),
   };
 }

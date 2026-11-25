@@ -1,12 +1,8 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "rootDir": ".",
-    "noEmit": true,
-    "allowImportingTsExtensions": true,
     "noUncheckedIndexedAccess": false,
-    "types": ["node", "bun"]
+    "types": ["node", "bun", "vite/client"]
   },
-  "include": ["test/**/*.ts", "scripts/**/*.ts", "dist/**/*.d.ts"],
-  "exclude": []
+  "include": ["src", "test", "vite.config.ts"]
 }

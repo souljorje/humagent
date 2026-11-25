@@ -1,75 +1,116 @@
 /** Operations on one session. `access.ts` decides who can use each one. */
 import type { Hono } from 'hono';
-import type { WorkspaceView } from '../../shared/feedback.js';
-import { ensure } from '../../shared/validate.js';
-import type { PageServer } from '../pages/page-server.js';
-import type { Store } from '../sessions/store.js';
-import { body, json } from './http.js';
-import { waitResponse } from './wait.js';
+import { ensure } from '@/shared/validate';
+import { pageServer, snapshot, type Runtime } from '@/server/runtime';
+import { body, json } from './http';
+import { waitResponse } from './wait';
 
 export const sessionPath = '/api/sessions/:id{[\\w-]+}';
-export function registerSessionActions(
-  app: Hono,
-  store: Store,
-  pageServer: (id: string) => Promise<PageServer>,
-  snapshot: (id: string) => Promise<WorkspaceView>,
+
+/** Workspace writes return the fresh session, so the browser never guesses the result. */
+async function reply(runtime: Runtime, id: string, extra: object = {}) {
+  return json(200, { ...extra, session: await snapshot(runtime, id) });
+}
+
+async function addReview(runtime: Runtime, id: string, request: Request) {
+  const reviewId = runtime.store.addReview(id, await body(request));
+  return reply(runtime, id, { reviewId });
+}
+
+async function editReview(
+  runtime: Runtime,
+  id: string,
+  reviewId: string,
+  request: Request,
 ) {
-  /** Workspace writes return the fresh session, so the browser never guesses the result. */
-  const reply = async (id: string, extra: object = {}) =>
-    json(200, { ...extra, session: await snapshot(id) });
-  app.post(`${sessionPath}/reviews`, async (c) => {
-    const id = c.req.param('id');
-    const reviewId = store.addReview(id, await body(c.req.raw));
-    return reply(id, { reviewId });
-  });
-  app.patch(`${sessionPath}/reviews/:review`, async (c) => {
-    const id = c.req.param('id');
-    store.editReview(id, c.req.param('review'), await body(c.req.raw));
-    return reply(id);
-  });
-  app.delete(`${sessionPath}/reviews/:review`, async (c) => {
-    const id = c.req.param('id');
-    store.removeReview(id, c.req.param('review'), c.req.query('revision'));
-    return reply(id);
-  });
-  app.put(`${sessionPath}/instruction`, async (c) => {
-    const id = c.req.param('id');
-    store.setInstruction(id, (await body(c.req.raw)).instruction);
-    return reply(id);
-  });
-  app.post(`${sessionPath}/send`, async (c) => {
-    const id = c.req.param('id');
-    const value = await body(c.req.raw);
-    await (await pageServer(id)).checkRevision();
-    ensure(
-      store.get(id).ended || store.view(id).agent !== 'idle',
-      'Connect an agent before sending feedback.',
-      'AGENT_UNAVAILABLE',
-      409,
-    );
-    const feedback = store.send(id, value.revision);
-    return reply(id, { feedback });
-  });
-  app.post(`${sessionPath}/page`, async (c) => {
-    const id = c.req.param('id');
-    const value = await body(c.req.raw);
-    (await pageServer(id)).activate(value.documentId);
-    return reply(id);
-  });
-  app.post(`${sessionPath}/end`, async (c) => {
-    const id = c.req.param('id');
-    await body(c.req.raw);
-    store.end(id);
-    return reply(id);
-  });
-  app.post(`${sessionPath}/complete`, async (c) => {
-    const id = c.req.param('id');
-    store.complete(id, (await body(c.req.raw)).receipt);
-    return json(200, store.view(id));
-  });
-  app.post(`${sessionPath}/wait`, async (c) => {
-    await body(c.req.raw);
-    const id = c.req.param('id');
-    return waitResponse(c.req.raw, store, id);
-  });
+  runtime.store.editReview(id, reviewId, await body(request));
+  return reply(runtime, id);
+}
+
+async function removeReview(
+  runtime: Runtime,
+  id: string,
+  reviewId: string,
+  revision: string | undefined,
+) {
+  runtime.store.removeReview(id, reviewId, revision);
+  return reply(runtime, id);
+}
+
+async function setInstruction(runtime: Runtime, id: string, request: Request) {
+  runtime.store.setInstruction(id, (await body(request)).instruction);
+  return reply(runtime, id);
+}
+
+async function send(runtime: Runtime, id: string, request: Request) {
+  const { store } = runtime;
+  const { revision } = await body(request);
+  const page = await pageServer(runtime, id);
+  await page.checkRevision();
+  const { ended, agent } = store.view(id);
+  ensure(
+    ended || agent !== 'idle',
+    'Connect an agent before sending feedback.',
+    'AGENT_UNAVAILABLE',
+    409,
+  );
+  return reply(runtime, id, { feedback: store.send(id, revision) });
+}
+
+async function attachPage(runtime: Runtime, id: string, request: Request) {
+  const { documentId } = await body(request);
+  const page = await pageServer(runtime, id);
+  page.activate(documentId);
+  return reply(runtime, id);
+}
+
+async function end(runtime: Runtime, id: string, request: Request) {
+  await body(request);
+  runtime.store.end(id);
+  return reply(runtime, id);
+}
+
+async function complete({ store }: Runtime, id: string, request: Request) {
+  store.complete(id, (await body(request)).receipt);
+  return json(200, store.view(id));
+}
+
+async function wait({ store }: Runtime, id: string, request: Request) {
+  await body(request);
+  return waitResponse(request, store, id);
+}
+
+export function registerSessionActions(app: Hono, runtime: Runtime) {
+  app.post(`${sessionPath}/reviews`, ({ req }) =>
+    addReview(runtime, req.param('id'), req.raw),
+  );
+  app.patch(`${sessionPath}/reviews/:review`, ({ req }) =>
+    editReview(runtime, req.param('id'), req.param('review'), req.raw),
+  );
+  app.delete(`${sessionPath}/reviews/:review`, ({ req }) =>
+    removeReview(
+      runtime,
+      req.param('id'),
+      req.param('review'),
+      req.query('revision'),
+    ),
+  );
+  app.put(`${sessionPath}/instruction`, ({ req }) =>
+    setInstruction(runtime, req.param('id'), req.raw),
+  );
+  app.post(`${sessionPath}/send`, ({ req }) =>
+    send(runtime, req.param('id'), req.raw),
+  );
+  app.post(`${sessionPath}/page`, ({ req }) =>
+    attachPage(runtime, req.param('id'), req.raw),
+  );
+  app.post(`${sessionPath}/end`, ({ req }) =>
+    end(runtime, req.param('id'), req.raw),
+  );
+  app.post(`${sessionPath}/complete`, ({ req }) =>
+    complete(runtime, req.param('id'), req.raw),
+  );
+  app.post(`${sessionPath}/wait`, ({ req }) =>
+    wait(runtime, req.param('id'), req.raw),
+  );
 }

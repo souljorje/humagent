@@ -29,7 +29,7 @@ Use `--no-open` to open the URL yourself. Use `--no-wait` to exit after the comm
 humagent demo
 ```
 
-The demo opens an editable plan under `demos/VERSION/plan` in the data directory. It preserves existing files.
+The demo opens an editable page under `demos/VERSION` in the data directory. It preserves existing files.
 
 ### Agent skill
 

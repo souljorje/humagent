@@ -1,12 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { connect } from '../server/client.js';
-import { version } from '../server/version.js';
-import { ensure } from '../shared/validate.js';
-
-const ENTRY = fileURLToPath(new URL('./index.js', import.meta.url));
+import { connect } from '@/server/client';
+import { version } from '@/server/version';
+import { ensure } from '@/shared/validate';
 
 /** Check every 100 ms until `check` returns a value, at most `attempts` times. */
 async function poll<T>(check: () => Promise<T | null>, attempts: number) {
@@ -32,7 +29,7 @@ export async function service(directory: string) {
   // Keep the selected runtime for the detached server, including bunx --bun.
   const child = spawn(
     process.execPath,
-    [ENTRY, 'server', '--home', directory, '--json'],
+    [process.argv[1]!, 'server', '--home', directory, '--json'],
     {
       detached: true,
       stdio: ['ignore', log, log],

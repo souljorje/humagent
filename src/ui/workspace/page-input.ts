@@ -1,36 +1,42 @@
-import type { Unsaved } from '../../shared/feedback.js';
-import { signal } from '../../shared/signal.js';
-
 /** Input on the attached page that the server does not hold yet. */
-export function createPageInput() {
+import type { Unsaved } from '@/shared/feedback';
+import { signal, type Signal } from '@/shared/signal';
+
+/** A page that went away never reports that it saved, so the wait is limited. */
+const SAVE_LIMIT = 5000;
+
+export interface PageInput {
   /** The open editor has unfinished input. */
-  const editorDirty = signal(false);
+  readonly editorDirty: Signal<boolean>;
   /** The state of plugin input. */
-  const unsaved = signal<Unsaved | null>(null);
-  let resume: (() => void) | undefined;
-  function report(state: Unsaved | null) {
-    unsaved.set(state);
-    if (state !== 'saving') resume?.();
-  }
-  return {
-    editorDirty,
-    unsaved,
-    report,
-    /** A new page document starts without input. */
-    reset() {
-      editorDirty.set(false);
-      report(null);
-    },
-    /** Wait until the page stops saving. A page that went away never reports it, so the wait is limited. */
-    async settled() {
-      if (unsaved() !== 'saving') return;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      await new Promise<void>((resolve) => {
-        resume = resolve;
-        timer = setTimeout(resolve, 5000);
-      });
-      clearTimeout(timer);
-      resume = undefined;
-    },
-  };
+  readonly unsaved: Signal<Unsaved | null>;
+  /** Ends the wait for the page. */
+  resume?: () => void;
+}
+
+export const createPageInput = (): PageInput => ({
+  editorDirty: signal(false),
+  unsaved: signal<Unsaved | null>(null),
+});
+
+export function reportInput(input: PageInput, state: Unsaved | null) {
+  input.unsaved.set(state);
+  if (state !== 'saving') input.resume?.();
+}
+
+/** A new page document starts without input. */
+export function resetInput(input: PageInput) {
+  input.editorDirty.set(false);
+  reportInput(input, null);
+}
+
+/** Wait until the page stops saving. */
+export async function inputSettled(input: PageInput) {
+  if (input.unsaved() !== 'saving') return;
+  const { promise, resolve } = Promise.withResolvers<void>();
+  const timer = setTimeout(resolve, SAVE_LIMIT);
+  input.resume = resolve;
+  await promise;
+  clearTimeout(timer);
+  input.resume = undefined;
 }

@@ -1,6 +1,6 @@
 /** Checks of untrusted input. The server, the workspace, and the plugins share them. */
-import { LIMITS, type Target } from './feedback.js';
-import type { ObjectValue } from './json.js';
+import { LIMITS, type NewReview } from './feedback';
+import type { Json, ObjectValue } from './json';
 
 export class Failure extends Error {
   constructor(
@@ -46,33 +46,47 @@ export function text(
 }
 
 /** A review after the envelope check. `data` is still unchecked JSON. */
-export interface Envelope {
-  readonly kind: string;
-  readonly comment?: string;
-  readonly data?: unknown;
-  readonly target?: Target;
-}
+export type Envelope<Data = unknown> = Omit<NewReview, 'data'> & {
+  readonly data?: Data;
+};
 const REVIEW_FIELDS = new Set(['kind', 'comment', 'data', 'target']);
+export function reviewComment(value: unknown) {
+  const comment = text(value, 'Comment', LIMITS.comment, true);
+  return comment.trim() ? comment : undefined;
+}
+/** Omit absent fields and keep the review's wire order. */
+export function reviewFields<Data>({
+  kind,
+  comment,
+  data,
+  target,
+}: Envelope<Data>) {
+  return {
+    kind,
+    ...(comment ? { comment } : {}),
+    ...(data !== undefined ? { data } : {}),
+    ...(target ? { target } : {}),
+  };
+}
 /**
  * Check the fields that every review shares. No rule here depends on the kind.
  * Blank comments are dropped.
  */
+export function envelope(value: Json | undefined): NewReview;
+export function envelope(value: unknown): Envelope;
 export function envelope(value: unknown): Envelope {
   object(value, 'Review');
   const unsupported = Object.keys(value).find((key) => !REVIEW_FIELDS.has(key));
   ensure(unsupported === undefined, `Unsupported review field: ${unsupported}`);
-  const kind = text(value.kind, 'Review kind', LIMITS.key);
-  ensure(/^[a-z][a-z0-9-]*$/.test(kind), 'Invalid review kind');
+  const { kind, data, target } = value;
+  ensure(
+    typeof kind === 'string' &&
+      kind.length <= LIMITS.key &&
+      /^[a-z][a-z0-9-]*$/.test(kind),
+    'Invalid review kind',
+  );
   const comment =
-    value.comment === undefined
-      ? undefined
-      : text(value.comment, 'Comment', LIMITS.comment, true);
-  const { data, target } = value;
+    value.comment === undefined ? undefined : reviewComment(value.comment);
   if (target !== undefined) object(target, 'Target');
-  return {
-    kind,
-    ...(comment?.trim() ? { comment } : {}),
-    ...(data !== undefined ? { data } : {}),
-    ...(target !== undefined ? { target } : {}),
-  };
+  return reviewFields({ kind, comment, data, target });
 }

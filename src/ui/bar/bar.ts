@@ -1,24 +1,19 @@
 /** The workspace bar. It draws a model and reports input. It makes no requests. */
-import type { Plugin } from '../../shared/plugin.js';
-import {
-  adoptStyles,
-  autosize,
-  createElement,
-  setText,
-} from '../../shared/dom.js';
-import { icon } from '../../shared/icons.js';
-import { installTooltips } from '../../shared/tooltips.js';
-import { inputStyles } from '../../shared/input-styles.js';
-import { effect, signal } from '../../shared/signal.js';
+import { autosize, createElement, setText } from '@/shared/dom';
+import type { WorkspaceView } from '@/shared/feedback';
+import { icon } from '@/shared/icons';
+import type { Plugin } from '@/shared/plugin';
+import { effect, signal, type Signal } from '@/shared/signal';
+import { installTooltips } from '@/shared/tooltips';
 import type {
   AgentStatus,
   BarActions,
   BarModel,
   BarView,
-} from '../workspace/model.js';
-import { $ } from './controls.js';
-import { guardOutsidePress } from './outside-press.js';
-import { renderPending } from './pending.js';
+} from '@/ui/workspace/model';
+import { $ } from './controls';
+import { guardOutsidePress } from './outside-press';
+import { renderPending } from './pending';
 
 const AGENT_STATUS: Record<AgentStatus, string> = {
   ended: 'Session ended',
@@ -28,163 +23,187 @@ const AGENT_STATUS: Record<AgentStatus, string> = {
   working: 'Agent working',
   idle: 'No agent connected',
 };
+const SEND_ICON = {
+  Send: 'send',
+  'Sending…': 'spinner',
+  Sent: 'check',
+} as const;
+
+interface Bar {
+  readonly plugins: ReadonlyMap<string, Plugin>;
+  readonly actions: BarActions;
+  readonly isOpen: Signal<boolean>;
+  readonly sendState: Signal<BarModel['send']>;
+  /** The shown model. */
+  model?: BarModel;
+}
+
+/** The Send icon shows the state. Hidden text keeps it readable and announced. */
+function drawSend(label: BarModel['send']) {
+  const send = $('send');
+  send.dataset.state = label;
+  send.setAttribute('aria-busy', String(label === 'Sending…'));
+  send.innerHTML = icon(SEND_ICON[label]);
+  send.append(
+    createElement('span', { className: 'sr-only', textContent: label }),
+  );
+}
+
+/** Closed, the bar is one button. Open, it shows the instruction, Send, and the pending reviews. */
+function drawOpen(open: boolean) {
+  $('bar').dataset.open = String(open);
+  $('details').inert = !open;
+  $('bar-toggle').setAttribute('aria-expanded', String(open));
+}
+
+function setOpen({ isOpen, actions }: Bar, open: boolean) {
+  isOpen.set(open);
+  if (!open) actions.highlight();
+}
+
+/** The button opens the bar and turns annotating on. A second press reverses both. */
+function toggle(bar: Bar, keyboard = false) {
+  const { actions, isOpen, model } = bar;
+  if (!isOpen()) {
+    setOpen(bar, true);
+    // The human can pick page elements only on an attached page of a live session.
+    if (!model?.attached || !model.session || model.session.ended) return;
+    $('frame').focus();
+    actions.annotate(true, keyboard);
+  }
+  // The page confirms. It keeps annotating on while it has unfinished input.
+  else if (model?.annotating) actions.annotate(false, false);
+  else setOpen(bar, false);
+}
+
+/** Draw what does not need a session. */
+function drawState(model: BarModel) {
+  const { status, scrollbars } = model;
+  const { style } = document.body;
+  setText($('agent-state'), AGENT_STATUS[status]);
+  $('agent-indicator').dataset.state = status;
+  $('toggle-dot').dataset.state = status;
+  $('agent-hint').hidden = status !== 'idle';
+  setText($('error'), model.error);
+  $('error').hidden = !model.error;
+  setText($('bridge-status'), model.bridgeStatus);
+  setText($('instruction-status'), model.instructionStatus);
+  $('connecting').hidden = !model.connecting;
+  // Keep the bar clear of the page's scrollbars.
+  style.setProperty('--frame-right', `${scrollbars.right}px`);
+  style.setProperty('--frame-bottom', `${scrollbars.bottom}px`);
+  $('bar-toggle').setAttribute('aria-pressed', String(model.annotating));
+}
+
+function drawSession(
+  { actions, plugins, sendState }: Bar,
+  model: BarModel,
+  session: WorkspaceView,
+) {
+  const { ended } = session;
+  const count = model.pending.length;
+  const title = `${session.title} · Humagent`;
+  const instruction = $('instruction');
+  if (document.title !== title) document.title = title;
+  $('end').disabled = ended;
+  $('update').hidden = !model.changed;
+  $('toggle-count').hidden = !count;
+  setText($('toggle-count'), String(count));
+  $('pending-count').hidden = !count;
+  setText($('pending-count'), count ? `Pending (${count})` : '');
+  renderPending(model.pending, !ended, plugins, actions);
+  // The human's typed text wins until it is saved.
+  if (!model.instructionPending && document.activeElement !== instruction)
+    instruction.value = session.instruction;
+  instruction.disabled = ended;
+  autosize(instruction);
+  sendState.set(model.send);
+  $('send').disabled = !model.sendable || (!count && !instruction.value.trim());
+  $('send').dataset.tooltip = model.agent
+    ? 'Send your feedback to your agent'
+    : 'Connect an agent to send your feedback';
+}
+
+function update(bar: Bar, model: BarModel) {
+  // The bar follows annotating: the page can turn it off, and can refuse to.
+  if (bar.model && bar.model.annotating !== model.annotating)
+    setOpen(bar, model.annotating);
+  bar.model = model;
+  drawState(model);
+  if (model.session) drawSession(bar, model, model.session);
+}
+
+function onInstruction(actions: BarActions) {
+  autosize($('instruction'));
+  actions.instruction($('instruction').value);
+}
+
+function end(actions: BarActions) {
+  if (confirm('End this session? Pending feedback stays saved.')) actions.end();
+}
+
+function onKeydown(bar: Bar, event: KeyboardEvent) {
+  const send = $('send');
+  const submits = event.key === 'Enter' && (event.ctrlKey || event.metaKey);
+  if (event.key === 'Escape' && bar.isOpen()) {
+    toggle(bar);
+    $('bar-toggle').focus();
+  } else if (submits && !send.disabled) {
+    event.preventDefault();
+    send.click();
+  }
+}
+
+function onBeforeunload({ model }: Bar, event: BeforeUnloadEvent) {
+  if (!model?.instructionPending && !model?.editorDirty) return;
+  event.preventDefault();
+  event.returnValue = '';
+}
+
+function listen(bar: Bar) {
+  const { actions } = bar;
+  $('reload-page').onclick = actions.reload;
+  $('instruction').oninput = () => onInstruction(actions);
+  $('send').onclick = actions.send;
+  $('bar-toggle').onclick = (event) => toggle(bar, event.detail === 0);
+  $('end').onclick = () => end(actions);
+  guardOutsidePress(
+    () => !!bar.model?.editorDirty,
+    () => actions.outside(),
+  );
+  document.addEventListener('keydown', (event) => onKeydown(bar, event));
+  window.addEventListener('beforeunload', (e) => onBeforeunload(bar, e));
+  new ResizeObserver(actions.layout).observe($('bar'));
+  window.addEventListener('resize', actions.layout);
+}
+
+/** Top-left corner of the bar, in frame viewport pixels. */
+function barPosition() {
+  const bar = $('bar').getBoundingClientRect();
+  const frame = $('frame').getBoundingClientRect();
+  return { x: bar.left - frame.left, y: bar.top - frame.top };
+}
 
 export function createBar(
   plugins: ReadonlyMap<string, Plugin>,
   actions: BarActions,
 ): BarView {
-  let model: BarModel | undefined;
-
+  const bar: Bar = {
+    plugins,
+    actions,
+    isOpen: signal(false),
+    sendState: signal<BarModel['send']>('Send'),
+  };
   $('toggle-icon').innerHTML = icon('comment');
   $('end').innerHTML = icon('power');
-  $('reload-page').onclick = actions.reload;
-  /** The Send icon shows the state. Hidden text keeps it readable and announced. */
-  const sendState = signal<BarModel['send']>('Send');
-  effect(() => {
-    const label = sendState();
-    const send = $('send');
-    send.dataset.state = label;
-    send.setAttribute('aria-busy', String(label === 'Sending…'));
-    const name =
-      label === 'Sending…' ? 'spinner' : label === 'Sent' ? 'check' : 'send';
-    send.innerHTML = icon(name);
-    send.append(
-      createElement('span', { className: 'sr-only', textContent: label }),
-    );
-  });
+  effect(() => drawSend(bar.sendState()));
   installTooltips(document);
-  adoptStyles(
-    document,
-    [
-      inputStyles,
-      ...Array.from(plugins.values(), (plugin) => plugin.summary?.styles),
-    ].join('\n'),
-  );
-
-  const isOpen = signal(false);
-  /** Closed, the bar is one button. Open, it shows the instruction, Send, and the pending reviews. */
-  effect(() => {
-    const open = isOpen();
-    $('bar').dataset.open = String(open);
-    $('details').inert = !open;
-    $('details').dataset.expanded = String(open);
-    $('bar-toggle').setAttribute('aria-expanded', String(open));
-  });
-  function setOpen(open: boolean) {
-    isOpen.set(open);
-    if (!open) actions.highlight();
-  }
-  /** The human can pick page elements only on an attached page of a live session. */
-  const canComment = () =>
-    !!model?.attached && !!model.session && !model.session.ended;
-  /** The button opens the bar and turns annotating on. A second press reverses both. */
-  function toggle(keyboard = false) {
-    if (!isOpen()) {
-      setOpen(true);
-      if (canComment()) {
-        $('frame').focus();
-        actions.annotate(true, keyboard);
-      }
-    } else if (model?.annotating)
-      // The page confirms. It keeps annotating on while it has unfinished input.
-      actions.annotate(false, false);
-    else setOpen(false);
-  }
-  function update(current: BarModel) {
-    // The bar follows annotating: the page can turn it off, and can refuse to.
-    if (model && model.annotating !== current.annotating)
-      setOpen(current.annotating);
-    model = current;
-    setText($('agent-state'), AGENT_STATUS[current.status]);
-    $('agent-indicator').dataset.state = current.status;
-    $('toggle-dot').dataset.state = current.status;
-    $('agent-hint').hidden = current.status !== 'idle';
-    setText($('error'), current.error);
-    $('error').hidden = !current.error;
-    setText($('bridge-status'), current.bridgeStatus);
-    setText($('instruction-status'), current.instructionStatus);
-    $('connecting').hidden = !current.connecting;
-    document.body.style.setProperty(
-      '--frame-right',
-      `${current.scrollbars.right}px`,
-    );
-    document.body.style.setProperty(
-      '--frame-bottom',
-      `${current.scrollbars.bottom}px`,
-    );
-    $('bar-toggle').setAttribute('aria-pressed', String(current.annotating));
-    const session = current.session;
-    if (!session) return;
-    const title = `${session.title} · Humagent`;
-    if (document.title !== title) document.title = title;
-    const mutable = !session.ended;
-    $('end').disabled = session.ended;
-    $('update').hidden = !current.changed;
-    const count = current.pending.length;
-    $('toggle-count').hidden = !count;
-    setText($('toggle-count'), String(count));
-    $('pending-count').hidden = !count;
-    setText($('pending-count'), count ? `Pending (${count})` : '');
-    renderPending(current.pending, mutable, plugins, actions);
-    if (
-      !current.instructionPending &&
-      document.activeElement !== $('instruction')
-    )
-      $('instruction').value = session.instruction;
-    $('instruction').disabled = !mutable;
-    autosize($('instruction'));
-    sendState.set(current.send);
-    $('send').disabled =
-      !current.sendable || (!count && !$('instruction').value.trim());
-    $('send').dataset.tooltip = current.agent
-      ? 'Send your feedback to your agent'
-      : 'Connect an agent to send your feedback';
-  }
-
-  $('instruction').oninput = () => {
-    autosize($('instruction'));
-    actions.instruction($('instruction').value);
-  };
-  $('send').onclick = actions.send;
-  $('bar-toggle').onclick = (event) => toggle(event.detail === 0);
-  $('end').onclick = () => {
-    if (confirm('End this session? Pending feedback stays saved.'))
-      actions.end();
-  };
-  guardOutsidePress(
-    () => !!model?.editorDirty,
-    () => actions.outside(),
-  );
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && isOpen()) {
-      toggle();
-      $('bar-toggle').focus();
-    }
-    if (
-      event.key === 'Enter' &&
-      (event.ctrlKey || event.metaKey) &&
-      !$('send').disabled
-    ) {
-      event.preventDefault();
-      $('send').click();
-    }
-  });
-  window.addEventListener('beforeunload', (event) => {
-    if (!model?.instructionPending && !model?.editorDirty) return;
-    event.preventDefault();
-    event.returnValue = '';
-  });
-  new ResizeObserver(actions.layout).observe($('bar'));
-  window.addEventListener('resize', actions.layout);
-
+  effect(() => drawOpen(bar.isOpen()));
+  listen(bar);
   return {
     frame: $('frame'),
-    update,
-    barPosition() {
-      const bar = $('bar').getBoundingClientRect();
-      const frame = $('frame').getBoundingClientRect();
-      return { x: bar.left - frame.left, y: bar.top - frame.top };
-    },
+    update: (model) => update(bar, model),
+    barPosition,
     load(url) {
       $('frame').src = url;
     },

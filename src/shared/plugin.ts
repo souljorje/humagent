@@ -1,14 +1,14 @@
 /** Plugin interfaces. A plugin adds one kind of feedback review. The transport names no kind. */
+import type { Annotating, Tool } from '@/sdk/annotating/types';
 import type {
   SavedReview,
   NewReview,
   Review,
-  Target,
   SaveResult,
   Unsaved,
-} from './feedback.js';
-import type { Json } from './json.js';
-import type { Envelope } from './validate.js';
+} from './feedback';
+import type { Json } from './json';
+import type { Envelope } from './validate';
 
 /**
  * The data rules of one plugin. The workspace applies them to each review from the page, before it saves the review.
@@ -21,7 +21,7 @@ export interface Contract {
    * `previous` is set for an edit and for a keyed replacement.
    */
   validateReview(review: Envelope, previous?: Review): Json | undefined;
-  /** Validate plugin-specific local data. The SDK owns the marker field on reviews with a target. */
+  /** Validate the plugin's private data. */
   validateLocal?(value: unknown): Json | undefined;
 }
 
@@ -30,68 +30,8 @@ export interface ReviewSummary {
   title(saved: SavedReview): string;
   /** Draw content between the title and the comment. */
   body?(saved: SavedReview): Node | undefined;
-  /** CSS for the body. The bar adopts it once. */
-  styles?: string;
 }
 
-/** What the human pointed at. One of `saved`, `range`, `point`, or `keyboard` says how. */
-export interface Pick {
-  el: Element;
-  /** A saved pending review that the human reopens. */
-  saved?: SavedReview;
-  /** A text selection. */
-  range?: Range;
-  /** A press at this viewport point. */
-  point?: { x: number; y: number };
-  /** A keyboard choice of the element. */
-  keyboard?: boolean;
-}
-/** A tool's claim on a pick. The SDK opens its editor after recording the target. */
-export interface Hit {
-  el: Element;
-  /** The saved pending review that the pick reopens. */
-  saved?: SavedReview;
-  open(): Editor;
-}
-/** Return review fields when this editor or tool accepts the input. */
-type BuildReview = (
-  comment: string,
-) => Omit<NewReview, 'kind' | 'target'> | undefined;
-/** A tool's inline editor for one pick. */
-export interface Editor {
-  /** Target fields that the editor adds, such as a text node index. */
-  target?: Target;
-  /** The input that takes focus in place of the comment field. */
-  element?: HTMLElement;
-  confirmLabel: string;
-  build: BuildReview;
-  changed(): boolean;
-  valid(): boolean;
-  setReadOnly(value: boolean): void;
-  close(): void;
-}
-/** A plugin's part in element picking. The SDK asks tools in registry order. */
-export interface Tool {
-  /** The marker label of a pending review without a comment. */
-  name: string;
-  /** Claim a pick. `blocked` stops the pick without an editor. */
-  hit?(pick: Pick): Hit | 'blocked' | undefined;
-  /** Build a review when the open editor supplies none. */
-  build?: BuildReview;
-  /** The original text of a node that this tool changed on the page. */
-  textOf?(node: Node): string | undefined;
-  /** The start of each positioning pass. */
-  layout?(): void;
-}
-/** Page plugins use these methods to resolve saved targets and operate the open editor. */
-export interface Annotating {
-  /** The element of a pending review's target on this page revision. */
-  resolve(saved: SavedReview): Element | null;
-  /** An inline editor reports input, confirm, and cancel. */
-  input(): void;
-  confirm(): void;
-  cancel(): void;
-}
 /** What the page host gives to each page plugin. */
 export interface PageHost {
   /** The plugin's own attribute, `data-humagent-<kind>`. Page authors mark elements with it. */

@@ -1,8 +1,8 @@
 /** The record of the server that owns a state directory. The client finds the server through it. */
 import fs from 'node:fs';
 import path from 'node:path';
-import { ensure } from '../shared/validate.js';
-import { writeJson } from './storage.js';
+import { ensure } from '@/shared/validate';
+import { writeJson } from './storage';
 
 export interface ServerRecord {
   pid: number;
@@ -19,44 +19,50 @@ export function readRecord(directory: string): ServerRecord | null {
     return null;
   }
 }
-/** Claim a state directory for this process. A live owner refuses the claim. */
-export function claimDirectory(directory: string) {
-  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-  // The record claims the directory before the store opens. It gains origin and token after listen.
-  const record = recordFile(directory);
-  // `wx` fails when the record exists, so two servers cannot claim one directory.
-  const claim = () => {
-    const fd = fs.openSync(record, 'wx', 0o600);
-    fs.writeFileSync(fd, JSON.stringify({ pid: process.pid }));
-    fs.closeSync(fd);
-  };
+/** What a server holds while it owns a state directory. */
+export interface Claim {
+  publish(server: Omit<ServerRecord, 'pid'>): void;
+  release(): void;
+}
+
+/** `wx` fails when the record exists, so two servers cannot claim one directory. */
+function createRecord(record: string) {
+  const fd = fs.openSync(record, 'wx', 0o600);
+  fs.writeFileSync(fd, JSON.stringify({ pid: process.pid }));
+  fs.closeSync(fd);
+}
+/** A record without a readable process has an owner. */
+function hasOwner(directory: string) {
+  const pid = Number(readRecord(directory)?.pid);
+  if (!Number.isInteger(pid) || pid <= 0) return true;
   try {
-    claim();
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+/**
+ * Claim a state directory for this process. A live owner refuses the claim.
+ * The record claims the directory before the store opens. It gains origin and token after listen.
+ */
+export function claimDirectory(directory: string): Claim {
+  const record = recordFile(directory);
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  try {
+    createRecord(record);
   } catch {
-    let alive = true;
-    let pid = 0;
-    try {
-      pid = Number(JSON.parse(fs.readFileSync(record, 'utf8')).pid);
-    } catch {}
-    if (Number.isInteger(pid) && pid > 0) {
-      try {
-        process.kill(pid, 0);
-      } catch (e) {
-        alive = (e as NodeJS.ErrnoException).code !== 'ESRCH';
-      }
-    }
     ensure(
-      !alive,
+      !hasOwner(directory),
       'Another server owns this state directory',
       'SERVER_ACTIVE',
       409,
     );
     fs.unlinkSync(record);
-    claim();
+    createRecord(record);
   }
   return {
-    publish: (server: Omit<ServerRecord, 'pid'>) =>
-      writeJson(record, { pid: process.pid, ...server }),
+    publish: (server) => writeJson(record, { pid: process.pid, ...server }),
     release: () => fs.rmSync(record, { force: true }),
   };
 }

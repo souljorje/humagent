@@ -1,16 +1,18 @@
+/** Messages between the workspace and the page in the frame. */
 import type {
   PageEvents,
   PageMessage,
   Requests,
   WorkspaceEvents,
-} from '../shared/bridge.js';
-import type { WorkspaceView } from '../shared/feedback.js';
-import { errorMessage } from '../shared/errors.js';
+} from '@/shared/bridge';
+import type { WorkspaceView } from '@/shared/feedback';
+import { errorMessage } from '@/shared/errors';
 
+type Page = WorkspaceView['page'];
 interface Options {
   frame: HTMLIFrameElement;
   /** Where the page is served, or nothing before the first session view. */
-  page(): WorkspaceView['page'] | undefined;
+  page(): Page | undefined;
   /** Whether a message comes from the attached page document. */
   attached(msg: PageMessage): boolean;
   hello(msg: PageMessage): void;
@@ -25,66 +27,70 @@ interface Options {
   };
   failed(message: string): void;
 }
+type PageRequest = Extract<PageMessage, { id: string }>;
+type Reply = { result: unknown } | { error: string };
 
-/** Talk to the page in the frame. Each page request gets exactly one reply. */
+const isRequest = (msg: PageMessage): msg is PageRequest =>
+  'id' in msg && typeof msg.id === 'string';
+
+/** Reply to the sender, not the current page address, because it can change while a request runs. */
+function reply(event: MessageEvent, { channel, id }: PageRequest, body: Reply) {
+  (event.source as Window).postMessage(
+    { channel, method: 'result', id, ...body },
+    event.origin,
+  );
+}
+
+/** Each page request gets exactly one reply. */
+async function answer(
+  { failed, requests }: Options,
+  event: MessageEvent,
+  msg: PageRequest,
+  attached: boolean,
+) {
+  try {
+    // After a server restart the old page still runs and gets an error.
+    if (!attached || !Object.hasOwn(requests, msg.method))
+      throw new Error('Refresh the page to reconnect.');
+    const run = requests[msg.method] as (
+      params: unknown,
+      revision: string,
+    ) => Promise<unknown>;
+    reply(event, msg, { result: await run(msg.params, msg.revision) });
+  } catch (e) {
+    const error = errorMessage(e);
+    failed(error);
+    reply(event, msg, { error });
+  }
+}
+
+function receive(options: Options, event: MessageEvent<PageMessage | null>) {
+  const { events, frame } = options;
+  const msg = event.data;
+  const page = options.page();
+  if (!page || event.source !== frame.contentWindow) return;
+  if (typeof msg !== 'object' || !msg) return;
+  const current = event.origin === page.origin && msg.channel === page.channel;
+  if (msg.method === 'hello') {
+    if (current) options.hello(msg);
+    return;
+  }
+  const attached = current && options.attached(msg);
+  if (isRequest(msg)) void answer(options, event, msg, attached);
+  else if (attached && Object.hasOwn(events, msg.method))
+    (events[msg.method] as (params: unknown) => void)(msg.params);
+}
+
+/** Listen to the page in the frame. */
 export function connectPage(options: Options) {
-  const { frame, requests, events } = options;
-  window.addEventListener('message', (event) => {
-    const msg = event.data as PageMessage;
-    const page = options.page();
-    if (
-      !page ||
-      event.source !== frame.contentWindow ||
-      typeof msg !== 'object' ||
-      !msg
-    )
-      return;
-    const current =
-      event.origin === page.origin && msg.channel === page.channel;
-    if (msg.method === 'hello') {
-      if (current) options.hello(msg);
-      return;
-    }
-    const attached = current && options.attached(msg);
-    if ('id' in msg && typeof msg.id === 'string') {
-      // After a server restart the old page still runs and gets an error.
-      // Reply to the sender, not the current page address, because it can change while a request runs.
-      const source = event.source as Window;
-      const reply = (body: { result: unknown } | { error: string }) =>
-        source.postMessage(
-          { channel: msg.channel, method: 'result', id: msg.id, ...body },
-          event.origin,
-        );
-      const handle = requests[msg.method] as (
-        params: unknown,
-        revision: string,
-      ) => Promise<unknown>;
-      (attached && Object.hasOwn(requests, msg.method)
-        ? handle(msg.params, msg.revision)
-        : Promise.reject(new Error('Refresh the page to reconnect.'))
-      ).then(
-        (result) => reply({ result }),
-        (e) => {
-          options.failed(errorMessage(e));
-          reply({ error: errorMessage(e) });
-        },
-      );
-    } else if (attached && Object.hasOwn(events, msg.method))
-      (events[msg.method as keyof typeof events] as (params: unknown) => void)(
-        msg.params,
-      );
-  });
-  return {
-    post<M extends keyof WorkspaceEvents>(
-      method: M,
-      params: WorkspaceEvents[M],
-    ) {
-      const page = options.page();
-      if (page)
-        frame.contentWindow?.postMessage(
-          { channel: page.channel, method, params },
-          page.origin,
-        );
-    },
-  };
+  window.addEventListener('message', (event) => receive(options, event));
+}
+
+export function postToPage<M extends keyof WorkspaceEvents>(
+  frame: HTMLIFrameElement,
+  { channel, origin }: Page,
+  method: M,
+  params: WorkspaceEvents[M],
+) {
+  frame.contentWindow?.postMessage({ channel, method, params }, origin);
 }

@@ -1,5 +1,5 @@
 /** What the workspace logic and the bar share. */
-import type { SavedReview, WorkspaceView } from '../../shared/feedback.js';
+import type { SavedReview, WorkspaceView } from '@/shared/feedback';
 
 export type AgentStatus =
   'ended' | 'offline' | 'connected' | 'sent' | 'working' | 'idle';

@@ -2,9 +2,9 @@ import { test as base, expect, type Frame, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createServer } from '../../dist/server/server.js';
-import type { Delivered } from '../../dist/shared/feedback.js';
-import { fixture } from '../fixtures.ts';
+import { createServer } from 'humagent';
+import type { Delivered } from 'humagent/feedback';
+import { fixture } from '../fixtures';
 
 /** One server, one copy of the demo page, and the actions of a human and an agent. */
 export const test = base.extend<{
@@ -34,7 +34,7 @@ export const test = base.extend<{
 
 async function createHumagent(page: Page, directory: string) {
   const state = path.join(directory, 'state');
-  const file = path.join(directory, 'examples/plan.html');
+  const file = path.join(directory, 'examples/index.html');
   fs.cpSync(
     fileURLToPath(new URL('../../dist/examples/', import.meta.url)),
     path.dirname(file),

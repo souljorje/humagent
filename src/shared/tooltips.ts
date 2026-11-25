@@ -1,150 +1,173 @@
-import { createElement } from './dom.js';
-import { materialStyles } from './material-styles.js';
+import { createElement } from './dom';
 
-/** Tooltips stay outside clipped panels. Disabled buttons retain a keyboard focus target. */
-export function installTooltips(root: Document | ShadowRoot) {
+type Root = Document | ShadowRoot;
+interface Tooltip {
+  readonly root: Root;
+  readonly element: HTMLElement;
+  /** The element that the tooltip describes. */
+  active: HTMLElement | null;
+  timer?: ReturnType<typeof setTimeout>;
+}
+
+const MARGIN = 12;
+const GAP = 8;
+const HOVER_DELAY = 250;
+const OBSERVED: MutationObserverInit = {
+  subtree: true,
+  childList: true,
+  attributes: true,
+  attributeFilter: ['disabled', 'hidden', 'aria-label', 'data-tooltip'],
+};
+
+const labelOf = (el: HTMLElement) =>
+  el.dataset.tooltip || el.getAttribute('aria-label') || el.textContent || '';
+
+const controlOf = (event: Event) =>
+  event
+    .composedPath()
+    .find(
+      (target): target is HTMLElement =>
+        target instanceof HTMLElement &&
+        target.matches('button,[data-tooltip],.tooltip-anchor'),
+    );
+
+const within = (value: number, size: number, limit: number) =>
+  Math.max(MARGIN, Math.min(value, limit - size - MARGIN));
+
+function setPixels(el: HTMLElement, side: 'left' | 'top', value: number) {
+  const pixels = `${value}px`;
+  if (el.style[side] !== pixels) el.style[side] = pixels;
+}
+
+/** Above its target, or below it when there is no room. */
+function place(element: HTMLElement, target: DOMRect) {
+  const box = element.getBoundingClientRect();
+  const left = target.left + (target.width - box.width) / 2;
+  const above = target.top - box.height - GAP;
+  const top = above >= MARGIN ? above : target.bottom + GAP;
+  setPixels(element, 'left', within(left, box.width, innerWidth));
+  setPixels(element, 'top', within(top, box.height, innerHeight));
+}
+
+function hide(tooltip: Tooltip) {
+  clearTimeout(tooltip.timer);
+  tooltip.active?.removeAttribute('aria-describedby');
+  tooltip.active = null;
+  tooltip.element.hidden = true;
+}
+
+function position(tooltip: Tooltip) {
+  const { active, element } = tooltip;
+  if (!active || element.hidden) return;
+  const rect = active.getBoundingClientRect();
+  if (active.isConnected && rect.width && rect.height) place(element, rect);
+  else hide(tooltip);
+}
+
+function describe(tooltip: Tooltip, el: HTMLElement) {
+  if (!el.isConnected || !el.getClientRects().length) return hide(tooltip);
+  tooltip.element.textContent = labelOf(el);
+  tooltip.element.hidden = false;
+  el.setAttribute('aria-describedby', tooltip.element.id);
+  position(tooltip);
+}
+
+function show(tooltip: Tooltip, el: HTMLElement | undefined, delay = 0) {
+  if (!el || (tooltip.active === el && !tooltip.element.hidden)) return;
+  hide(tooltip);
+  tooltip.active = el;
+  tooltip.timer = setTimeout(() => describe(tooltip, el), delay);
+}
+
+/** The keyboard focus keeps the tooltip. */
+function onPointerout(tooltip: Tooltip) {
+  const { activeElement } = tooltip.root;
+  if (!tooltip.active?.contains(activeElement)) hide(tooltip);
+}
+
+/** Disabled buttons retain a keyboard focus target. */
+function wrap(button: HTMLButtonElement) {
+  const parent = button.parentElement!;
+  if (parent.classList.contains('tooltip-anchor')) return parent;
+  const wrapper = createElement('span', { className: 'tooltip-anchor' });
+  button.before(wrapper);
+  wrapper.append(button);
+  return wrapper;
+}
+
+function prepare(button: HTMLButtonElement) {
+  if (button.classList.contains('marker')) return;
+  const wrapper = wrap(button);
+  const label = labelOf(button);
+  wrapper.hidden = button.hidden;
+  wrapper.tabIndex = button.disabled ? 0 : -1;
+  if (wrapper.getAttribute('aria-label') !== label)
+    wrapper.setAttribute('aria-label', label);
+  if (wrapper.dataset.tooltip !== label) wrapper.dataset.tooltip = label;
+}
+
+const isButton = (node: Node | null): node is HTMLButtonElement =>
+  node instanceof HTMLButtonElement;
+
+/** The buttons of an added node. */
+const buttonsIn = (node: Node) =>
+  node instanceof Element
+    ? [node, ...node.querySelectorAll('button')].filter(isButton)
+    : [];
+
+/** The buttons that a change concerns. */
+function buttonsOf({ target, addedNodes }: MutationRecord) {
+  const changed = target instanceof Element ? target.closest('button') : null;
+  return [changed, ...Array.from(addedNodes, buttonsIn).flat()].filter(
+    isButton,
+  );
+}
+
+function onMutations(tooltip: Tooltip, records: MutationRecord[]) {
+  const { active, element } = tooltip;
+  const changes = records.filter(({ target }) => target !== element);
+  for (const button of new Set(changes.flatMap(buttonsOf)))
+    if (button.isConnected) prepare(button);
+  // The label can change while the tooltip is open.
+  if (active && !element.hidden && element.textContent !== labelOf(active)) {
+    element.textContent = labelOf(active);
+    position(tooltip);
+  }
+}
+
+function listen(tooltip: Tooltip) {
+  const { root } = tooltip;
+  root.addEventListener('pointerover', (event) =>
+    show(tooltip, controlOf(event), HOVER_DELAY),
+  );
+  root.addEventListener('pointerout', () => onPointerout(tooltip));
+  root.addEventListener('focusin', (event) => show(tooltip, controlOf(event)));
+  root.addEventListener('focusout', () => hide(tooltip));
+  for (const type of ['pointerdown', 'keydown', 'scroll'])
+    root.addEventListener(type, () => hide(tooltip), true);
+  addEventListener('resize', () => position(tooltip));
+}
+
+/** Tooltips stay outside clipped panels. */
+export function installTooltips(root: Root) {
+  const tooltip: Tooltip = {
+    root,
+    element: createElement('div', {
+      className: 'control-tooltip glass-surface',
+      id: `tooltip-${crypto.randomUUID()}`,
+      role: 'tooltip',
+      hidden: true,
+    }),
+    active: null,
+  };
   const container = root instanceof Document ? root.body : root;
-  const sheet = new CSSStyleSheet();
-  sheet.replaceSync(`
-    ${materialStyles}
-    .tooltip-anchor{display:inline-flex;flex-shrink:0;border-radius:var(--ha-radius-button)}
-    .tooltip-anchor[hidden]{display:none!important}
-    .tooltip-anchor:focus-visible{outline:2px solid var(--ha-focus-ring);outline-offset:2px}
-    .control-tooltip {
-      --ha-glass-fill: var(--ha-bg-tooltip);
-      position: fixed;
-      z-index: 2147483647;
-      pointer-events: none;
-      box-sizing: border-box;
-      width: max-content;
-      max-width: calc(100vw - 24px);
-      padding: var(--ha-spacing-1-5) 9px;
-      border: 0;
-      border-radius: var(--ha-radius-compact);
-      color: var(--ha-fg);
-      font: var(--ha-font-tooltip);
-      overflow-wrap: anywhere;
-      transition: opacity 120ms, translate 120ms, display 120ms allow-discrete;
-    }
-    .control-tooltip[hidden]{display:none;opacity:0;translate:0 3px}
-    @starting-style{.control-tooltip:not([hidden]){opacity:0;translate:0 3px}}
-    @media(prefers-reduced-motion:reduce){.control-tooltip{transition:none}}
-  `);
-  root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
-  const tooltip = createElement('div', {
-    className: 'control-tooltip glass-surface',
-    id: `tooltip-${crypto.randomUUID()}`,
-    role: 'tooltip',
-    hidden: true,
-  });
-  container.append(tooltip);
-  let active: HTMLElement | null = null;
-  let timer: ReturnType<typeof setTimeout>;
-  const label = (el: HTMLElement) =>
-    el.dataset.tooltip || el.getAttribute('aria-label') || el.textContent || '';
-  function hide() {
-    clearTimeout(timer);
-    active?.removeAttribute('aria-describedby');
-    active = null;
-    tooltip.hidden = true;
-  }
-  function position() {
-    if (!active || tooltip.hidden) return;
-    const rect = active.getBoundingClientRect();
-    if (!active.isConnected || !rect.width || !rect.height) return hide();
-    const box = tooltip.getBoundingClientRect();
-    const left = `${Math.max(12, Math.min(rect.left + (rect.width - box.width) / 2, innerWidth - box.width - 12))}px`;
-    const top = `${Math.max(12, Math.min(rect.top - box.height - 8 >= 12 ? rect.top - box.height - 8 : rect.bottom + 8, innerHeight - box.height - 12))}px`;
-    if (tooltip.style.left !== left) tooltip.style.left = left;
-    if (tooltip.style.top !== top) tooltip.style.top = top;
-  }
-  function show(el: HTMLElement, delay = 0) {
-    if (active === el && !tooltip.hidden) return;
-    hide();
-    active = el;
-    timer = setTimeout(() => {
-      if (!el.isConnected || !el.getClientRects().length) return hide();
-      tooltip.textContent = label(el);
-      tooltip.hidden = false;
-      el.setAttribute('aria-describedby', tooltip.id);
-      position();
-    }, delay);
-  }
-  function control(event: Event) {
-    return event
-      .composedPath()
-      .find(
-        (el) =>
-          el instanceof HTMLElement &&
-          (el.matches('button,[data-tooltip]') ||
-            el.classList.contains('tooltip-anchor')),
-      ) as HTMLElement | undefined;
-  }
-  root.addEventListener('pointerover', (event) => {
-    const el = control(event);
-    if (el) show(el, 250);
-  });
-  root.addEventListener('pointerout', () => {
-    if (
-      active &&
-      (active === root.activeElement || active.contains(root.activeElement))
-    )
-      return;
-    hide();
-  });
-  root.addEventListener('focusin', (event) => {
-    const el = control(event);
-    if (el) show(el);
-  });
-  root.addEventListener('focusout', hide);
-  root.addEventListener('pointerdown', hide, true);
-  root.addEventListener('keydown', hide, true);
-  root.addEventListener('scroll', hide, true);
-  addEventListener('resize', position);
-  function prepare(button: HTMLButtonElement) {
-    if (button.classList.contains('marker')) return;
-    let wrapper = button.parentElement!;
-    if (!wrapper.classList.contains('tooltip-anchor')) {
-      wrapper = createElement('span', { className: 'tooltip-anchor' });
-      button.before(wrapper);
-      wrapper.append(button);
-    }
-    wrapper.hidden = button.hidden;
-    wrapper.tabIndex = button.disabled ? 0 : -1;
-    const text = label(button);
-    if (wrapper.getAttribute('aria-label') !== text)
-      wrapper.setAttribute('aria-label', text);
-    if (wrapper.dataset.tooltip !== text) wrapper.dataset.tooltip = text;
-  }
+  container.append(tooltip.element);
+  listen(tooltip);
   root
     .querySelectorAll<HTMLButtonElement>('button:not(.marker)')
     .forEach(prepare);
-  new MutationObserver((records) => {
-    const buttons = new Set<HTMLButtonElement>();
-    function collect(el: Element) {
-      if (el instanceof HTMLButtonElement) buttons.add(el);
-    }
-    for (const record of records) {
-      if (record.target === tooltip) continue;
-      if (record.target instanceof Element) {
-        const button = record.target.closest('button');
-        if (button) buttons.add(button);
-      }
-      record.addedNodes.forEach((node) => {
-        if (!(node instanceof Element)) return;
-        collect(node);
-        node.querySelectorAll('button').forEach(collect);
-      });
-    }
-    for (const button of buttons) if (button.isConnected) prepare(button);
-    if (active && !tooltip.hidden && tooltip.textContent !== label(active)) {
-      tooltip.textContent = label(active);
-      position();
-    }
-  }).observe(root, {
-    subtree: true,
-    childList: true,
-    attributes: true,
-    attributeFilter: ['disabled', 'hidden', 'aria-label', 'data-tooltip'],
-  });
+  new MutationObserver((records) => onMutations(tooltip, records)).observe(
+    root,
+    OBSERVED,
+  );
 }

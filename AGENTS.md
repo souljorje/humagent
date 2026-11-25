@@ -6,6 +6,10 @@ Preserve application behavior. Keep task-specific requests as data, not backend 
 
 Treat inputs and shared snapshots as read-only. Prefer collection methods that return new values. Keep local mutation when it avoids repeated copies or makes an algorithm clearer.
 
+Write functions at module level and pass state as an explicit argument. Keep decisions pure. Nest a function only as a short callback.
+
+Extract a function when code reuses it, when it handles an event, or when it is one complete decision. Keep other steps in the function that uses them.
+
 ## Map
 
 | Path | Contains |
@@ -22,8 +26,8 @@ Treat inputs and shared snapshots as read-only. Prefer collection methods that r
 | `src/sdk/annotating/` | Annotation input, the editor, and placement |
 | `src/plugins/` | One review kind per module |
 | `src/shared/` | Contracts, validation, helpers |
-| `src/examples/` | Example pages |
-| `scripts/` | Build script |
+| `src/examples/` | The demo page, which is also the development page |
+| `vite.config.ts` | Build and development server of browser code |
 | `test/` | CLI, server, and browser tests |
 
 ## Invariants
@@ -38,7 +42,9 @@ Treat inputs and shared snapshots as read-only. Prefer collection methods that r
 ## Runtime
 
 - Use Bun 1.4.4 for installs, builds, and tests. Keep `bun.lock` frozen in CI.
-- Use TypeScript everywhere. Compile browser code to native JavaScript modules.
+- Use TypeScript everywhere. Vite builds all JavaScript and declarations. `tsrs` checks types.
+- Keep Vite out of `src/server/` and `src/cli/`.
+- Follow the [style and import rules](docs/development.md#styles).
 - Support Node.js 24+ and Bun 1.4.4+ in published code. npm users must not need Bun.
 - Keep temporary output in `.local/`, except `.turbo/`.
 

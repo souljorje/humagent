@@ -2,10 +2,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { Source } from '../../shared/feedback.js';
-import { ensure, Failure } from '../../shared/validate.js';
-import { noStore } from '../assets.js';
-import { DOCUMENT_LIMIT, type Decorate } from './documents.js';
+import type { Source } from '@/shared/feedback';
+import { ensure, Failure } from '@/shared/validate';
+import { noStore } from '@/server/assets';
+import { DOCUMENT_LIMIT, type Decorate } from './documents';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -26,6 +26,15 @@ const MIME: Record<string, string> = {
   '.wasm': 'application/wasm',
   '.txt': 'text/plain',
 };
+async function canonicalPath(file: string) {
+  try {
+    return await fs.realpath(file);
+  } catch (error) {
+    const { code } = error as NodeJS.ErrnoException;
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
+    throw new Failure(404, 'NOT_FOUND', 'File not found');
+  }
+}
 export async function safeFile(root: string, requestPath: string) {
   let decoded: string;
   try {
@@ -41,12 +50,7 @@ export async function safeFile(root: string, requestPath: string) {
     'FORBIDDEN',
     403,
   );
-  const canonical = await fs
-    .realpath(path.resolve(root, `.${decoded}`))
-    .catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
-      throw new Failure(404, 'NOT_FOUND', 'File not found');
-    });
+  const canonical = await canonicalPath(path.resolve(root, `.${decoded}`));
   const relative = path.relative(root, canonical);
   ensure(
     relative !== '' &&

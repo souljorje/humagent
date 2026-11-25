@@ -1,149 +1,195 @@
 /** Text previews on the page. Own only the edited text node. Restore it only while no one else wrote to it. */
-import type { SavedReview } from '../../shared/feedback.js';
-import { editOf, textNodeOf } from './data.js';
+import type { SavedReview } from '@/shared/feedback';
+import { editOf, textNodeOf } from './data';
 
 interface Preview {
   saved: SavedReview;
-  node: Text;
-  target: Element;
-  before: string;
+  readonly node: Text;
+  readonly target: Element;
+  readonly before: string;
   written: string;
-  /** Counts Humagent's own writes, so any other write proves the application took the text over. */
-  observer: MutationObserver;
+  /** Sees every write to the node. More writes than Humagent's own prove that the application took the text over. */
+  readonly observer: MutationObserver;
   writes: number;
   owned: boolean;
 }
 /** The text node that the inline editor replaces while it is open. */
 export interface Editing {
-  node: Text;
-  element: HTMLElement;
-  parent: Node;
-  before: string;
+  readonly node: Text;
+  readonly element: HTMLElement;
+  readonly parent: Node;
+  readonly before: string;
+}
+export interface Previews {
+  readonly byReview: Map<string, Preview>;
+  readonly byNode: WeakMap<Text, Preview>;
+  /** Pending reviews whose text the application changed. Humagent stops drawing their preview. */
+  readonly suppressed: Set<string>;
+}
+/** What previews read from the page. */
+export interface PageState {
+  resolve(saved: SavedReview): Element | null;
+  readonly editing?: Editing;
 }
 
-export function createPreviews(hooks: {
-  resolve(saved: SavedReview): Element | null;
-  editing(): Editing | undefined;
-}) {
-  const previews = new Map<string, Preview>();
-  const nodes = new WeakMap<Text, Preview>();
-  // Pending reviews whose text the application changed. Humagent stops drawing their preview.
-  const suppressed = new Set<string>();
-  function mutations(
-    preview: Preview,
-    records = preview.observer.takeRecords(),
-  ) {
-    const own = Math.min(preview.writes, records.length);
-    preview.writes -= own;
-    // The application may write the same text after the agent applies the change.
-    if (records.length > own) preview.owned = false;
-  }
-  function valid(preview: Preview) {
-    mutations(preview);
-    const editing = hooks.editing();
-    return (
-      preview.owned &&
-      ((preview.node.isConnected &&
-        preview.node.parentNode === preview.target) ||
-        (editing?.node === preview.node &&
-          editing.element.parentNode === preview.target)) &&
-      preview.node.data === preview.written
-    );
-  }
-  function forget(id: string, preview: Preview) {
-    preview.observer.disconnect();
-    nodes.delete(preview.node);
-    previews.delete(id);
-  }
-  function textNodeAt(saved: SavedReview, target: Element): Text | null {
-    const index = textNodeOf(saved);
-    if (!Number.isInteger(index) || typeof index !== 'number') return null;
-    const node = target.childNodes[index];
-    return node instanceof Text ? node : null;
-  }
-  function inEditor(
-    saved: SavedReview,
-    previous: Preview | undefined,
-    editing: Editing | undefined,
-  ) {
-    if (!editing) return false;
-    if (previous?.node === editing.node) return true;
-    const index = textNodeOf(saved);
-    return (
-      index !== undefined &&
-      hooks.resolve(saved) === editing.parent &&
-      editing.parent.childNodes[Number(index)] === editing.element
-    );
-  }
-  function draw(saved: SavedReview, editing: Editing | undefined) {
-    const edit = editOf(saved);
-    if (!edit || suppressed.has(saved.review.id)) return;
-    const previous = previews.get(saved.review.id);
-    if (inEditor(saved, previous, editing)) return;
-    const target = previous?.target || hooks.resolve(saved);
-    if (!target) return;
-    const node = previous?.node || textNodeAt(saved, target);
-    if (!node || (!previous && node.data !== edit.before)) {
-      suppressed.add(saved.review.id);
-      return;
-    }
-    const preview: Preview = previous || {
-      saved,
-      node,
-      target,
-      before: edit.before,
-      written: edit.after,
-      observer: new MutationObserver((records) => mutations(preview, records)),
-      writes: 0,
-      owned: true,
-    };
-    if (!previous) preview.observer.observe(node, { characterData: true });
-    preview.saved = saved;
-    preview.written = edit.after;
-    previews.set(saved.review.id, preview);
-    nodes.set(node, preview);
-    if (node.data !== edit.after) {
-      preview.writes++;
-      node.data = edit.after;
-    }
-  }
-  return {
-    /** Reopen the text node only while this review still owns its preview. */
-    ownedNode(saved: SavedReview, target: Element) {
-      const preview = previews.get(saved.review.id);
-      return preview?.target === target && valid(preview) ? preview.node : null;
-    },
-    /** The original text of the open editor or of a previewed text node. */
-    textOf(node: Node): string | undefined {
-      const editing = hooks.editing();
-      if (editing?.element === node) return editing.before;
-      if (!(node instanceof Text)) return undefined;
-      const preview = nodes.get(node);
-      return preview && valid(preview) ? preview.before : undefined;
-    },
-    /** The pending review whose preview a text node shows. */
-    existing(node: Text) {
-      const preview = nodes.get(node);
-      return preview && valid(preview) ? preview.saved : undefined;
-    },
-    /** Draw the wanted previews. Remove the others. */
-    reconcile(pending: readonly SavedReview[]) {
-      const editing = hooks.editing();
-      const wanted = new Map(pending.map((saved) => [saved.review.id, saved]));
-      for (const [id, preview] of previews) {
-        if (editing?.node === preview.node) continue;
-        const saved = wanted.get(id);
-        if (saved) {
-          if (valid(preview) && hooks.resolve(saved) === preview.target)
-            continue;
-          // The application changed this target. Keep the feedback attached.
-          suppressed.add(id);
-        }
-        if (valid(preview)) preview.node.data = preview.before;
-        forget(id, preview);
-      }
-      for (const id of suppressed) if (!wanted.has(id)) suppressed.delete(id);
-      for (const saved of pending) draw(saved, editing);
-    },
+export const createPreviews = (): Previews => ({
+  byReview: new Map(),
+  byNode: new WeakMap(),
+  suppressed: new Set(),
+});
+
+function recordWrites(preview: Preview, records: readonly MutationRecord[]) {
+  const own = Math.min(preview.writes, records.length);
+  preview.writes -= own;
+  // The application may write the same text after the agent applies the change.
+  if (records.length > own) preview.owned = false;
+}
+
+/** Whether Humagent still owns the previewed text, or the open editor stands there for it. */
+function valid(preview: Preview, editing: Editing | undefined) {
+  recordWrites(preview, preview.observer.takeRecords());
+  const { node, owned, target, written } = preview;
+  const inPage = node.isConnected && node.parentNode === target;
+  const inEditor =
+    editing?.node === node && editing.element.parentNode === target;
+  return owned && (inPage || inEditor) && node.data === written;
+}
+
+function textNodeAt(saved: SavedReview, target: Element): Text | null {
+  const index = textNodeOf(saved);
+  if (typeof index !== 'number' || !Number.isInteger(index)) return null;
+  const node = target.childNodes[index];
+  return node instanceof Text ? node : null;
+}
+
+/** Whether the open editor edits the text of a review. */
+function inEditor(
+  saved: SavedReview,
+  preview: Preview | undefined,
+  { editing, resolve }: PageState,
+) {
+  if (!editing) return false;
+  if (preview?.node === editing.node) return true;
+  const index = textNodeOf(saved);
+  return (
+    index !== undefined &&
+    resolve(saved) === editing.parent &&
+    editing.parent.childNodes[Number(index)] === editing.element
+  );
+}
+
+function createPreview(
+  saved: SavedReview,
+  node: Text,
+  target: Element,
+): Preview {
+  const { before, after } = editOf(saved)!;
+  const preview: Preview = {
+    saved,
+    node,
+    target,
+    before,
+    written: after,
+    observer: new MutationObserver((records) => recordWrites(preview, records)),
+    writes: 0,
+    owned: true,
   };
+  preview.observer.observe(node, { characterData: true });
+  return preview;
+}
+
+/** Show the text of a review in its preview. */
+function write(preview: Preview, saved: SavedReview) {
+  const { after } = editOf(saved)!;
+  preview.saved = saved;
+  preview.written = after;
+  if (preview.node.data === after) return;
+  preview.writes++;
+  preview.node.data = after;
+}
+
+function draw(previews: Previews, saved: SavedReview, page: PageState) {
+  const { byNode, byReview, suppressed } = previews;
+  const { id } = saved.review;
+  const edit = editOf(saved);
+  if (!edit || suppressed.has(id)) return;
+  const previous = byReview.get(id);
+  if (inEditor(saved, previous, page)) return;
+  const target = previous?.target ?? page.resolve(saved);
+  if (!target) return;
+  const node = previous?.node ?? textNodeAt(saved, target);
+  if (!node || (!previous && node.data !== edit.before)) {
+    suppressed.add(id);
+    return;
+  }
+  const preview = previous ?? createPreview(saved, node, target);
+  write(preview, saved);
+  byReview.set(id, preview);
+  byNode.set(node, preview);
+}
+
+/** Draw the wanted previews. Remove the others. */
+export function reconcile(
+  previews: Previews,
+  shown: readonly SavedReview[],
+  page: PageState,
+) {
+  const wanted = new Map(shown.map((saved) => [saved.review.id, saved]));
+  const { byNode, byReview, suppressed } = previews;
+  for (const [id, preview] of byReview) {
+    const { node, observer, target } = preview;
+    if (page.editing?.node === node) continue;
+    const saved = wanted.get(id);
+    const owned = valid(preview, page.editing);
+    if (saved && owned && page.resolve(saved) === target) continue;
+    // The application changed this target. Keep the feedback attached.
+    if (saved) suppressed.add(id);
+    if (owned) node.data = preview.before;
+    observer.disconnect();
+    byNode.delete(node);
+    byReview.delete(id);
+  }
+  for (const id of suppressed) if (!wanted.has(id)) suppressed.delete(id);
+  for (const saved of shown) draw(previews, saved, page);
+}
+
+/** Reopen the text node only while this review still owns its preview. */
+export function ownedNode(
+  previews: Previews,
+  saved: SavedReview,
+  target: Element,
+  editing: Editing | undefined,
+) {
+  const preview = previews.byReview.get(saved.review.id);
+  return preview?.target === target && valid(preview, editing)
+    ? preview.node
+    : null;
+}
+
+function validAt(
+  { byNode }: Previews,
+  node: Text,
+  editing: Editing | undefined,
+) {
+  const preview = byNode.get(node);
+  return preview && valid(preview, editing) ? preview : undefined;
+}
+
+/** The review whose preview a text node shows. */
+export const reviewAt = (
+  previews: Previews,
+  node: Text,
+  editing: Editing | undefined,
+) => validAt(previews, node, editing)?.saved;
+
+/** The original text of the open editor or of a previewed text node. */
+export function originalText(
+  previews: Previews,
+  node: Node,
+  editing: Editing | undefined,
+): string | undefined {
+  if (editing?.element === node) return editing.before;
+  return node instanceof Text
+    ? validAt(previews, node, editing)?.before
+    : undefined;
 }

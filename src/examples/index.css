@@ -1,4 +1,4 @@
-@import './css-variables.css';
+@import '@/shared/styles/variables.css';
 
 :root {
   /* Primitives */

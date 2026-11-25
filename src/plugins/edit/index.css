@@ -1,0 +1,41 @@
+/* The editor sits in the page, so each rule must win over the page's own styles. */
+.ha-edit-editor {
+  display: inline !important;
+  white-space: inherit !important;
+  outline: none !important;
+  cursor: text !important;
+  min-width: 1ch !important;
+}
+.ha-edit-editor[data-humagent-empty] {
+  display: inline-block !important;
+}
+
+/* The diff scrolls on its own. A click on it opens the editor, like the rest of the row. */
+.ha-edit-diff {
+  --ha-bg-edit-insert: color-mix(
+    in srgb,
+    var(--ha-white) calc(18 * 100% / 255),
+    transparent
+  );
+  pointer-events: auto;
+  margin: var(--ha-spacing-1-5) 0 0;
+  font-size: var(--ha-text-label);
+  line-height: 1.6;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-height: 100px;
+  overflow: auto;
+}
+.ha-edit-diff span,
+.ha-edit-diff del {
+  color: var(--ha-fg-muted);
+}
+.ha-edit-diff ins {
+  text-decoration: none;
+  background: var(--ha-bg-edit-insert);
+  border-radius: 3px;
+  box-decoration-break: clone;
+}
+.ha-edit-diff del + ins {
+  margin-inline-start: 0.25em;
+}

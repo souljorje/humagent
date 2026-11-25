@@ -1,8 +1,8 @@
 /** JSON requests and replies of the control routes. */
-import { LIMITS } from '../../shared/feedback.js';
-import { ensure, Failure, object } from '../../shared/validate.js';
-import { noStore } from '../assets.js';
-import { parseJson } from '../validate.js';
+import { LIMITS } from '@/shared/feedback';
+import { ensure, Failure, object } from '@/shared/validate';
+import { noStore } from '@/server/assets';
+import { parseJson } from '@/server/validate';
 
 export const JSON_HEADERS = noStore('application/json');
 export const json = (status: number, data: unknown) =>

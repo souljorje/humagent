@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { EventEmitter } from 'node:events';
 import {
   LIMITS,
   type SavedReview,
@@ -9,28 +8,41 @@ import {
   type Feedback,
   type SessionView,
   type Source,
-} from '../../shared/feedback.js';
-import type { Json } from '../../shared/json.js';
-import { ensure, Failure, object, text } from '../../shared/validate.js';
-import { writeJson } from '../storage.js';
-import { review } from '../validate.js';
+} from '@/shared/feedback';
+import type { ObjectValue } from '@/shared/json';
+import { isMarkerPosition } from '@/shared/marker';
+import {
+  ensure,
+  envelope,
+  Failure,
+  reviewComment,
+  reviewFields,
+  text,
+} from '@/shared/validate';
+import { writeJson } from '@/server/storage';
+import { ensureReviewContent } from '@/server/validate';
 import {
   FORMAT,
   current,
   readSession,
   sessionView,
   type Session,
-} from './session.js';
+} from './session';
 
-/** Single-process writer. Each change is saved atomically before listeners hear about it. */
-export class Store extends EventEmitter {
+type Taken = Delivered | { status: 'ended' };
+type WaitResult = Taken | { status: 'interrupted' };
+type Waiter = PromiseWithResolvers<WaitResult>;
+
+const INTERRUPTED: WaitResult = { status: 'interrupted' };
+
+/** Single-process writer. Each change is saved atomically before a waiting agent hears about it. */
+export class Store {
   private sessions = new Map<string, Session>();
   private failures = new Map<string, string>();
-  /** The interruption of each waiting agent. At most one agent waits per session. */
-  private waiting = new Map<string, () => void>();
+  /** At most one agent waits per session. */
+  private waiting = new Map<string, Waiter>();
   private directory: string;
   constructor(home: string) {
-    super();
     this.directory = path.join(home, 'sessions');
     fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
     for (const file of fs.readdirSync(this.directory)) {
@@ -66,8 +78,8 @@ export class Store extends EventEmitter {
       session: s,
     });
     this.sessions.set(s.id, s);
-    // Listeners run after the caller finishes, so a listener can commit without re-entering itself.
-    queueMicrotask(() => this.emit('change', s.id));
+    // A delivery runs after the caller finishes, so it can commit without re-entering itself.
+    queueMicrotask(() => this.deliver(s.id));
     return s;
   }
   private writable(id: string) {
@@ -124,12 +136,10 @@ export class Store extends EventEmitter {
    * Add a pending review. A pending review with a known kind and key replaces that pending review.
    * The replacement keeps the review ID and the list position. It replaces every other field.
    */
-  addReview(id: string, value: unknown) {
+  addReview(id: string, value: ObjectValue) {
     const s = this.writable(id);
-    object(value);
     current(s, value.revision);
-    object(value.review, 'Review');
-    const { kind } = value.review;
+    const review = envelope(value.review);
     const key =
       value.key === undefined
         ? undefined
@@ -137,7 +147,9 @@ export class Store extends EventEmitter {
     const index =
       key === undefined
         ? -1
-        : s.pending.findIndex((d) => d.key === key && d.review.kind === kind);
+        : s.pending.findIndex(
+            (d) => d.key === key && d.review.kind === review.kind,
+          );
     const previous = s.pending[index];
     ensure(
       previous || s.pending.length < LIMITS.pending,
@@ -145,11 +157,18 @@ export class Store extends EventEmitter {
       'SESSION_FULL',
       413,
     );
+    ensureReviewContent(review);
+    const { marker } = value;
+    ensure(
+      marker === undefined || (review.target && isMarkerPosition(marker)),
+      'Invalid marker position',
+    );
     const saved: SavedReview = {
-      review: review(value.review, previous?.review.id ?? randomUUID()),
+      review: { id: previous?.review.id ?? randomUUID(), ...review },
       revision: s.revision,
       ...(key !== undefined ? { key } : {}),
-      ...(value.local !== undefined ? { local: value.local as Json } : {}),
+      ...(marker !== undefined ? { marker: { x: marker.x, y: marker.y } } : {}),
+      ...(value.local !== undefined ? { local: value.local } : {}),
     };
     if (JSON.stringify(previous) !== JSON.stringify(saved))
       this.commit({
@@ -164,25 +183,23 @@ export class Store extends EventEmitter {
    * Edit a pending review. The edit keeps the review ID, kind, key, target, private data, and list position.
    * It replaces the comment, and the data when the edit gives data.
    */
-  editReview(id: string, reviewId: string, value: unknown) {
+  editReview(id: string, reviewId: string, value: ObjectValue) {
     const s = this.writable(id);
-    object(value);
     current(s, value.revision);
     const saved = this.saved(s, reviewId);
     current(s, saved.revision);
-    const { id: _, ...previous } = saved.review;
-    const changes = {
-      ...previous,
-      comment: text(value.comment, 'Comment', LIMITS.comment, true),
-      ...(value.data !== undefined ? { data: value.data } : {}),
+    const review = {
+      id: reviewId,
+      ...reviewFields({
+        ...saved.review,
+        comment: reviewComment(value.comment),
+        data: value.data === undefined ? saved.review.data : value.data,
+      }),
     };
-    const updated: SavedReview = {
-      ...saved,
-      review: review(changes, reviewId),
-    };
+    ensureReviewContent(review);
     this.commit({
       ...s,
-      pending: s.pending.map((d) => (d.review.id === reviewId ? updated : d)),
+      pending: s.pending.map((d) => (d === saved ? { ...saved, review } : d)),
     });
   }
   removeReview(id: string, reviewId: string, revision?: string) {
@@ -239,45 +256,40 @@ export class Store extends EventEmitter {
     return feedback;
   }
   /** Deliver every unfinished feedback. Uncompleted feedback come back with the next delivery. */
-  take(id: string): Delivered | { status: 'ended' } | null {
+  take(id: string): Taken | null {
     const s = this.get(id);
-    const unfinished = s.feedback
-      .values()
-      .filter((e) => e.status !== 'completed')
-      .take(LIMITS.feedbackPerReceipt)
-      .toArray();
-    if (!unfinished.length)
-      return s.ended ? { status: 'ended' as const } : null;
-    // The agent holds these feedback now, so it works on them.
-    const delivery = {
-      receipt: randomUUID(),
-      feedbackIds: unfinished.map((e) => e.id),
-      started: true,
-    };
-    const ids = new Set(delivery.feedbackIds);
-    const updated = this.commit({
+    const batch = new Map<string, Feedback>();
+    for (const item of s.feedback) {
+      if (item.status === 'completed') continue;
+      batch.set(item.id, {
+        ...item,
+        status: 'delivered',
+        deliveries: item.deliveries + 1,
+      });
+      if (batch.size === LIMITS.feedbackPerReceipt) break;
+    }
+    if (!batch.size) return s.ended ? { status: 'ended' as const } : null;
+    const receipt = randomUUID();
+    this.commit({
       ...s,
-      delivery,
-      feedback: s.feedback.map((e) =>
-        ids.has(e.id)
-          ? { ...e, status: 'delivered', deliveries: e.deliveries + 1 }
-          : e,
-      ),
+      delivery: { receipt, feedbackIds: [...batch.keys()], started: true },
+      feedback: s.feedback.map((item) => batch.get(item.id) ?? item),
     });
     // The agent gets what it needs to apply the feedback. Delivery state stays on the server.
     return {
       status: 'feedback',
       source: { kind: s.source.kind, value: s.source.value },
-      receipt: delivery.receipt,
-      feedback: updated.feedback
-        .filter((e) => ids.has(e.id))
-        .map(({ id, revision, instruction, reviews, deliveries }) => ({
+      receipt,
+      feedback: Array.from(
+        batch.values(),
+        ({ id, revision, instruction, reviews, deliveries }) => ({
           id,
           revision,
           ...(instruction ? { instruction } : {}),
           reviews,
           deliveries,
-        })),
+        }),
+      ),
     };
   }
   /** Complete the feedback of a receipt. */
@@ -308,48 +320,47 @@ export class Store extends EventEmitter {
    * Resolve with an interruption when the signal aborts or the server stops.
    * Ownership and session errors throw before the wait starts. Later errors reject.
    */
-  wait(
-    id: string,
-    signal: AbortSignal,
-  ): Promise<
-    NonNullable<ReturnType<Store['take']>> | { status: 'interrupted' }
-  > {
+  wait(id: string, signal: AbortSignal): Promise<WaitResult> {
     ensure(
       !this.waiting.has(id),
       'Another agent is already waiting',
       'LISTENER_ACTIVE',
       409,
     );
-    if (signal.aborted) return Promise.resolve({ status: 'interrupted' });
+    if (signal.aborted) return Promise.resolve(INTERRUPTED);
     const immediate = this.take(id);
-    if (immediate) return Promise.resolve(immediate);
-    return new Promise((resolve, reject) => {
-      let done = false;
-      const finish = (settle: () => void) => {
-        if (done) return;
-        done = true;
-        this.off('change', changed);
-        signal.removeEventListener('abort', cancel);
-        this.waiting.delete(id);
-        settle();
-      };
-      const cancel = () => finish(() => resolve({ status: 'interrupted' }));
-      const changed = (session: string) => {
-        if (session !== id || done) return;
-        try {
-          const next = this.take(id);
-          if (next) finish(() => resolve(next));
-        } catch (error) {
-          finish(() => reject(error));
-        }
-      };
-      this.on('change', changed);
-      this.waiting.set(id, cancel);
-      signal.addEventListener('abort', cancel, { once: true });
+    return immediate ? Promise.resolve(immediate) : this.start(id, signal);
+  }
+  private start(id: string, signal: AbortSignal) {
+    const waiter: Waiter = Promise.withResolvers();
+    this.waiting.set(id, waiter);
+    signal.addEventListener('abort', () => this.interrupt(id, waiter), {
+      once: true,
     });
+    return waiter.promise;
+  }
+  /** Give a waiting agent what it can take now. */
+  private deliver(id: string) {
+    const waiter = this.waiting.get(id);
+    if (!waiter) return;
+    try {
+      const next = this.take(id);
+      if (next) this.settle(id, waiter, next);
+    } catch (error) {
+      this.waiting.delete(id);
+      waiter.reject(error);
+    }
+  }
+  private settle(id: string, waiter: Waiter, result: WaitResult) {
+    this.waiting.delete(id);
+    waiter.resolve(result);
+  }
+  /** End a wait that did not end yet. */
+  private interrupt(id: string, waiter: Waiter) {
+    if (this.waiting.get(id) === waiter) this.settle(id, waiter, INTERRUPTED);
   }
   /** Interrupt every waiting agent. */
   interruptWaits() {
-    for (const cancel of this.waiting.values()) cancel();
+    for (const [id, waiter] of this.waiting) this.interrupt(id, waiter);
   }
 }

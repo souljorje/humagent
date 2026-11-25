@@ -1,9 +1,5 @@
-import {
-  isReservedJsonKey,
-  type Json,
-  type ObjectValue,
-} from '../../shared/json.js';
-import { FORM_LIMITS, type FormLabels } from './data.js';
+import { isReservedJsonKey, type Json, type ObjectValue } from '@/shared/json';
+import { FORM_LIMITS, type FormLabels } from './data';
 
 type FormControl = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 function hasTag<K extends keyof HTMLElementTagNameMap>(
@@ -98,10 +94,8 @@ function readValues(group: FormControl[]) {
   };
 }
 
-/** Read named values for the agent and readable labels for the bar. */
-export function readForm(form: HTMLFormElement, key: string) {
-  const values: Record<string, Json> = Object.create(null);
-  const fields: FormLabels['fields'] = [];
+/** The controls of each field name, in page order. */
+function groupsOf(form: HTMLFormElement) {
   const groups = new Map<string, FormControl[]>();
   for (const el of controls(form)) {
     if (isReservedJsonKey(el.name)) throw new Error('Reserved field name');
@@ -109,26 +103,42 @@ export function readForm(form: HTMLFormElement, key: string) {
     if (group) group.push(el);
     else groups.set(el.name, [el]);
   }
-  groups.forEach((group, name) => {
-    const first = group[0]!;
-    const single = group.length === 1;
-    const radio = group.every((el) => isInput(el, 'radio'));
-    const label = single && !radio ? ownLabel(first) : groupName(first);
-    const { value, shown } =
-      radio || group.every((el) => isInput(el, 'checkbox'))
-        ? readChoices(group, radio)
-        : readValues(group);
-    values[name] = value;
-    fields.push({ label: clip(label || name), value: clip(shown) });
-  });
-  const title = accessibleName(form) || key;
-  return {
-    values,
-    labels: {
-      title: clip(title),
-      fields: fields.slice(0, FORM_LIMITS.labelFields),
-    },
+  return groups;
+}
+
+const isGroupOf = (
+  group: FormControl[],
+  type: string,
+): group is HTMLInputElement[] => group.every((el) => isInput(el, type));
+
+function readGroup(group: FormControl[]) {
+  if (isGroupOf(group, 'radio')) return readChoices(group, true);
+  return isGroupOf(group, 'checkbox')
+    ? readChoices(group, false)
+    : readValues(group);
+}
+
+function readField(name: string, group: FormControl[]) {
+  const first = group[0]!;
+  const { value, shown } = readGroup(group);
+  // A single control has its own label. A group has the label of its fieldset.
+  const single = group.length === 1 && !isGroupOf(group, 'radio');
+  const label = (single ? ownLabel(first) : groupName(first)) || name;
+  return { name, value, label: { label: clip(label), value: clip(shown) } };
+}
+
+/** Read named values for the agent and readable labels for the bar. */
+export function readForm(form: HTMLFormElement, key: string) {
+  const fields = Array.from(groupsOf(form), ([name, group]) =>
+    readField(name, group),
+  );
+  const values: Record<string, Json> = Object.create(null);
+  for (const { name, value } of fields) values[name] = value;
+  const labels: FormLabels = {
+    title: clip(accessibleName(form) || key),
+    fields: fields.slice(0, FORM_LIMITS.labelFields).map(({ label }) => label),
   };
+  return { values, labels };
 }
 export function fill(form: HTMLFormElement, values: ObjectValue) {
   const seen = new Map<string, number>();

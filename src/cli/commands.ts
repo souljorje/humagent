@@ -1,22 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { connect } from '../server/client.js';
-import { readRecord } from '../server/record.js';
-import { createServer } from '../server/server.js';
-import { runtimeName, runtimeVersion, version } from '../server/version.js';
-import type { OpenedSession } from '../shared/api.js';
-import { ensure } from '../shared/validate.js';
-import { openBrowser } from './browser.js';
-import type { Options } from './options.js';
-import { output } from './output.js';
-import { service } from './service.js';
+import { EXAMPLES, MANIFEST, WORKSPACE } from '@/server/assets';
+import { connect } from '@/server/client';
+import { readRecord } from '@/server/record';
+import { createServer } from '@/server/server';
+import { runtimeName, runtimeVersion, version } from '@/server/version';
+import type { OpenedSession } from '@/shared/api';
+import { ensure } from '@/shared/validate';
+import { openBrowser } from './browser';
+import type { Options } from './options';
+import { output } from './output';
+import { service } from './service';
 
-/** Copy a shipped file unless the user already has one. */
-function copy(source: URL, destination: string) {
-  if (fs.existsSync(destination)) return;
-  fs.mkdirSync(path.dirname(destination), { recursive: true });
-  fs.writeFileSync(destination, fs.readFileSync(source));
-}
 function sessionId(argument: string | undefined) {
   ensure(
     argument && /^[\w-]+$/.test(argument),
@@ -64,23 +59,10 @@ export const commands: Record<string, Command> = {
     flags: ['no-open', 'network'],
     argument: false,
     async run(_, options) {
-      const destination = path.join(
-        options.directory,
-        'demos',
-        version,
-        'plan',
-      );
-      for (const file of [
-        'plan.html',
-        'plan.css',
-        'plan.js',
-        'css-variables.css',
-      ])
-        copy(
-          new URL(`../examples/${file}`, import.meta.url),
-          path.join(destination, file),
-        );
-      await openSource(path.join(destination, 'plan.html'), options);
+      const destination = path.join(options.directory, 'demos', version);
+      // Keep the files that the user already has.
+      fs.cpSync(EXAMPLES, destination, { recursive: true, force: false });
+      await openSource(path.join(destination, 'index.html'), options);
     },
   },
   status: {
@@ -97,8 +79,8 @@ export const commands: Record<string, Command> = {
         runtime: runtimeName,
         runtimeVersion,
         dataDirectory: directory,
-        filesPresent: ['../ui/index.html', '../sdk/sdk.js'].every((p) =>
-          fs.existsSync(new URL(p, import.meta.url)),
+        filesPresent: [WORKSPACE, MANIFEST].every((file) =>
+          fs.existsSync(file),
         ),
         serverRunning: !!client,
         serverVersion: readRecord(directory)?.version ?? null,

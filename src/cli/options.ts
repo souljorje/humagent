@@ -1,6 +1,6 @@
 import path from 'node:path';
 import os from 'node:os';
-import { ensure } from '../shared/validate.js';
+import { ensure } from '@/shared/validate';
 
 const booleanFlags = new Set([
   'no-open',

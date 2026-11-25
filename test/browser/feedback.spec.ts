@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { test, expect } from './fixtures.ts';
+import { test, expect } from './fixtures';
 
 test('a text edit, a comment, and form choices reach the agent as one feedback without changing source', async ({
   page,
@@ -244,9 +244,12 @@ test('a server restart keeps pending reviews, the instruction, and form choices'
     .poll(() => humagent.session().instruction)
     .toBe('Keep this unsent instruction.');
   await expect.poll(() => humagent.session().pending.length).toBe(2);
+  const marker = humagent.session().pending[0]!.marker;
+  expect(marker).toEqual({ x: expect.any(Number), y: expect.any(Number) });
 
   await humagent.restart();
   expect(await humagent.open()).toBe(session);
+  expect(humagent.session().pending[0]!.marker).toEqual(marker);
   await expect(page.locator('#instruction')).toHaveValue(
     'Keep this unsent instruction.',
   );
@@ -365,7 +368,8 @@ test('the page cannot use control routes, learn the session key, save through a 
                   comment: 'x',
                   target: { selector: 'h1' },
                 },
-                local: { marker: { x: 0, y: 0 }, extra: true },
+                marker: { x: 0, y: 0 },
+                local: { extra: true },
               },
             },
             boot.parentOrigin,
@@ -400,6 +404,13 @@ test('a proxied app keeps its own behavior and accepts comments and SDK submissi
       response.end();
     } else if (request.url === '/api/value')
       response.setHeader('content-type', 'application/json').end('{"v":42}');
+    else if (request.url === '/app.css')
+      // Rules that match the overlay's host must not change it.
+      response
+        .setHeader('content-type', 'text/css')
+        .end(
+          'div { position: relative; opacity: 0.3 } div:empty { display: none } span { display: block; outline: 1px solid }',
+        );
     else if (request.url === '/app.js')
       response
         .setHeader('content-type', 'text/javascript')
@@ -409,29 +420,34 @@ test('a proxied app keeps its own behavior and accepts comments and SDK submissi
     else
       response
         .setHeader('content-type', 'text/html')
-        // The app allows no inline script.
-        .setHeader('content-security-policy', "script-src 'self'")
+        // The app allows no inline script and no inline style.
+        .setHeader(
+          'content-security-policy',
+          "script-src 'self'; style-src 'self'",
+        )
         .end(
-          '<!doctype html><h1 id="headline">A page that was already here.</h1><button id="blocked">Skip me</button><button id="counter">Count: 0</button><script type="module" src="/app.js"></script>',
+          '<!doctype html><link rel="stylesheet" href="/app.css"><h1 id="headline">A page that was already here.</h1><button id="blocked">Skip me</button><button id="counter">Count: 0</button><script type="module" src="/app.js"></script>',
         );
   });
   await new Promise<void>((resolve) => app.listen(0, '127.0.0.1', resolve));
   try {
     const source = `http://127.0.0.1:${(app.address() as AddressInfo).port}/`;
     // The first tool blocks a button whose text the edit tool would accept.
-    await page.route('**/__humagent/plugins/index.js', (route) =>
-      route.fulfill({
+    await page.route('**/__humagent/assets/plugins-*.js', (route) => {
+      const builtins = `${route.request().url()}?builtins`;
+      return route.fulfill({
         contentType: 'text/javascript',
         body: `
-          import { plugins as builtins } from './index.js?builtins';
+          import { plugins as builtins } from '${builtins}';
+          export * from '${builtins}';
           const tool = {
             name: 'Block',
             hit: ({ el }) => el.id === 'blocked' ? 'blocked' : undefined,
           };
           export const plugins = new Map([['block', { page: () => ({ tool }) }], ...builtins]);
         `,
-      }),
-    );
+      });
+    });
     await humagent.open(source);
     const counter = humagent.frame.locator('#counter');
     await humagent.annotate();
@@ -441,6 +457,10 @@ test('a proxied app keeps its own behavior and accepts comments and SDK submissi
     await expect(
       humagent.frame.getByRole('dialog', { name: 'Review' }),
     ).toBeHidden();
+    await expect(humagent.frame.locator('#panel')).toHaveCSS(
+      'position',
+      'fixed',
+    );
     await humagent.replace('#counter', 'Count visitors');
     const reopen = page.getByRole('button', {
       name: 'Edit review 1',
@@ -449,6 +469,11 @@ test('a proxied app keeps its own behavior and accepts comments and SDK submissi
     await page.getByRole('group', { name: 'Text changes' }).click();
     const editor = counter.getByRole('textbox', { name: 'Edit text' });
     await expect(editor).toHaveText('Count visitors');
+    await expect(editor).toHaveCSS('display', 'inline');
+    await expect(humagent.frame.locator('html > [data-humagent-ui]')).toHaveCSS(
+      'opacity',
+      '1',
+    );
     await editor.press('Escape');
     await humagent.annotate(false);
     await counter.click();

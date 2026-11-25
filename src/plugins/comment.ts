@@ -1,5 +1,5 @@
-import type { Plugin } from '../shared/plugin.js';
-import { ensure } from '../shared/validate.js';
+import type { Plugin } from '@/shared/plugin';
+import { ensure } from '@/shared/validate';
 
 /** A comment on a page element. */
 export const comment: Plugin = {
