@@ -121,7 +121,7 @@ async function body(req: Request) {
   return value;
 }
 
-function claimDirectory(directory: string) {
+function openStore(directory: string) {
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   // The record claims the directory before the store opens. It gains origin and token after listen.
   const record = path.join(directory, 'server.json');
@@ -154,7 +154,12 @@ function claimDirectory(directory: string) {
     fs.unlinkSync(record);
     claim();
   }
-  return record;
+  try {
+    return { record, store: new Store(directory) };
+  } catch (error) {
+    fs.unlinkSync(record);
+    throw error;
+  }
 }
 
 const sessionPath = '/api/sessions/:id{[\\w-]+}';
@@ -254,6 +259,62 @@ function registerSessionActions(
   });
 }
 
+function registerPublicRoutes(app: Hono) {
+  app.all('/health', () =>
+    json(200, { app: 'humagent', pid: process.pid, version }),
+  );
+  for (const route of [
+    '/:root{ui|shared|plugins}/:file',
+    '/plugins/:plugin/:file',
+  ])
+    app.get(route, async (c) => {
+      const { body, headers } = await browserAsset(c.req.path, ASSET);
+      return new Response(body, { headers });
+    });
+  app.all('/', (c) => {
+    ensure(c.req.method === 'GET', 'Method not allowed', 'METHOD', 405);
+    return new Response(fs.readFileSync(path.join(UI, 'index.html')), {
+      headers: noStore('text/html; charset=utf-8', {
+        'referrer-policy': 'no-referrer',
+        'content-security-policy':
+          "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src http://127.0.0.1:*; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      }),
+    });
+  });
+}
+
+function createControlServer(app: Hono, getOrigin: () => string) {
+  const listener = getRequestListener(app.fetch, {
+    overrideGlobalObjects: false,
+    errorHandler: fail,
+  });
+  return http.createServer((req, res) => {
+    try {
+      // The adapter parses Host before it invokes Hono, so check it here.
+      ensure(
+        req.headers.host === new URL(getOrigin()).host,
+        'Invalid host',
+        'FORBIDDEN',
+        403,
+      );
+    } catch (error) {
+      const response = fail(error);
+      res.writeHead(response.status, Object.fromEntries(response.headers));
+      void response.text().then((text) => res.end(text));
+      return;
+    }
+    void listener(req, res);
+  });
+}
+
+async function listen(server: http.Server, port?: number) {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port ?? 0, '127.0.0.1', resolve);
+  });
+  return `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`;
+}
+
 export interface ServerOptions {
   directory: string;
   port?: number;
@@ -261,14 +322,7 @@ export interface ServerOptions {
 /** One runtime owns a directory. Files stay read-only; agents apply proposals. */
 export async function createServer(options: ServerOptions) {
   const directory = path.resolve(options.directory);
-  const record = claimDirectory(directory);
-  let store: Store;
-  try {
-    store = new Store(directory);
-  } catch (error) {
-    fs.unlinkSync(record);
-    throw error;
-  }
+  const { record, store } = openStore(directory);
   const token = randomBytes(32).toString('hex');
   const pageServers = new Map<string, Promise<PageServer>>();
   let origin = '';
@@ -302,46 +356,10 @@ export async function createServer(options: ServerOptions) {
       },
     };
   }
-  const app = new Hono({ getPath: (request) => new URL(request.url).pathname });
-  app.onError((error) => fail(error));
-  app.use('*', async (c, next) => {
-    authorize(c.req, origin, token, store);
-    await next();
-  });
-
-  app.all('/health', () =>
-    json(200, { app: 'humagent', pid: process.pid, version }),
-  );
-  for (const route of [
-    '/:root{ui|shared|plugins}/:file',
-    '/plugins/:plugin/:file',
-  ])
-    app.get(route, async (c) => {
-      const { body, headers } = await browserAsset(c.req.path, ASSET);
-      return new Response(body, { headers });
-    });
-  app.all('/', (c) => {
-    ensure(c.req.method === 'GET', 'Method not allowed', 'METHOD', 405);
-    return new Response(fs.readFileSync(path.join(UI, 'index.html')), {
-      headers: noStore('text/html; charset=utf-8', {
-        'referrer-policy': 'no-referrer',
-        'content-security-policy':
-          "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src http://127.0.0.1:*; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-      }),
-    });
-  });
-
   /** When a workspace last read each session. An open workspace reads about once per second. */
   const viewed = new Map<string, number>();
-  app.get(sessionPath, async (c) => {
-    const id = c.req.param('id');
-    if (c.req.header('x-humagent-session')) viewed.set(id, Date.now());
-    return json(200, await snapshot(id));
-  });
-  registerSessionActions(app, store, pageServer, snapshot);
-
-  app.post('/api/open', async (c) => {
-    const value = await body(c.req.raw);
+  async function openSession(req: Request) {
+    const value = await body(req);
     ensure(typeof value.source === 'string', 'source is required');
     const source = await sourceOf(value.source, value.network === true);
     if (source.kind === 'file') {
@@ -367,7 +385,24 @@ export async function createServer(options: ServerOptions) {
           ? `Only supported files in ${source.root} are served. Source is read-only.`
           : 'Trusted local app proxy. Cookies/authenticated apps are not supported in v0.1.',
     });
+  }
+  const app = new Hono({ getPath: (request) => new URL(request.url).pathname });
+  app.onError((error) => fail(error));
+  app.use('*', async (c, next) => {
+    authorize(c.req, origin, token, store);
+    await next();
   });
+
+  registerPublicRoutes(app);
+
+  app.get(sessionPath, async (c) => {
+    const id = c.req.param('id');
+    if (c.req.header('x-humagent-session')) viewed.set(id, Date.now());
+    return json(200, await snapshot(id));
+  });
+  registerSessionActions(app, store, pageServer, snapshot);
+
+  app.post('/api/open', (c) => openSession(c.req.raw));
   app.post('/api/stop', async (c) => {
     await body(c.req.raw);
     setTimeout(() => {
@@ -386,33 +421,9 @@ export async function createServer(options: ServerOptions) {
   });
   app.notFound(() => fail(new Failure(404, 'NOT_FOUND', 'Not found')));
 
-  const listener = getRequestListener(app.fetch, {
-    overrideGlobalObjects: false,
-    errorHandler: fail,
-  });
-  const server = http.createServer((req, res) => {
-    try {
-      // The adapter parses Host before it invokes Hono, so check it here.
-      ensure(
-        req.headers.host === new URL(origin).host,
-        'Invalid host',
-        'FORBIDDEN',
-        403,
-      );
-    } catch (error) {
-      const response = fail(error);
-      res.writeHead(response.status, Object.fromEntries(response.headers));
-      void response.text().then((text) => res.end(text));
-      return;
-    }
-    void listener(req, res);
-  });
+  const server = createControlServer(app, () => origin);
   try {
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(options.port ?? 0, '127.0.0.1', resolve);
-    });
-    origin = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`;
+    origin = await listen(server, options.port);
     await Promise.all(store.list().map((session) => pageServer(session.id)));
     writeJson(record, {
       pid: process.pid,
