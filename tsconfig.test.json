@@ -7,6 +7,6 @@
     "noUncheckedIndexedAccess": false,
     "types": ["node", "bun"]
   },
-  "include": ["test/**/*.ts", "dist/**/*.d.ts"],
+  "include": ["test/**/*.ts", "scripts/**/*.ts", "dist/**/*.d.ts"],
   "exclude": []
 }
