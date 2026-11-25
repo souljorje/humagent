@@ -198,8 +198,8 @@ function page(host: PageHost): PagePlugin {
     clearTimeout(typing.get(form));
     typing.delete(form);
   };
-  // A failed save keeps its message until a later save succeeds.
-  const failed = new Set<HTMLFormElement>();
+  // An older reply must not clear an error from a newer form change.
+  const latestSave = new WeakMap<HTMLFormElement, symbol>();
   const forms = () => document.querySelectorAll<HTMLFormElement>(FORMS);
   // Restoring and resetting dispatch input events for page scripts. Those events must not save.
   let quiet = false;
@@ -213,23 +213,25 @@ function page(host: PageHost): PagePlugin {
       quiet = false;
     }
   }
-  function save(form: HTMLFormElement) {
+  async function save(form: HTMLFormElement) {
     settle(form);
-    const { values, labels } = readForm(form, key(form));
-    const comment = form.getAttribute(`${host.attribute}-comment`);
-    return host
-      .save(
+    const attempt = Symbol();
+    latestSave.set(form, attempt);
+    let message = '';
+    try {
+      const formKey = key(form);
+      const { values, labels } = readForm(form, formKey);
+      const comment = form.getAttribute(`${host.attribute}-comment`);
+      await host.save(
         { ...(comment ? { comment } : {}), data: values },
-        { key: key(form), local: { labels } },
-      )
-      .then(
-        () => failed.delete(form),
-        (error: unknown) => {
-          failed.add(form);
-          showStatus(form, errorMessage(error));
-          host.notice(errorMessage(error));
-        },
+        { key: formKey, local: { labels } },
       );
+    } catch (error) {
+      message = errorMessage(error);
+    }
+    if (latestSave.get(form) !== attempt) return;
+    showStatus(form, message);
+    if (message) host.notice(message);
   }
   for (const type of ['input', 'change'])
     document.addEventListener(type, (event) => {
@@ -275,10 +277,6 @@ function page(host: PageHost): PagePlugin {
         const values = formOf(pending.find((saved) => saved.key === key(form)));
         if (values) silently(form, () => fill(form, values));
       }
-    },
-    present() {
-      // A later successful save clears an earlier error.
-      for (const form of forms()) if (!failed.has(form)) showStatus(form, '');
     },
     /** Reset the form of a keyed pending review to its HTML defaults. */
     discard(saved) {

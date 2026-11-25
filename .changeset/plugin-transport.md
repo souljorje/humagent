@@ -14,4 +14,5 @@ Names changed: an unsent review is pending, and what one Send delivers is feedba
 Delivered feedback shows Agent working.
 The bar is one button. It opens the bar and turns commenting on.
 Deleting a stale form review preserves the current form. Reopening a text edit preserves text that the application replaced.
+Marked forms report errors from reading fields and saving values. A successful retry clears the form error.
 Update the agent skill with `npx skills update humagent`.

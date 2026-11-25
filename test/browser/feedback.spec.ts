@@ -15,8 +15,16 @@ test('a text edit, a comment, and form choices reach the agent as one feedback w
   await humagent.addComment('.mock-cta', 'Make this button stand out.');
   await humagent.annotate(false);
   const choice = humagent.frame.getByRole('radio', { name: 'Split' });
+  const formStatus = humagent.frame.locator('[data-humagent-form-status]');
+  await choice.evaluate((el) => el.setAttribute('name', 'prototype'));
   await choice.check();
+  await expect(formStatus).toHaveText('Reserved field name');
+  await expect(page.locator('#error')).toHaveText('Reserved field name');
+  expect(humagent.session().pending).toHaveLength(2);
+  await choice.evaluate((el) => el.setAttribute('name', 'layout'));
   await humagent.frame.getByRole('radio', { name: 'Outline' }).check();
+  await expect(formStatus).toBeEmpty();
+  await expect(page.locator('#error')).toBeHidden();
   await humagent.frame.getByRole('radio', { name: /The interactions/ }).check();
   const values = { layout: 'split', button: 'outline', workflow: 'behavior' };
   await expect
