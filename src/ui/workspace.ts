@@ -102,6 +102,8 @@ export function createWorkspace(
   // Not shown in the bar, so no effect depends on these.
   let attaching: string | undefined,
     instruction = '',
+    /** Counts edits, so an older save cannot confirm newer text. */
+    instructionEdit = 0,
     instructionTimer: ReturnType<typeof setTimeout> | undefined,
     lastPresentation = '',
     /** The source revision that last reloaded the page on its own. */
@@ -197,7 +199,8 @@ export function createWorkspace(
         !editorDirty() &&
         fresh(attached?.revision) &&
         !pending.some((saved) => saved.stale),
-      instructionPending: instructionPending(),
+      // An ended session accepts no instruction.
+      instructionPending: mutable && instructionPending(),
       instructionStatus: instructionStatus(),
       error: message(),
       bridgeStatus: bridgeStatus(),
@@ -233,10 +236,14 @@ export function createWorkspace(
 
   function saveInstruction() {
     clearTimeout(instructionTimer);
-    instructionTimer = undefined;
-    instructionPending.set(false);
+    const edit = instructionEdit;
     return write('instruction', 'PUT', { instruction }).then(
-      () => instructionStatus.set('Saved.'),
+      () => {
+        // A newer edit still needs its own save.
+        if (edit !== instructionEdit) return;
+        instructionPending.set(false);
+        instructionStatus.set('Saved.');
+      },
       (e) => {
         instructionStatus.set('Not saved');
         throw e;
@@ -250,7 +257,7 @@ export function createWorkspace(
     sent.set(false);
     clearTimeout(sentTimer);
     try {
-      if (instructionTimer !== undefined) await saveInstruction();
+      if (instructionPending()) await saveInstruction();
       if (editorDirty())
         throw new Error('Save or cancel your review before sending.');
       await write('send', 'POST', { revision: page()?.revision });
@@ -267,6 +274,7 @@ export function createWorkspace(
     instruction(value) {
       sent.set(false);
       instruction = value;
+      instructionEdit++;
       clearTimeout(instructionTimer);
       instructionTimer = setTimeout(() => {
         saveInstruction().catch((e) => fail(errorMessage(e)));

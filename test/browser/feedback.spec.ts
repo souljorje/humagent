@@ -183,9 +183,25 @@ test('sending requires a connected agent, and an ended session accepts no input'
   expect(humagent.session().feedback).toHaveLength(0);
 
   await humagent.connect();
+  // A failed save keeps the typed instruction, and Send saves it first.
+  const instruction = page.locator('#instruction');
+  await page.route('**/api/sessions/*/instruction', (route) => route.abort(), {
+    times: 1,
+  });
+  await instruction.fill('Check this again');
+  await expect(page.locator('#instruction-status')).toHaveText('Not saved');
+  await instruction.blur();
+  await page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      response.url().includes('/api/sessions/'),
+  );
+  await expect(instruction).toHaveValue('Check this again');
+  expect(humagent.session().instruction).toBe('Check this');
   await send.click();
   const delivered = await humagent.receive();
-  expect(delivered.feedback[0].instruction).toBe('Check this');
+  expect(delivered.feedback[0].instruction).toBe('Check this again');
+  await expect(instruction).toHaveValue('');
   // A delivered event means that the agent works on it.
   await expect(status).toHaveText('Agent working');
   await humagent.complete(delivered);
