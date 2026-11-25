@@ -21,7 +21,6 @@ export const comment: Plugin = {
     },
   }),
   summary: {
-    title: ({ review }) =>
-      String(review.target?.id || review.target?.tag || 'Comment'),
+    title: ({ review }) => String(review.target?.id || 'Comment'),
   },
 };

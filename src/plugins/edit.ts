@@ -9,7 +9,7 @@ import type {
 } from '../shared/plugin.js';
 import { createElement } from '../shared/dom.js';
 import { ensure, object, text } from '../shared/validate.js';
-import { editOf, type EditData } from './edit/data.js';
+import { editOf, type EditData, type EditTarget } from './edit/data.js';
 import { createEditor } from './edit/editor.js';
 import { createPreviews, type Editing } from './edit/previews.js';
 import { textDiff } from './edit/text-diff.js';
@@ -55,7 +55,7 @@ function page(host: PageHost): PagePlugin {
         node.replaceWith(view.element);
         view.select(start, end);
         return {
-          target: { textNode, anchor: { quote: before } },
+          target: { textNode, anchor: { quote: before } } as EditTarget,
           element: view.element,
           confirmLabel: 'Confirm text edit',
           changed: () => view.value() !== initial,

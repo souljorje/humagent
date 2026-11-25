@@ -71,7 +71,7 @@ export function envelope(value: unknown): Envelope {
   if (value.data !== undefined) result.data = value.data;
   if (value.target !== undefined) {
     object(value.target, 'Target');
-    result.target = value.target;
+    result.target = value.target as Target;
   }
   return result;
 }

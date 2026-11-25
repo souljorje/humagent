@@ -1,5 +1,5 @@
 /** Feedback contracts shared by the server, the workspace, the page SDK, and agents. */
-import type { Json, ObjectValue } from './json.js';
+import type { Json } from './json.js';
 
 export const LIMITS = {
   bodyBytes: 256 * 1024,
@@ -18,7 +18,18 @@ export interface Source {
   root?: string;
   network: boolean;
 }
-export type Target = ObjectValue;
+/**
+ * Where a review points. The page SDK writes these fields. The server stores a target as it is, so each field can be missing.
+ * A plugin can add fields of its own.
+ */
+export interface Target {
+  id?: string;
+  selector?: string;
+  text?: string;
+  url?: string;
+  anchor?: { quote: string; prefix?: string; suffix?: string };
+  coordinates?: { x: number; y: number; space: string };
+}
 /** One feedback review. `kind` names the plugin that made it. `data` holds that plugin's content. */
 export interface Review {
   id: string;

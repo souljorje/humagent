@@ -1,6 +1,6 @@
 /** Text previews on the page. Own only the edited text node. Restore it only while no one else wrote to it. */
 import type { SavedReview } from '../../shared/feedback.js';
-import { editOf } from './data.js';
+import { editOf, textNodeOf } from './data.js';
 
 interface Preview {
   saved: SavedReview;
@@ -56,7 +56,7 @@ export function createPreviews(hooks: {
     previews.delete(id);
   }
   function textNodeAt(saved: SavedReview, target: Element): Text | null {
-    const index = saved.review.target?.textNode;
+    const index = textNodeOf(saved);
     if (!Number.isInteger(index) || typeof index !== 'number') return null;
     const node = target.childNodes[index];
     return node instanceof Text ? node : null;
@@ -68,7 +68,7 @@ export function createPreviews(hooks: {
   ) {
     if (!editing) return false;
     if (previous?.node === editing.node) return true;
-    const index = saved.review.target?.textNode;
+    const index = textNodeOf(saved);
     return (
       index !== undefined &&
       hooks.resolve(saved) === editing.parent &&
