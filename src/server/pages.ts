@@ -167,6 +167,175 @@ function inject(html: string, bootstrap: Bootstrap) {
   const encoded = JSON.stringify(bootstrap).replaceAll('<', '\\u003c');
   return `${prefix}<script>(${initializeFrame.toString()})(${encoded})</script><script type="module" src="/__humagent/sdk/sdk.js"></script>${html.slice(prefix.length)}`;
 }
+type Decorate = (bytes: Buffer, route: string) => string;
+
+async function serveFile(
+  req: IncomingMessage,
+  res: ServerResponse,
+  source: Source,
+  parentOrigin: string,
+  decorate?: Decorate,
+) {
+  ensure(
+    ['GET', 'HEAD'].includes(req.method ?? ''),
+    'File pages are read-only',
+    'READ_ONLY',
+    405,
+  );
+  const route = req.url!;
+  const rawPath = route.split('?')[0]!;
+  const page = rawPath === '/' ? `/${path.basename(source.value)}` : '';
+  const file = await safeFile(source.root!, page || rawPath);
+  const bytes = await fs.readFile(file);
+  ensure(bytes.length <= LIMIT, 'Asset exceeds 8 MiB', 'TOO_LARGE', 413);
+  const html = /\.html?$/i.test(file);
+  const net = source.network ? ' http: https: ws: wss:' : '';
+  const policy = `default-src 'none'; script-src 'self' 'unsafe-inline'${net}; style-src 'self' 'unsafe-inline'${net}; img-src 'self' data: blob:${net}; font-src 'self' data:${net}; connect-src ${source.network ? "'self'" + net : "'none'"}; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors ${parentOrigin}`;
+  res.writeHead(
+    200,
+    noStore(MIME[path.extname(file).toLowerCase()]!, {
+      'content-security-policy': policy,
+    }),
+  );
+  return res.end(
+    req.method === 'HEAD'
+      ? undefined
+      : html && decorate
+        ? decorate(bytes, page || route)
+        : bytes,
+  );
+}
+
+function proxyApplication(
+  req: IncomingMessage,
+  res: ServerResponse,
+  route: string,
+  origin: string,
+  upstreamOrigin: string,
+  decorate?: Decorate,
+) {
+  // Fixed destination only; never accept a URL parameter or follow redirects.
+  const destination = new URL(route, upstreamOrigin);
+  const headers = {
+    ...req.headers,
+    host: destination.host,
+    'accept-encoding': 'identity',
+  };
+  delete headers.cookie; // No implicit browser credentials forwarded into a development app.
+  if (headers.origin) headers.origin = upstreamOrigin;
+  delete headers.connection;
+  const upstream = http.request(
+    destination,
+    { method: req.method, headers, timeout: 15000 },
+    async (response) => {
+      try {
+        const eventStream =
+          response.headers['content-type']
+            ?.split(';')[0]
+            ?.trim()
+            .toLowerCase() === 'text/event-stream';
+        // Keep the initial timeout, but allow an established event stream to stay silent.
+        if (eventStream) upstream.setTimeout(0);
+        const out = { ...response.headers };
+        for (const h of [
+          'connection',
+          'transfer-encoding',
+          'content-length',
+          'set-cookie',
+        ])
+          delete out[h];
+        if (out.location) {
+          const redirect = new URL(out.location, destination);
+          ensure(
+            redirect.origin === upstreamOrigin,
+            'Redirect leaves configured local application',
+            'UPSTREAM_REDIRECT',
+            502,
+          );
+          out.location =
+            origin + redirect.pathname + redirect.search + redirect.hash;
+        }
+        if (
+          decorate &&
+          response.headers['content-type']?.includes('text/html') &&
+          response.statusCode === 200
+        ) {
+          const body = await collect(response);
+          // The rewritten HTML is decoded. Other streams keep their content-encoding.
+          delete out['content-encoding'];
+          res.writeHead(200, { ...out, 'cache-control': 'no-store' });
+          res.end(decorate(body, route));
+        } else {
+          res.writeHead(response.statusCode ?? 502, out);
+          if (eventStream) res.flushHeaders();
+          response.pipe(res);
+        }
+      } catch (error) {
+        response.destroy();
+        fail(res, error);
+      }
+    },
+  );
+  upstream.on('timeout', () =>
+    upstream.destroy(new Error('Local application timed out')),
+  );
+  upstream.on('error', (error) => fail(res, error));
+  req.pipe(upstream);
+  res.on('close', () => {
+    if (!res.writableEnded) upstream.destroy();
+  });
+}
+
+// Forward local dev-server WebSockets (including common HMR) without a WS library.
+function upgradeApplication(
+  req: IncomingMessage,
+  socket: import('node:stream').Duplex,
+  head: Buffer,
+  origin: string,
+  upstreamOrigin: string,
+) {
+  if (
+    !upstreamOrigin ||
+    req.headers.host !== new URL(origin).host ||
+    req.headers.origin !== origin ||
+    !req.url?.startsWith('/') ||
+    req.url.startsWith('//')
+  ) {
+    socket.destroy();
+    return;
+  }
+  const destination = new URL(req.url, upstreamOrigin);
+  const headers = {
+    ...req.headers,
+    host: destination.host,
+    origin: upstreamOrigin,
+  };
+  delete headers.cookie;
+  const upstream = http.request(destination, { headers, timeout: 10000 });
+  upstream.on('upgrade', (response, peer, initial) => {
+    socket.write(
+      `HTTP/1.1 ${response.statusCode} ${response.statusMessage}\r\n`,
+    );
+    for (let i = 0; i < response.rawHeaders.length; i += 2)
+      socket.write(
+        `${response.rawHeaders[i]}: ${response.rawHeaders[i + 1]}\r\n`,
+      );
+    socket.write('\r\n');
+    if (initial.length) socket.write(initial);
+    if (head.length) peer.write(head);
+    peer.pipe(socket);
+    socket.pipe(peer);
+    peer.on('error', () => socket.destroy());
+    socket.on('error', () => peer.destroy());
+    socket.on('close', () => peer.destroy());
+    peer.on('close', () => socket.destroy());
+  });
+  upstream.on('response', () => socket.destroy());
+  upstream.on('error', () => socket.destroy());
+  upstream.on('timeout', () => upstream.destroy());
+  upstream.end();
+}
+
 export interface PageServer {
   origin: string;
   frameUrl: string;
@@ -255,104 +424,19 @@ export async function startPageServer(
         res.writeHead(200, asset.headers);
         return res.end(asset.body);
       }
+      const decorate = documentRequest ? decorated : undefined;
       if (source.kind === 'file') {
-        ensure(
-          ['GET', 'HEAD'].includes(req.method ?? ''),
-          'File pages are read-only',
-          'READ_ONLY',
-          405,
-        );
-        const page = rawPath === '/' ? `/${path.basename(source.value)}` : '';
-        const file = await safeFile(source.root!, page || rawPath);
-        const bytes = await fs.readFile(file);
-        ensure(bytes.length <= LIMIT, 'Asset exceeds 8 MiB', 'TOO_LARGE', 413);
-        const html = /\.html?$/i.test(file);
-        const net = source.network ? ' http: https: ws: wss:' : '';
-        const policy = `default-src 'none'; script-src 'self' 'unsafe-inline'${net}; style-src 'self' 'unsafe-inline'${net}; img-src 'self' data: blob:${net}; font-src 'self' data:${net}; connect-src ${source.network ? "'self'" + net : "'none'"}; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors ${parentOrigin}`;
-        res.writeHead(
-          200,
-          noStore(MIME[path.extname(file).toLowerCase()]!, {
-            'content-security-policy': policy,
-          }),
-        );
-        return res.end(
-          req.method === 'HEAD'
-            ? undefined
-            : html && documentRequest
-              ? decorated(bytes, page || req.url)
-              : bytes,
-        );
+        await serveFile(req, res, source, parentOrigin, decorate);
+        return;
       }
-      // Fixed destination only; never accept a URL parameter or follow redirects.
-      const destination = new URL(url.pathname + url.search, upstreamOrigin);
-      const headers = {
-        ...req.headers,
-        host: destination.host,
-        'accept-encoding': 'identity',
-      };
-      delete headers.cookie; // No implicit browser credentials forwarded into a development app.
-      if (headers.origin) headers.origin = upstreamOrigin;
-      delete headers.connection;
-      const upstream = http.request(
-        destination,
-        { method: req.method, headers, timeout: 15000 },
-        async (response) => {
-          try {
-            const eventStream =
-              response.headers['content-type']
-                ?.split(';')[0]
-                ?.trim()
-                .toLowerCase() === 'text/event-stream';
-            // Keep the initial timeout, but allow an established event stream to stay silent.
-            if (eventStream) upstream.setTimeout(0);
-            const out = { ...response.headers };
-            for (const h of [
-              'connection',
-              'transfer-encoding',
-              'content-length',
-              'set-cookie',
-            ])
-              delete out[h];
-            if (out.location) {
-              const redirect = new URL(out.location, destination);
-              ensure(
-                redirect.origin === upstreamOrigin,
-                'Redirect leaves configured local application',
-                'UPSTREAM_REDIRECT',
-                502,
-              );
-              out.location =
-                origin + redirect.pathname + redirect.search + redirect.hash;
-            }
-            if (
-              documentRequest &&
-              response.headers['content-type']?.includes('text/html') &&
-              response.statusCode === 200
-            ) {
-              const body = await collect(response);
-              // The rewritten HTML is decoded. Other streams keep their content-encoding.
-              delete out['content-encoding'];
-              res.writeHead(200, { ...out, 'cache-control': 'no-store' });
-              res.end(decorated(body, url.pathname + url.search));
-            } else {
-              res.writeHead(response.statusCode ?? 502, out);
-              if (eventStream) res.flushHeaders();
-              response.pipe(res);
-            }
-          } catch (error) {
-            response.destroy();
-            fail(res, error);
-          }
-        },
+      proxyApplication(
+        req,
+        res,
+        url.pathname + url.search,
+        origin,
+        upstreamOrigin,
+        decorate,
       );
-      upstream.on('timeout', () =>
-        upstream.destroy(new Error('Local application timed out')),
-      );
-      upstream.on('error', (error) => fail(res, error));
-      req.pipe(upstream);
-      res.on('close', () => {
-        if (!res.writableEnded) upstream.destroy();
-      });
     } catch (error) {
       fail(res, error);
     }
@@ -361,49 +445,9 @@ export async function startPageServer(
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
   });
-  // Forward local dev-server WebSockets (including common HMR) without a WS library.
-  server.on('upgrade', (req, socket, head) => {
-    if (
-      source.kind !== 'url' ||
-      req.headers.host !== new URL(origin).host ||
-      req.headers.origin !== origin ||
-      !req.url?.startsWith('/') ||
-      req.url.startsWith('//')
-    ) {
-      socket.destroy();
-      return;
-    }
-    const destination = new URL(req.url, upstreamOrigin);
-    const headers = {
-      ...req.headers,
-      host: destination.host,
-      origin: upstreamOrigin,
-    };
-    delete headers.cookie;
-    const upstream = http.request(destination, { headers, timeout: 10000 });
-    upstream.on('upgrade', (response, peer, initial) => {
-      socket.write(
-        `HTTP/1.1 ${response.statusCode} ${response.statusMessage}\r\n`,
-      );
-      for (let i = 0; i < response.rawHeaders.length; i += 2)
-        socket.write(
-          `${response.rawHeaders[i]}: ${response.rawHeaders[i + 1]}\r\n`,
-        );
-      socket.write('\r\n');
-      if (initial.length) socket.write(initial);
-      if (head.length) peer.write(head);
-      peer.pipe(socket);
-      socket.pipe(peer);
-      peer.on('error', () => socket.destroy());
-      socket.on('error', () => peer.destroy());
-      socket.on('close', () => peer.destroy());
-      peer.on('close', () => socket.destroy());
-    });
-    upstream.on('response', () => socket.destroy());
-    upstream.on('error', () => socket.destroy());
-    upstream.on('timeout', () => upstream.destroy());
-    upstream.end();
-  });
+  server.on('upgrade', (req, socket, head) =>
+    upgradeApplication(req, socket, head, origin, upstreamOrigin),
+  );
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   origin = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`;
   const watcher =
