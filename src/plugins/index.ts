@@ -4,7 +4,7 @@
  */
 import type { Plugin } from '../shared/plugin.js';
 import { comment } from './comment.js';
-import { edit } from './edit.js';
+import { edit } from './edit/index.js';
 import { form } from './form.js';
 
 /** Index plugins by kind, in the given order. Two plugins with one kind are a programming error. */

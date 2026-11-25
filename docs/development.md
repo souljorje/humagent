@@ -67,7 +67,7 @@ The page receives `discard` before the workspace removes a keyed review on the c
 2. Add the plugin to `src/plugins/index.ts`. The SDK asks tools in registry order.
 3. Extend a browser test in `test/browser/feedback.spec.ts` with the new workflow.
 
-A plugin runs only in the browser. A large plugin can keep helper files in `src/plugins/<kind>/`. The registry refuses two plugins with one kind. The page host refuses two plugins with one `window.humagent` member. The transport, the server, and the CLI need no change.
+A plugin runs only in the browser. A plugin with multiple files exports from `src/plugins/<kind>/index.ts` and keeps its helpers in that directory. The registry refuses two plugins with one kind. The page host refuses two plugins with one `window.humagent` member. The transport, the server, and the CLI need no change.
 
 The SDK manages annotating, markers, the highlight, and the comment panel for all plugins. A tool claims a pick with `hit`, opens an inline editor with `open`, and returns its review from `build`. The SDK asks the tool with the open editor first, then the other tools in registry order. The first review wins. A saved review asks only the tool of its kind.
 

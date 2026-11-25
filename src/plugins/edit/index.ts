@@ -1,19 +1,19 @@
 /** Text edits: an inline editor for one text node, previews of saved edits, and a diff in the bar. */
-import { LIMITS, type SavedReview } from '../shared/feedback.js';
+import { LIMITS, type SavedReview } from '../../shared/feedback.js';
 import type {
   Plugin,
   Hit,
   PageHost,
   PagePlugin,
   ReviewSummary,
-} from '../shared/plugin.js';
-import { createElement } from '../shared/dom.js';
-import { ensure, object, text } from '../shared/validate.js';
-import { editOf, type EditData, type EditTarget } from './edit/data.js';
-import { createEditor } from './edit/editor.js';
-import { createPreviews, type Editing } from './edit/previews.js';
-import { textDiff } from './edit/text-diff.js';
-import { hitTestText, isEditableText, selectedRun } from './edit/text-hit.js';
+} from '../../shared/plugin.js';
+import { createElement } from '../../shared/dom.js';
+import { ensure, object, text } from '../../shared/validate.js';
+import { editOf, type EditData, type EditTarget } from './data.js';
+import { createEditor } from './editor.js';
+import { createPreviews, type Editing } from './previews.js';
+import { textDiff } from './text-diff.js';
+import { hitTestText, isEditableText, selectedRun } from './text-hit.js';
 
 function page(host: PageHost): PagePlugin {
   const { annotating } = host;
