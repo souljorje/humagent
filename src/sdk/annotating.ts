@@ -53,6 +53,10 @@ interface Capture {
   /** The tool that claimed the pick, and its inline editor. */
   tool?: RegisteredTool;
   editor?: Editor;
+  /** The comment field's text. The view owns the field. This copy follows its input. */
+  comment: string;
+  error: string;
+  saving: boolean;
 }
 const HINT = 'Arrow keys choose an element. Enter comments. Escape exits.';
 
@@ -121,22 +125,25 @@ export function createAnnotating(bridge: AnnotatingBridge) {
   // A marker press opens its editor, which can move the marker before the click.
   let markerPress = false;
   const annotating = signal(false);
-  let saving = false,
-    scheduled = false;
+  let scheduled = false;
   const enabled = () => annotating() && writable();
-  let lastAvailability = '',
-    lastScrollbars = '',
-    lastDirty = false;
+  /** The last report of each state, so the workspace hears about changes only. */
+  const reported = new Map<string, string>();
+  function report<M extends 'availability' | 'scrollbars' | 'editing'>(
+    method: M,
+    params: PageEvents[M],
+  ) {
+    const signature = JSON.stringify(params);
+    if (reported.get(method) === signature) return;
+    reported.set(method, signature);
+    post(method, params);
+  }
   let returnFocus: Element | null = null;
   let candidates: Element[] = [],
     cursor = -1;
   let outsideClicks = 0;
   /** The input that had focus last: the comment field or an inline editor. */
   let activeInput: HTMLElement | 'comment' | null = null;
-  /** The comment panel's state. The view owns the field. This copy follows its input. */
-  let panelOpen = false,
-    comment = '',
-    localError = '';
   let hint: string | undefined,
     hintText = HINT;
   /** The marker, highlight, and panel positions of the last positioning pass. */
@@ -147,7 +154,8 @@ export function createAnnotating(bridge: AnnotatingBridge) {
   } = { markers: [] };
   const view = createOverlayView({
     comment(value) {
-      comment = value;
+      if (!captured) return;
+      captured.comment = value;
       input();
     },
     commentFocus() {
@@ -158,7 +166,7 @@ export function createAnnotating(bridge: AnnotatingBridge) {
     remove: () => void save(true),
     marker(id, point, press) {
       if (press) markerPress = true;
-      if (saving) return;
+      if (captured?.saving) return;
       if (captured && captured.saved?.review.id !== id) close();
       edit(id, point || center(view.marker(id)));
     },
@@ -189,7 +197,7 @@ export function createAnnotating(bridge: AnnotatingBridge) {
    */
   function build(target: Target): NewReview | undefined {
     if (!captured) return undefined;
-    const { editor, tool: owner, saved } = captured;
+    const { editor, tool: owner, saved, comment } = captured;
     const fields = editor?.build(comment);
     if (fields && owner) return { ...fields, kind: owner.kind, target };
     if (saved) {
@@ -211,12 +219,15 @@ export function createAnnotating(bridge: AnnotatingBridge) {
     return undefined;
   }
   function changed() {
-    if (!captured || (!panelOpen && !captured.editor)) return false;
+    if (!captured) return false;
+    const { comment } = captured;
     const commentChanged = captured.saved
       ? comment !== (captured.saved.review.comment || '')
       : !!comment;
     return commentChanged || !!captured.editor?.changed();
   }
+  /** Input that the human has not saved or discarded. */
+  const unfinished = () => !!captured?.saving || changed();
   /** Input is valid when the inline editor accepts it and a tool builds a review from it. */
   function validInput() {
     return (
@@ -230,8 +241,8 @@ export function createAnnotating(bridge: AnnotatingBridge) {
     updateEditor();
   }
   function panelModel(): PanelModel | undefined {
-    if (!panelOpen || !captured) return;
-    const readOnly = saving || !writable();
+    if (!captured) return;
+    const readOnly = captured.saving || !writable();
     const confirmDisabled = readOnly || !validInput();
     return {
       existing: !!captured.saved,
@@ -240,7 +251,7 @@ export function createAnnotating(bridge: AnnotatingBridge) {
       saveDisabled: confirmDisabled || (!!captured.saved && !changed()),
       readOnly,
       locked: !writable(),
-      error: localError,
+      error: captured.error,
       position: layout.panel,
     };
   }
@@ -254,19 +265,15 @@ export function createAnnotating(bridge: AnnotatingBridge) {
     });
   }
   function updateEditor() {
-    const dirty = saving || changed();
-    if (lastDirty !== dirty) {
-      lastDirty = dirty;
-      post('editing', { dirty });
-    }
-    captured?.editor?.setReadOnly(saving || !writable());
+    report('editing', { dirty: unfinished() });
+    captured?.editor?.setReadOnly(captured.saving || !writable());
     render();
     schedule();
   }
   function outside() {
     if (!captured) return false;
-    if (saving || changed()) {
-      if (!saving && ++outsideClicks >= 2) close();
+    if (unfinished()) {
+      if (!captured.saving && ++outsideClicks >= 2) close();
       else {
         const inline = captured.editor?.element;
         if (activeInput instanceof HTMLElement && activeInput.isConnected)
@@ -282,13 +289,13 @@ export function createAnnotating(bridge: AnnotatingBridge) {
     return false;
   }
   function close(force = false) {
-    if (saving && !force) return;
-    panelOpen = false;
+    if (captured?.saving && !force) return;
+    const closing = captured;
+    captured = null;
     render();
-    captured?.editor?.close();
+    closing?.editor?.close();
     for (const tool of tools) tool.layout?.();
     outsideClicks = 0;
-    captured = null;
     activeInput = null;
     hovered = undefined;
     if (
@@ -327,12 +334,17 @@ export function createAnnotating(bridge: AnnotatingBridge) {
     render();
     schedule();
   }
-  function showEditor(focus = true) {
-    if (!captured) return;
-    panelOpen = true;
-    comment = captured.saved?.review.comment || '';
-    view.setComment(comment);
-    localError = '';
+  function showEditor(
+    capture: Omit<Capture, 'comment' | 'error' | 'saving'>,
+    focus = true,
+  ) {
+    captured = {
+      ...capture,
+      comment: capture.saved?.review.comment || '',
+      error: '',
+      saving: false,
+    };
+    view.setComment(captured.comment);
     updateEditor();
     position();
     if (focus) view.focusComment();
@@ -364,8 +376,7 @@ export function createAnnotating(bridge: AnnotatingBridge) {
       range ? textOf(el) : text,
       range,
     );
-    captured = { target, el, point: anchor(el, point) };
-    showEditor();
+    showEditor({ target, el, point: anchor(el, point) });
   }
   /** Open a tool's inline editor for a claimed pick. The comment panel opens beside it. */
   function showTool(tool: RegisteredTool, hit: Hit, point?: Point) {
@@ -377,14 +388,6 @@ export function createAnnotating(bridge: AnnotatingBridge) {
       describeTarget(hit.el, boot.sourceUrl, textOf(hit.el));
     const offset = anchor(hit.el, point);
     const editor = hit.open();
-    captured = {
-      target: hit.saved?.review.target || { ...described, ...editor.target },
-      el: hit.el,
-      ...(hit.saved ? { saved: hit.saved } : {}),
-      point: offset,
-      tool,
-      editor,
-    };
     if (editor.element) {
       const inline = editor.element;
       activeInput = inline;
@@ -392,7 +395,17 @@ export function createAnnotating(bridge: AnnotatingBridge) {
         activeInput = inline;
       };
     }
-    showEditor(!editor.element);
+    showEditor(
+      {
+        target: hit.saved?.review.target || { ...described, ...editor.target },
+        el: hit.el,
+        ...(hit.saved ? { saved: hit.saved } : {}),
+        point: offset,
+        tool,
+        editor,
+      },
+      !editor.element,
+    );
   }
   /** The first tool to claim or block a pick decides it. */
   function firstHit(next: Pick) {
@@ -424,13 +437,12 @@ export function createAnnotating(bridge: AnnotatingBridge) {
     }
     reopen(view.marker(reviewId));
     el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    captured = {
+    showEditor({
       target: saved.review.target!,
       el,
       saved,
       point: anchor(el, point || center(view.marker(reviewId))),
-    };
-    showEditor();
+    });
   }
   function selectedText(point?: Point) {
     const selection = document.getSelection();
@@ -455,17 +467,18 @@ export function createAnnotating(bridge: AnnotatingBridge) {
     return true;
   }
   async function save(remove = false) {
-    if (!captured || saving || !writable()) return;
+    if (!captured || captured.saving || !writable()) return;
     if (!remove && (!validInput() || (!!captured.saved && !changed()))) return;
     const el = findTarget(captured.target);
     if (!el) {
-      localError = 'Target unavailable. Cancel this edit and inspect the page.';
+      captured.error =
+        'Target unavailable. Cancel this edit and inspect the page.';
       render();
       return;
     }
     captured.el = el;
     const current = captured;
-    saving = true;
+    current.saving = true;
     updateEditor();
     try {
       if (remove && current.saved) await bridge.remove(current.saved.review.id);
@@ -474,7 +487,7 @@ export function createAnnotating(bridge: AnnotatingBridge) {
         const data = build(current.target)?.data;
         await bridge.edit({
           reviewId: current.saved.review.id,
-          comment,
+          comment: current.comment,
           ...(data !== undefined ? { data } : {}),
         });
       } else {
@@ -491,12 +504,13 @@ export function createAnnotating(bridge: AnnotatingBridge) {
         };
         await bridge.save(review, { local });
       }
-      saving = false;
-      close();
+      current.saving = false;
+      // A presentation can close this editor during the save. Another editor can be open now.
+      if (captured === current) close();
     } catch (error) {
-      localError = errorMessage(error);
+      current.error = errorMessage(error);
     } finally {
-      saving = false;
+      current.saving = false;
       updateEditor();
     }
   }
@@ -693,19 +707,11 @@ export function createAnnotating(bridge: AnnotatingBridge) {
           : layout.panel,
     };
     render();
-    const signature = JSON.stringify(available);
-    if (signature !== lastAvailability) {
-      lastAvailability = signature;
-      post('availability', { items: available });
-    }
-    const scrollbars = {
+    report('availability', { items: available });
+    report('scrollbars', {
       right: innerWidth - document.documentElement.clientWidth,
       bottom: innerHeight - document.documentElement.clientHeight,
-    };
-    if (JSON.stringify(scrollbars) !== lastScrollbars) {
-      lastScrollbars = JSON.stringify(scrollbars);
-      post('scrollbars', scrollbars);
-    }
+    });
   }
   function schedule() {
     if (!scheduled) {
@@ -715,7 +721,7 @@ export function createAnnotating(bridge: AnnotatingBridge) {
   }
   observeLayout(schedule);
   window.addEventListener('beforeunload', (event) => {
-    if (!saving && !changed()) return;
+    if (!unfinished()) return;
     event.preventDefault();
     event.returnValue = '';
   });
@@ -742,7 +748,7 @@ export function createAnnotating(bridge: AnnotatingBridge) {
     present(presentation: Presentation) {
       bar = presentation.bar;
       // A new presentation may follow an attach. Report scrollbars again.
-      lastScrollbars = '';
+      reported.delete('scrollbars');
       pending = presentation.pending;
       writable.set(presentation.writable);
       const ids = new Set(pending.map((saved) => saved.review.id));
@@ -755,7 +761,6 @@ export function createAnnotating(bridge: AnnotatingBridge) {
       };
       if (captured?.saved && !ids.has(captured.saved.review.id)) close(true);
       if (!presentation.writable) post('annotating', { enabled: false });
-      for (const tool of tools) tool.layout?.();
       updateEditor();
       schedule();
     },
