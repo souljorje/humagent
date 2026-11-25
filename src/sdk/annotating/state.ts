@@ -9,7 +9,7 @@ import type { CaptureState } from './capture';
 import type { CursorState } from './cursor';
 import type { PlacementState } from './placement';
 import type { PointerState } from './pointer';
-import type { Tool } from './types';
+import type { Picker } from './types';
 
 /** The workspace requests that save an editor's input. */
 export interface ReviewRequests {
@@ -29,7 +29,7 @@ export interface Annotator {
   readonly bridge: AnnotatingBridge;
   readonly view: OverlayView;
   /** Pickers in the order they handle new selections. */
-  readonly tools: Tool[];
+  readonly pickers: Picker[];
   readonly writable: Signal<boolean>;
   readonly annotating: Signal<boolean>;
   /** The last report of each state, so the workspace hears about changes only. */

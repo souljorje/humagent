@@ -3,7 +3,7 @@ import type { Presentation, Requests, WorkspaceEvents } from '@/shared/bridge';
 import { errorMessage } from '@/shared/errors';
 import type { NewReview, Unsaved } from '@/shared/feedback';
 import { cloneJson } from '@/shared/json';
-import { pageView, type pageInputs, type PageView } from '@/plugins/inputs';
+import { pageView, pageInputs, type PageView } from '@/plugins/inputs';
 import { effect, signal, type Signal } from '@/shared/signal';
 import {
   createAnnotating,
@@ -93,7 +93,7 @@ export const handlersOf = (host: Host): Handlers => ({
 });
 
 /** Start the plugins of this page. */
-export function startHost(bridge: Bridge, install: typeof pageInputs): Host {
+export function startHost(bridge: Bridge): Host {
   const annotator = createAnnotating({
     boot: bridge.boot,
     post: (method, params) => post(bridge, method, params),
@@ -104,12 +104,12 @@ export function startHost(bridge: Bridge, install: typeof pageInputs): Host {
   });
   const view = signal(pageView(bridge.boot.revision));
   const unsaved = signal<Unsaved | null>(null);
-  const inputs = install(pluginApi(annotator), view, {
+  const inputs = pageInputs(pluginApi(annotator), view, {
     save: (review, options) => save(bridge, review, options),
     notice: (message) => notice(bridge, message),
     unsaved: (state) => unsaved.set(state ?? null),
   });
-  annotator.tools.push(...inputs.tools);
+  annotator.pickers.push(...inputs.pickers);
   window.humagent = inputs.api;
   return { bridge, annotator, inputs, view, unsaved };
 }

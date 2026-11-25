@@ -6,7 +6,7 @@ import { isChanged } from './panel';
 import { pick, pickSelection } from './picking';
 import { hover } from './placement';
 import { isEnabled, type Annotator } from './state';
-import { hitTools } from './tools';
+import { hitPickers } from './pickers';
 
 export interface PointerState {
   /** A marker press opens its editor, which can move the marker before the click. */
@@ -46,7 +46,7 @@ const onPress: Handler = (a, event, origin) => {
   if (!isEnabled(a) || origin !== 'control') return;
   const el = eventElement(event);
   const point = { x: event.clientX, y: event.clientY };
-  const match = el && hitTools(a.tools, { el, point });
+  const match = el && hitPickers(a.pickers, { el, point });
   // A press on a control's plain label may start an inline editor, so only that keeps its default.
   stop(event, !match || match === 'blocked');
 };

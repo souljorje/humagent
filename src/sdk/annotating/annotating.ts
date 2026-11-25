@@ -1,6 +1,6 @@
 /**
  * Annotating on the page. The page owns geometry and temporary editors. The parent owns saved feedback.
- * Tools decide which kind of review a pick becomes. This module names no kind and builds no markup.
+ * Pickers open editors. Each editor proposes its draft. This module names no kind and builds no markup.
  */
 import type { Point } from '@/sdk/layout';
 import { createOverlayView, listenOverlay, markerOf } from '@/sdk/overlay';
@@ -54,7 +54,7 @@ export function createAnnotating(bridge: AnnotatingBridge): Annotator {
   const a: Annotator = {
     bridge,
     view: createOverlayView(),
-    tools: [],
+    pickers: [],
     writable: signal(false),
     annotating: signal(false),
     reported: new Map(),

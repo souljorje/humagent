@@ -8,7 +8,7 @@ import { draftOf, isChanged, isUnfinished } from './panel';
 import { hover, position, schedule } from './placement';
 import { render } from './render';
 import { report, type Annotator } from './state';
-import { layoutTools } from './tools';
+import { layoutPickers } from './pickers';
 import type { Draft, Editor } from './types';
 
 export interface Capture {
@@ -64,7 +64,7 @@ export function closeCapture(a: Annotator, force = false) {
   a.capture.current = undefined;
   render(a);
   closing?.editor?.close();
-  layoutTools(a.tools);
+  layoutPickers(a.pickers);
   // The page no longer points at an element.
   hover(a);
   if (

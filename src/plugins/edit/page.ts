@@ -5,7 +5,7 @@ import type {
   Editor,
   Hit,
   Pick,
-  Tool,
+  Picker,
 } from '@/sdk/annotating/types';
 import { LIMITS, type SavedReview } from '@/shared/feedback';
 import type { PageView } from '../inputs';
@@ -159,8 +159,7 @@ function hitKeyboard(state: State, el: Element) {
     : undefined;
 }
 
-function hit(state: State, { el, saved, range, point, keyboard }: Pick) {
-  if (saved) return hitSaved(state, el, saved);
+function hit(state: State, { el, range, point, keyboard }: Pick) {
   if (range) return hitRange(state, range);
   if (point) return hitPoint(state, point);
   return keyboard ? hitKeyboard(state, el) : undefined;
@@ -170,12 +169,16 @@ function showPreviews({ annotating, editing, previews, view }: State) {
   reconcile(previews, view().edits, { resolve: annotating.resolve, editing });
 }
 
-export function textTool(annotating: Annotating, view: () => PageView): Tool {
+export function textPicker(
+  annotating: Annotating,
+  view: () => PageView,
+): Picker {
   const state: State = { annotating, previews: createPreviews(), view };
   return {
     kind: 'edit',
     name: 'Text edit',
     hit: (pick) => hit(state, pick),
+    reopen: (el, saved) => hitSaved(state, el, saved),
     textOf: (node) => originalText(state.previews, node, state.editing),
     layout: effect(() => showPreviews(state)),
   };

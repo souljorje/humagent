@@ -5,7 +5,7 @@ import { describeTarget, isTarget } from '@/sdk/targets';
 import { LIMITS } from '@/shared/feedback';
 import { openCapture, prepareCapture, pressOutside } from './capture';
 import { resolve, type Annotator } from './state';
-import { findTool, hitTools, originalText } from './tools';
+import { pickerFor, hitPickers, originalText } from './pickers';
 import type { Hit, Pick } from './types';
 
 const TOO_LONG = 'Select a smaller section (maximum 50,000 characters).';
@@ -32,10 +32,10 @@ function scrollToTarget(el: Element) {
   el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
-/** Open the comment panel on an element. No tool claimed the pick. */
+/** Open the comment panel on an element. No picker claimed the pick. */
 function openPanel(a: Annotator, { el, range, point }: Pick) {
   if (!isTarget(el) || !a.writable() || pressOutside(a)) return;
-  const text = range ? range.toString() : originalText(a.tools, el);
+  const text = range ? range.toString() : originalText(a.pickers, el);
   if (text.length > LIMITS.text) {
     a.bridge.notice(TOO_LONG);
     return;
@@ -44,21 +44,21 @@ function openPanel(a: Annotator, { el, range, point }: Pick) {
   const target = describeTarget(
     el,
     a.bridge.boot.sourceUrl,
-    range ? originalText(a.tools, el) : text,
+    range ? originalText(a.pickers, el) : text,
     range,
   );
   openCapture(a, { target, el, point: anchor(el, point) });
 }
 
-/** Open a tool's inline editor for a claimed pick. The comment panel opens beside it. */
-function openTool(a: Annotator, hit: Hit, point: Point | undefined) {
+/** Open a picker's inline editor for a claimed pick. The comment panel opens beside it. */
+function openPicker(a: Annotator, hit: Hit, point: Point | undefined) {
   const { el, saved } = hit;
   if (!a.writable() || pressOutside(a)) return;
   prepareCapture(a, saved && markerOf(a.view, saved.review.id));
   // The target and the press position describe the element before the editor changes it.
   const described =
     saved?.review.target ??
-    describeTarget(el, a.bridge.boot.sourceUrl, originalText(a.tools, el));
+    describeTarget(el, a.bridge.boot.sourceUrl, originalText(a.pickers, el));
   const offset = anchor(el, point);
   const editor = hit.open();
   openCapture(a, {
@@ -71,9 +71,9 @@ function openTool(a: Annotator, hit: Hit, point: Point | undefined) {
 }
 
 export function pick(a: Annotator, next: Pick) {
-  const hit = hitTools(a.tools, next);
+  const hit = hitPickers(a.pickers, next);
   if (!hit) openPanel(a, next);
-  else if (hit !== 'blocked') openTool(a, hit, next.point);
+  else if (hit !== 'blocked') openPicker(a, hit, next.point);
 }
 
 /** Reopen a saved pending review. */
@@ -82,15 +82,15 @@ export function openReview(a: Annotator, reviewId: string, point?: Point) {
   if (!saved || pressOutside(a)) return;
   const marker = markerOf(a.view, reviewId);
   const el = resolve(a, saved);
-  const tool = findTool(a.tools, saved.review.kind);
-  const hit = el && tool?.hit?.({ el, saved });
+  const hit =
+    el && pickerFor(a.pickers, saved.review.kind)?.reopen?.(el, saved);
   if (!el || hit === 'blocked') {
     a.bridge.notice(UNAVAILABLE);
     return;
   }
   if (hit) {
     scrollToTarget(el);
-    openTool(a, hit, point || center(marker));
+    openPicker(a, hit, point || center(marker));
     return;
   }
   prepareCapture(a, marker);

@@ -10,7 +10,7 @@ import type { Presentation } from '@/shared/bridge';
 import type { SavedReview } from '@/shared/feedback';
 import { render } from './render';
 import { report, resolve, type Annotator } from './state';
-import { findTool, layoutTools } from './tools';
+import { pickerFor, layoutPickers } from './pickers';
 
 export interface PlacementState {
   /** The element that the human points at. */
@@ -39,7 +39,7 @@ export const createPlacement = (): PlacementState => ({
 
 /** The marker of a review in view. */
 function markersOf(
-  { tools, capture, placement }: Annotator,
+  { pickers, capture, placement }: Annotator,
   { saved, number, el }: Located,
 ): MarkerModel[] {
   const rect = el?.getBoundingClientRect();
@@ -49,7 +49,7 @@ function markersOf(
     {
       id,
       number,
-      label: `Review ${number}: ${comment || (findTool(tools, kind)?.name ?? kind)}`,
+      label: `Review ${number}: ${comment || (pickerFor(pickers, kind)?.name ?? kind)}`,
       expanded: capture.current?.saved?.review.id === id,
       highlighted: placement.highlightedReview === id,
       ...markerPoint(rect, saved.marker),
@@ -84,7 +84,7 @@ function panelPosition(
 export function position(a: Annotator) {
   const { capture, pending, placement } = a;
   placement.scheduled = false;
-  layoutTools(a.tools);
+  layoutPickers(a.pickers);
   const located: Located[] = pending.flatMap((saved, index) =>
     saved.review.target
       ? [{ saved, number: String(index + 1), el: resolve(a, saved) }]

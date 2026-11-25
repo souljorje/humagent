@@ -1,11 +1,9 @@
 /** How annotating asks a plugin about a pick, and what the plugin can ask in return. */
 import type { NewReview, SavedReview, Target } from '@/shared/feedback';
 
-/** What the human pointed at. One of `saved`, `range`, `point`, or `keyboard` says how. */
+/** A new selection. A range can also have a pointer position. */
 export interface Pick {
   el: Element;
-  /** A saved pending review that the human reopens. */
-  saved?: SavedReview;
   /** A text selection. */
   range?: Range;
   /** A press at this viewport point. */
@@ -13,7 +11,7 @@ export interface Pick {
   /** A keyboard choice of the element. */
   keyboard?: boolean;
 }
-/** A tool's claim on a pick. The SDK opens its editor after recording the target. */
+/** A picker's claim on a pick. The SDK opens its editor after recording the target. */
 export interface Hit {
   el: Element;
   /** The saved pending review that the pick reopens. */
@@ -22,7 +20,7 @@ export interface Hit {
 }
 /** The editor chooses the kind. The SDK supplies the captured target when saving. */
 export type Draft = Omit<NewReview, 'target'>;
-/** A tool's inline editor for one pick. */
+/** A picker's inline editor for one pick. */
 export interface Editor {
   /** Target fields that the editor adds, such as a text node index. */
   target?: Target;
@@ -35,14 +33,16 @@ export interface Editor {
   close(): void;
 }
 /** A picker for new selections and saved reviews of its kind. */
-export interface Tool {
+export interface Picker {
   /** Reopen saved reviews of this kind. New drafts can use any kind. */
   kind: string;
   /** The marker label of a pending review without a comment. */
   name: string;
   /** Claim a pick. `blocked` stops the pick without an editor. */
-  hit?(pick: Pick): Hit | 'blocked' | undefined;
-  /** The original text of a node that this tool changed on the page. */
+  hit(pick: Pick): Hit | 'blocked' | undefined;
+  /** Open the editor for a saved review of this kind. */
+  reopen?(el: Element, saved: SavedReview): Hit | 'blocked' | undefined;
+  /** The original text of a node that this picker changed on the page. */
   textOf?(node: Node): string | undefined;
   /** The start of each positioning pass. */
   layout?(): void;

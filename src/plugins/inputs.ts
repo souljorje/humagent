@@ -3,7 +3,7 @@ import type { Annotating } from '@/sdk/annotating/types';
 import type { Presentation } from '@/shared/bridge';
 import type { SavedReview } from '@/shared/feedback';
 import { savedEdits, type SavedEdit } from './edit/data';
-import { textTool } from './edit/page';
+import { textPicker } from './edit/page';
 import { attachForms, type FormHost } from './form/page';
 
 export interface PageView {
@@ -32,7 +32,7 @@ export function pageInputs(
 ) {
   const forms = attachForms(host);
   return {
-    tools: [textTool(annotating, view)],
+    pickers: [textPicker(annotating, view)],
     api: Object.freeze({ submit: forms.submit }),
     restore: () => forms.restore(view().pending),
     discard(saved: SavedReview) {
