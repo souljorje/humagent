@@ -9,3 +9,4 @@ Separate text preview cleanup from drawing pending edits. Simplify how the works
 The edit and form plugin entries are now `src/plugins/edit/index.ts` and `src/plugins/form/index.ts`.
 Tooltip updates collect buttons directly from new page elements, avoiding a temporary array for each element.
 Compile the package with TypeScript’s ESNext target.
+Simplify how the SDK and server validate and copy JSON submissions.

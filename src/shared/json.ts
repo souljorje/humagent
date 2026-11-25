@@ -5,12 +5,53 @@ export type ObjectValue = { readonly [key: string]: Json };
 export const isReservedJsonKey = (key: string) =>
   key === '__proto__' || key === 'constructor' || key === 'prototype';
 
-/** Snapshot untrusted input. Inspect descriptors so copying a property never calls its getter. */
-export function cloneJson<T>(value: T): T {
-  const ancestors = new WeakSet<object>();
+/** Read an own data property without invoking a getter. */
+function dataValue(source: object, key: string): unknown {
+  const property = Object.getOwnPropertyDescriptor(source, key);
+  if (!property?.enumerable || !Object.hasOwn(property, 'value'))
+    throw new Error('JSON properties must be enumerable data values');
+  return property.value;
+}
 
-  function check(item: unknown, depth: number): Json {
-    if (depth >= 24) throw new Error('JSON is nested too deeply');
+function jsonKey(key: string | symbol): string {
+  if (typeof key !== 'string' || isReservedJsonKey(key))
+    throw new Error('Unsupported JSON property');
+  return key;
+}
+
+function copyFields(source: object, copy: (child: unknown) => Json): Json {
+  if (Array.isArray(source)) {
+    const keys = Reflect.ownKeys(source);
+    if (keys.length !== source.length + 1)
+      throw new Error('JSON arrays cannot have holes or extra properties');
+    const result: Json[] = [];
+    for (const key of keys) {
+      if (key === 'length') continue;
+      const name = jsonKey(key);
+      const index = Number(name);
+      if (!/^(0|[1-9]\d*)$/.test(name) || index >= source.length)
+        throw new Error('JSON arrays cannot have extra properties');
+      result[index] = copy(dataValue(source, name));
+    }
+    return result;
+  }
+
+  const prototype = Object.getPrototypeOf(source);
+  if (prototype !== null && prototype !== Object.prototype)
+    throw new Error('JSON objects must be plain objects');
+  const result: Record<string, Json> = {};
+  for (const key of Reflect.ownKeys(source)) {
+    const name = jsonKey(key);
+    result[name] = copy(dataValue(source, name));
+  }
+  return result;
+}
+
+/** Copy plain JSON. Shared references are valid unless they lead back to an ancestor. */
+export function cloneJson<T>(value: T): T {
+  const ancestors = new Set<object>();
+  function copy(item: unknown): Json {
+    if (ancestors.size >= 24) throw new Error('JSON is nested too deeply');
     if (item === null || typeof item === 'string' || typeof item === 'boolean')
       return item;
     if (typeof item === 'number') {
@@ -22,37 +63,10 @@ export function cloneJson<T>(value: T): T {
       throw new Error('Only JSON values are supported');
     if (ancestors.has(item))
       throw new Error('JSON values cannot contain cycles');
-    const array = Array.isArray(item);
-    const prototype = Object.getPrototypeOf(item);
-    if (!array && prototype !== Object.prototype && prototype !== null) {
-      throw new Error('JSON objects must be plain objects');
-    }
-    const keys = Reflect.ownKeys(item);
-    if (array && keys.length !== item.length + 1) {
-      throw new Error('JSON arrays cannot have holes or extra properties');
-    }
     ancestors.add(item);
-    const copy: Json[] | Record<string, Json> = array ? [] : {};
-    for (const key of keys) {
-      if (array && key === 'length') continue;
-      if (typeof key !== 'string' || isReservedJsonKey(key)) {
-        throw new Error('Unsupported JSON property');
-      }
-      if (
-        array &&
-        (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= item.length)
-      ) {
-        throw new Error('JSON arrays cannot have extra properties');
-      }
-      const descriptor = Object.getOwnPropertyDescriptor(item, key);
-      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) {
-        throw new Error('JSON properties must be enumerable data values');
-      }
-      (copy as Record<string, Json>)[key] = check(descriptor.value, depth + 1);
-    }
+    const result = copyFields(item, copy);
     ancestors.delete(item);
-    return copy;
+    return result;
   }
-
-  return check(value, 0) as T;
+  return copy(value) as T;
 }
