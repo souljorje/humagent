@@ -10,6 +10,14 @@ import { effect, signal } from '../shared/signal.js';
 
 export type AgentStatus =
   'ended' | 'offline' | 'connected' | 'sent' | 'working' | 'idle';
+function agentStatus(
+  current: WorkspaceView | undefined,
+  connected: boolean,
+): AgentStatus {
+  if (current?.ended) return 'ended';
+  if (!connected) return 'offline';
+  return current?.agent ?? 'idle';
+}
 export interface SavedReviewModel {
   saved: SavedReview;
   /** The pending review belongs to another page revision. */
@@ -165,25 +173,23 @@ export function createWorkspace(
       writable: !current.ended,
     };
   }
+  function pendingReview(saved: SavedReview): SavedReviewModel {
+    const stale = !fresh(saved.revision);
+    return {
+      saved,
+      stale,
+      unavailable: !stale && available().get(saved.review.id) === false,
+    };
+  }
   function model(): BarModel {
     const current = session();
     const attached = page();
-    const mutable = !!current && !current.ended;
-    const agent = connected() && mutable && current.agent !== 'idle';
-    const pending = (current?.pending ?? []).map((saved) => {
-      const stale = !fresh(saved.revision);
-      return {
-        saved,
-        stale,
-        unavailable: !stale && available().get(saved.review.id) === false,
-      };
-    });
+    const status = agentStatus(current, connected());
+    const agent =
+      status === 'connected' || status === 'sent' || status === 'working';
+    const pending = current?.pending.map(pendingReview) ?? [];
     return {
-      status: current?.ended
-        ? 'ended'
-        : !connected()
-          ? 'offline'
-          : (current?.agent ?? 'idle'),
+      status,
       agent,
       session: current,
       attached: !!attached,
@@ -200,7 +206,7 @@ export function createWorkspace(
         fresh(attached?.revision) &&
         !pending.some((saved) => saved.stale),
       // An ended session accepts no instruction.
-      instructionPending: mutable && instructionPending(),
+      instructionPending: !!current && !current.ended && instructionPending(),
       instructionStatus: instructionStatus(),
       error: message(),
       bridgeStatus: bridgeStatus(),
