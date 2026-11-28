@@ -45,16 +45,25 @@ bunx --no-install playwright install chromium
 | Command | Purpose |
 | --- | --- |
 | `bun run format` | Format source, tests, and configuration with Bun. Options live in `bunfig.toml`. |
+| `bun run lint` | Run Bun's native linter. |
+| `bun run typecheck` | Run Bun's native type checker. Build declarations first. |
+| `bun run check:toolchain` | Verify the pinned Bun revision and record the runtime cache inputs. |
 | `bun run check` | Run formatting checks, lint, build, type checks, and fast tests. |
 | `bun run test:browser:built` | Run browser tests against an existing build. |
 | `bun run test` | Run all checks, including browser tests, through Turbo. |
 | `bun run check --force` | Run every main-check task without cached results. |
 
-Turbo caches successful tasks and build outputs in `.turbo/`. Source, configuration, lockfile, and runtime changes invalidate results. Markdown files and `docs/` do not invalidate results. Test files and `tsconfig.test.json` do not invalidate the build. Browser tests never reuse cached results.
+Turbo caches successful tasks and build outputs in `.turbo/`. Source, configuration, lockfile, and runtime changes invalidate results. Markdown files and `docs/` do not invalidate results. Test files and `tsconfig.test.json` do not invalidate the build. Browser tests never reuse cached results. An uncached cleanup removes old build files before Turbo restores or creates build outputs.
+
+The runtime fingerprint includes Bun's full revision, the external Node version, the operating system, and the architecture.
 
 Formatting, lint, and build can run together. Type checks, fast tests, and browser tests run together after the build. Local checks finish independent tasks after failures and show full logs. CI stops at the first test failure and cancels remaining tasks.
 
-`bun run build` writes `dist/client`, `dist/node`, and `dist/examples` with Vite, and empties them first. `dist/node` includes the public declarations. `tsconfig.json` checks all source. `tsconfig.test.json` also checks tests and the Vite configuration.
+`bun run build` runs Vite under Bun. It writes `dist/client`, `dist/node`, and `dist/examples`, and empties them first. The Vite declaration plugin uses `tsrs` only to emit the public declarations. Bun checks source, tests, Vite configuration, and scripts through their TypeScript configurations.
+
+### Git hooks
+
+Run `bun run hooks:install` once per clone. Lefthook checks staged formatting and lint without changing the index. Bun reads staged content, including partially staged files. The pre-push hook runs `bun run check`. CI runs the full checks and browser acceptance. Published packages do not install hooks.
 
 ## Architecture
 

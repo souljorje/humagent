@@ -15,6 +15,8 @@ export function writeJson(file: string, value: unknown) {
   } finally {
     try {
       fs.unlinkSync(temporary);
-    } catch {}
+    } catch {
+      // Cleanup must not replace the original write result.
+    }
   }
 }

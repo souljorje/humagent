@@ -59,6 +59,7 @@ export interface PluginView {
   writable: boolean;
 }
 /** Each plugin can add its public page methods to this interface. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Plugins extend this interface through declaration merging.
 export interface PageMethods {}
 declare global {
   interface Window {

@@ -19,6 +19,13 @@ export function packageName(target: Target) {
   return `${WRAPPER_PACKAGE}-${target.os}-${target.cpu}${libc}`;
 }
 
+export function runtimePackageName(target: Target) {
+  const os = target.os === 'win32' ? 'windows' : target.os;
+  const cpu = target.cpu === 'arm64' ? 'aarch64' : target.cpu;
+  const libc = 'libc' in target && target.libc === 'musl' ? '-musl' : '';
+  return `@oven/bun-${os}-${cpu}${libc}`;
+}
+
 /** The Node-compatible report exposes glibc on Linux. No glibc field means musl. */
 export function currentTarget() {
   const report = process.report.getReport() as {

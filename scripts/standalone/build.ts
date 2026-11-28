@@ -2,11 +2,12 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assertToolchain } from '../toolchain';
+import { compilerRuntime } from './compiler';
 import { packageExecutable } from './package';
 import { binaryName, currentTarget, targets } from './targets';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
-const expectedBun = '1.4.5';
 
 function selectedTarget() {
   const args = process.argv.slice(2);
@@ -38,16 +39,17 @@ async function checksum(file: string) {
 }
 
 async function build() {
-  if (Bun.version !== expectedBun)
-    throw new Error(
-      `This experiment requires Bun ${expectedBun}. Found ${Bun.version}.`,
-    );
+  assertToolchain();
   const target = selectedTarget();
   const metadata = JSON.parse(
     await readFile(path.join(root, 'package.json'), 'utf8'),
   ) as {
     version: string;
+    packageManager: string;
   };
+  if (!metadata.packageManager.startsWith('bun@'))
+    throw new Error('The package manager must pin a Bun npm release.');
+  const bunNpmVersion = metadata.packageManager.slice('bun@'.length);
   const version = `${metadata.version}-bun-experiment.0`;
   const output = path.join(root, '.local/standalone');
   const directory = path.join(output, target.id);
@@ -59,6 +61,7 @@ async function build() {
     if (!(await stat(asset)).isDirectory())
       throw new Error(`Missing built assets: ${asset}`);
   }
+  const compiler = await compilerRuntime(root, target, bunNpmVersion);
   await rm(directory, { recursive: true, force: true });
   await mkdir(directory, { recursive: true });
   const result = await Bun.build({
@@ -72,6 +75,7 @@ async function build() {
     },
     compile: {
       target: target.id,
+      executablePath: compiler.executablePath,
       outfile: binary,
       assets,
       autoloadTsconfig: false,
@@ -94,6 +98,9 @@ async function build() {
   const manifest = {
     schemaVersion: 1,
     bunVersion: Bun.version,
+    bunRevision: Bun.revision,
+    bunNpmVersion,
+    compiler,
     applicationVersion: version,
     sourceVersion: metadata.version,
     version,

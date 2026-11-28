@@ -18,7 +18,7 @@ It does not publish packages, create releases, or change the main branch.
 
 ## Build
 
-Use the exact runtime version in [the workflow](../.github/workflows/bun-standalone.yml).
+Use the pinned canary from [Development](development.md#local-development).
 Install the frozen dependencies first.
 
 ```sh
@@ -36,6 +36,13 @@ bun run build:standalone --target bun-linux-arm64
 All generated files remain in `.local/standalone/`.
 Each target directory contains an executable, two package archives, checksums, and a manifest.
 The top-level manifest identifies the latest build for the smoke test.
+
+The build checks the full runtime revision before compilation.
+Native builds embed the current executable.
+Cross-builds use the exact platform package declared by the pinned runtime package.
+The build checks the package archive's SHA512 integrity before it extracts the compiler.
+The compiler cache remains in `.local/standalone/compiler/`. Each reuse checks the executable's SHA256 checksum.
+Each build manifest records the runtime revision, package versions, archive integrity, and compiler checksum.
 
 ```text
 .local/standalone/
