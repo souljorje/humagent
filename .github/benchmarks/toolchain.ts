@@ -6,7 +6,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statS
 import { cpus, platform, arch, totalmem } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { cacheResult } from "./cache-result";
+import { cacheResult, turboTaskCacheResult } from "./cache-result";
 
 const suite = process.argv[2];
 if (suite !== "tools" && suite !== "tests") throw Error("Use: bun .github/benchmarks/toolchain.ts tools|tests");
@@ -428,11 +428,13 @@ async function cacheAndChecks() {
   await compare([{ name: "task/direct-build", work: stable(), args: ["bun", "run", "build"], before: () => cleanDist(candidate), validate: (_, exit) => exit === 0 && validBuild(candidate) }], 5);
   for (const c of cache) {
     let expected = "";
-    const build = (name: string, mode: "hit" | "miss" | "either", before?: () => void): Case => ({
+    const build = (name: string, mode: "hit" | "miss" | "invalidated" | "either", before?: () => void): Case => ({
       name: "task/" + c.name + "/" + name, work: stable(), args: c.args, before,
       env: { TURBO_FORCE: "false" },
       validate: (text, exit) => exit === 0 && validBuild(candidate) &&
-        (mode === "either" || cacheResult(c.name, text) === mode) &&
+        (mode === "either" || (mode === "invalidated"
+          ? ["miss", "partial"].includes(cacheResult(c.name, text))
+          : cacheResult(c.name, text) === mode)) &&
         (name !== "restore-output" || buildFingerprint(candidate) === expected),
     });
     if (!await trial(build("cold", "miss", () => { c.clean(); cleanDist(candidate); }))) continue;
@@ -444,7 +446,7 @@ async function cacheAndChecks() {
       const original = readFileSync(absolute);
       try {
         writeFileSync(absolute, Buffer.concat([original, Buffer.from("\n" + (label === "docs-edit" ? "<!-- benchmark -->" : "// benchmark input change") + "\n")]));
-        await trial(build(label!, label === "source-edit" ? "miss" : "hit"));
+        await trial(build(label!, label === "source-edit" ? "invalidated" : "hit"));
       } finally { writeFileSync(absolute, original); }
       await trial(build("reset-after-" + label, "either"));
     }
@@ -464,7 +466,7 @@ async function adoptedChecks() {
     env: { TURBO_CACHE_DIR: cache, TURBO_FORCE: "false" },
     validate: (text, exit) => exit === 0 && validBuild(adopted) &&
       (mode === "either" || (mode === "warm"
-        ? ["hit", "partial"].includes(cacheResult("turbo", text))
+        ? ["hit", "partial"].includes(cacheResult("turbo", text)) && turboTaskCacheResult(text, "build") === "hit"
         : cacheResult("turbo", text) === mode)),
   });
   await compare([check("cold", "miss", () => {
@@ -489,8 +491,14 @@ async function adoptedChecks() {
       // also run a dedicated links check, according to the project's task graph.
       changed.validate = (text, exit) => {
         const result = cacheResult("turbo", text);
-        return exit === 0 && validBuild(adopted) && result !== "unknown" &&
-          (label === "docs-edit" || result === "miss" || result === "partial");
+        if (exit !== 0 || !validBuild(adopted) || result === "unknown") return false;
+        if (label === "docs-edit" && hum) {
+          return ["format:check", "lint", "build", "typecheck", "test:fast"]
+            .every(task => turboTaskCacheResult(text, task) === "hit");
+        }
+        if (label === "docs-edit") return turboTaskCacheResult(text, "build") === "hit";
+        if (result !== "miss" && result !== "partial") return false;
+        return turboTaskCacheResult(text, "build") === (label === "test-edit" ? "hit" : "miss");
       };
       await trial(changed);
     } finally { writeFileSync(absolute, original); }

@@ -33,9 +33,9 @@ A failed command has no speed result. Baseline failures, adopted check failures,
 
 Lint comparisons include intentional errors and diagnostic parity. Type checkers must reject an intentional assignment error. Formatting checks require convergence on each formatter's normalized output.
 
-Cache checks parse numeric hit counts and successful task totals. Zero hits cannot count as a hit. A miss needs positive execution evidence. Focused regression tests cover zero, complete, partial, failed, and missing reports. Restored build outputs must match the recorded SHA-256 inventory.
+Cache checks parse numeric hit counts and successful task totals. Zero hits cannot count as a hit. Saved-time suffixes do not change the result. Source edits can leave independent build commands cached. A miss needs positive execution evidence. Focused regression tests cover zero, complete, partial, failed, and missing reports. Restored build outputs must match the recorded SHA-256 inventory.
 
-The adopted warm checks include tasks that the project deliberately leaves uncached. Partial cache hits are valid for that workload. The separate build-cache comparison requires complete hits.
+The adopted warm checks include tasks that the project deliberately leaves uncached. Partial cache hits are valid for that workload. Warm and restored build outputs require complete hits in the separate build-cache comparison. Adopted checks require a build cache hit after documentation and test edits. Humagent also requires its other cacheable checks to remain cached after documentation edits.
 
 ## Limits
 

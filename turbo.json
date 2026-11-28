@@ -36,7 +36,7 @@
       "passThroughEnv": ["PLAYWRIGHT_*", "PWDEBUG"]
     },
     "clean:build": {
-      "inputs": [],
+      "inputs": ["package.json"],
       "outputs": [],
       "cache": false
     }
