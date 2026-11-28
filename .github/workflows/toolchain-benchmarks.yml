@@ -1,0 +1,67 @@
+name: Toolchain benchmarks
+
+on:
+  push:
+    branches: [bench/toolchain-2026-11-28]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toolchain-bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: ${{ matrix.os }} / ${{ matrix.suite }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+        suite: [tools, tests]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+      - name: Save pinned Bun
+        run: |
+          mkdir -p "$RUNNER_TEMP/toolchain-bun/baseline"
+          cp -L "$(command -v bun)" "$RUNNER_TEMP/toolchain-bun/baseline/bun"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.5'
+      - name: Save stable Bun
+        run: |
+          mkdir -p "$RUNNER_TEMP/toolchain-bun/stable"
+          cp -L "$(command -v bun)" "$RUNNER_TEMP/toolchain-bun/stable/bun"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: canary
+          no-cache: true
+      - name: Save latest canary
+        run: |
+          mkdir -p "$RUNNER_TEMP/toolchain-bun/canary"
+          cp -L "$(command -v bun)" "$RUNNER_TEMP/toolchain-bun/canary/bun"
+          "$RUNNER_TEMP/toolchain-bun/canary/bun" --revision
+      - name: Benchmark pinned and candidate toolchains
+        run: '"$RUNNER_TEMP/toolchain-bun/stable/bun" scripts/benchmark-toolchain.ts ${{ matrix.suite }}'
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: toolchain-${{ matrix.os }}-${{ matrix.suite }}
+          path: ${{ runner.temp }}/toolchain-results/${{ matrix.suite }}/
+          retention-days: 14
+          if-no-files-found: warn
