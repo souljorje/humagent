@@ -1,5 +1,9 @@
 # Humagent
 
+This branch contains an unpublished [Bun executable experiment](docs/bun-standalone-experiment.md).
+Its executable includes the Bun runtime and the built browser assets.
+The existing JavaScript package remains the comparison build.
+
 [![Check](https://github.com/souljorje/humagent/actions/workflows/check.yml/badge.svg?branch=main)](https://github.com/souljorje/humagent/actions/workflows/check.yml?query=branch%3Amain)
 [![npm version](https://img.shields.io/npm/v/humagent)](https://www.npmjs.com/package/humagent)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)

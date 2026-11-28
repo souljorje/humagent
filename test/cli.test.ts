@@ -9,20 +9,30 @@ import { fixture } from './fixtures';
 
 const execute = promisify(execFile);
 const cli = fileURLToPath(new URL('../dist/node/cli.js', import.meta.url));
+const standalone = process.env.HUMAGENT_TEST_EXECUTABLE;
 const pkg = JSON.parse(
   fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 );
 
 /** Run JSON CLI commands against one home with one runtime executable. */
-function cliRunner(home: string, executable = process.execPath) {
-  const env = { ...process.env, HUMAGENT_PORT: '0' };
+function cliRunner(home: string, executable = standalone ?? process.execPath) {
+  const env = {
+    ...process.env,
+    HUMAGENT_PORT: '0',
+    ...(standalone ? { PATH: '', Path: '' } : {}),
+  };
   const run = async (...args: string[]) =>
     JSON.parse(
       (
-        await execute(executable, [cli, ...args, '--home', home], {
-          env,
-          timeout: 10000,
-        })
+        await execute(
+          executable,
+          [...(standalone ? [] : [cli]), ...args, '--home', home],
+          {
+            env,
+            cwd: path.dirname(home),
+            timeout: 10000,
+          },
+        )
       ).stdout,
     );
   /** Stop the server and wait until it removes its record. */
@@ -36,7 +46,7 @@ function cliRunner(home: string, executable = process.execPath) {
   return { run, stop };
 }
 
-for (const runtime of ['bun', 'node'])
+for (const runtime of standalone ? ['bun'] : ['bun', 'node'])
   test(`the ${runtime} CLI keeps a session through an agent loop and a server restart`, async () => {
     const root = fixture(`cli-${runtime}`);
     const home = path.join(root, 'state');
@@ -46,7 +56,7 @@ for (const runtime of ['bun', 'node'])
     fs.writeFileSync(source, '<!doctype html><h1>CLI test</h1>');
     const { run, stop } = cliRunner(
       home,
-      runtime === 'bun' ? process.execPath : 'node',
+      standalone ?? (runtime === 'bun' ? process.execPath : 'node'),
     );
     try {
       const opened = await run(source, '--no-wait', '--no-open');
@@ -144,13 +154,18 @@ test('the demo opens the editable page and keeps local edits on the next run', a
   }
 });
 
-test('help, version, invalid commands, and old Node versions do not start a server', () => {
+test('help, version, and invalid commands do not start a server', () => {
   const home = fixture('help');
   const run = (args: string[]) =>
-    execFileSync(process.execPath, [cli, ...args, '--home', home], {
-      encoding: 'utf8',
-      stdio: 'pipe',
-    });
+    execFileSync(
+      standalone ?? process.execPath,
+      [...(standalone ? [] : [cli]), ...args, '--home', home],
+      {
+        encoding: 'utf8',
+        stdio: 'pipe',
+        ...(standalone ? { env: { ...process.env, PATH: '', Path: '' } } : {}),
+      },
+    );
   // Load the CLI under Node.js with a replaced version number.
   const withNode = (version: string) =>
     spawnSync(
@@ -166,15 +181,24 @@ test('help, version, invalid commands, and old Node versions do not start a serv
     );
   try {
     assert.match(run(['--help']), /humagent demo/);
-    assert.equal(run(['--version']).trim(), pkg.version);
+    assert.equal(
+      run(['--version']).trim(),
+      process.env.HUMAGENT_TEST_VERSION ?? pkg.version,
+    );
     for (const args of [['unknown'], ['__proto__'], ['open', '--bad']])
       assert.throws(() => run(args));
-    const old = withNode('23.0.0');
-    assert.equal(old.status, 1);
-    assert.match(JSON.parse(old.stdout).error, /Use Node\.js 24 or later/);
-    const supported = withNode('24.0.0');
-    assert.equal(supported.status, 0, supported.stderr);
-    assert.equal(JSON.parse(supported.stdout).runtime, 'node');
+    if (!standalone) {
+      const old = withNode('23.0.0');
+      assert.equal(old.status, 1);
+      assert.match(JSON.parse(old.stdout).error, /Use Node\.js 24 or later/);
+      const supported = withNode('24.0.0');
+      assert.equal(supported.status, 0, supported.stderr);
+      assert.equal(JSON.parse(supported.stdout).runtime, 'node');
+    } else {
+      const status = JSON.parse(run(['status', '--json']).toString());
+      assert.equal(status.runtime, 'bun');
+      assert.equal(status.filesPresent, true);
+    }
     assert.equal(fs.existsSync(path.join(home, 'server.json')), false);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });

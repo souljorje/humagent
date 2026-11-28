@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { connect } from '@/server/client';
-import { version } from '@/server/version';
+import { standalone, version } from '@/server/version';
 import { ensure } from '@/shared/validate';
 
 /** Check every 100 ms until `check` returns a value, at most `attempts` times. */
@@ -26,10 +26,16 @@ export async function service(directory: string) {
   }
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const log = fs.openSync(path.join(directory, 'server.log'), 'a', 0o600);
-  // Keep the selected runtime for the detached server, including bunx --bun.
+  // A compiled executable relaunches itself without its virtual entry path.
   const child = spawn(
     process.execPath,
-    [process.argv[1]!, 'server', '--home', directory, '--json'],
+    [
+      ...(standalone ? [] : [process.argv[1]!]),
+      'server',
+      '--home',
+      directory,
+      '--json',
+    ],
     {
       detached: true,
       stdio: ['ignore', log, log],

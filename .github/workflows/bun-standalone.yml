@@ -1,0 +1,101 @@
+name: Bun standalone experiment
+
+on:
+  push:
+    branches: [experiment/bun-standalone-0.3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bun-standalone-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  native:
+    name: Native smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: '1.4.5'
+      - run: bun install --frozen-lockfile
+      - name: Run the existing regression checks
+        if: runner.os == 'Linux'
+        run: bun run check
+      - run: bun run build:standalone
+      - run: bunx --no-install playwright install --with-deps --only-shell chromium
+      - run: bun run test:standalone
+      - name: Upload executable and package archives
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bun-standalone-${{ matrix.os }}
+          path: |
+            .local/standalone/*/*.tgz
+            .local/standalone/*/manifest.json
+            .local/standalone/*/acceptance.json
+            .local/standalone/*/checksums.sha256
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload failed browser checks
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bun-standalone-browser-${{ matrix.os }}
+          path: .local/playwright-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  cross:
+    name: Cross-build only (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - bun-darwin-x64
+          - bun-linux-arm64
+          - bun-linux-arm64-musl
+          - bun-linux-x64-musl
+          - bun-windows-arm64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: '1.4.5'
+      - run: bun install --frozen-lockfile
+      - run: bun run build:standalone --target "${{ matrix.target }}"
+      - name: Record the runtime limitation
+        run: echo 'Cross-compilation passed. This job did not execute the target binary.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bun-standalone-${{ matrix.target }}-cross-build-only
+          path: |
+            .local/standalone/*/*.tgz
+            .local/standalone/*/manifest.json
+            .local/standalone/*/checksums.sha256
+          if-no-files-found: error
+          retention-days: 14
