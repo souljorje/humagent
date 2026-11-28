@@ -1,0 +1,20 @@
+::group::lint
+cache hit, replaying logs 49d36da85b54d3e4
+::endgroup::
+::group::format:check
+cache hit, replaying logs 1d4318dd5cfc072e
+::endgroup::
+::group::clean:build
+cache bypass, force executing 230bd9ff04155f9d
+::endgroup::
+::group::build
+cache miss, executing a7c3f5498cf4e411
+::endgroup::
+::group::typecheck
+cache miss, executing e87cc8b905e58143
+::endgroup::
+::group::test:fast
+cache miss, executing 1e956d3cb41d9bd3
+::endgroup::
+ Tasks:    6 successful, 6 total
+Cached:    2 cached, 6 total

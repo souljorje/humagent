@@ -18,7 +18,7 @@ export function cacheResult(tool: "turbo" | "vite-task", output: string): CacheR
     if (!cached || !tasks || cached[2] !== tasks[2]) return "unknown";
     return counts(Number(cached[1]), Number(cached[2]), Number(tasks[1]));
   }
-  const summary = [...text.matchAll(/^vp run: (\d+)\/(\d+) cache hits? \(\d+%\), (\d+)\/(\d+) successful\./gm)].at(-1);
+  const summary = [...text.matchAll(/^vp run: (\d+)\/(\d+) cache hits? \(\d+%\), (\d+)\/(\d+) successful[.,]/gm)].at(-1);
   if (summary) {
     if (summary[2] !== summary[4]) return "unknown";
     return counts(Number(summary[1]), Number(summary[2]), Number(summary[3]));
@@ -28,5 +28,17 @@ export function cacheResult(tool: "turbo" | "vite-task", output: string): CacheR
   if (/^vp run: cache hit, /m.test(text) && /^\$ vite build .*cache hit, replaying/m.test(text)) return "hit";
   const executed = /^\$ vite build\s*$/m.test(text) || /^\$ vite build .*cache miss: .+, executing$/m.test(text);
   if (executed && /^vite v[\d.]+ building /m.test(text) && /^✓ built in /m.test(text)) return "miss";
+  return "unknown";
+}
+
+// Turbo uses grouped task logs in GitHub Actions. Require evidence from the
+// named task, so a different cached task cannot hide an invalidated build.
+export function turboTaskCacheResult(output: string, task: string): "hit" | "miss" | "unknown" {
+  const lines = stripVTControlCharacters(output).split(/\r?\n/);
+  const header = lines.lastIndexOf("::group::" + task);
+  if (header < 0) return "unknown";
+  const status = lines[header + 1] || "";
+  if (status.startsWith("cache hit,")) return "hit";
+  if (status.startsWith("cache miss,") || status.startsWith("cache bypass,")) return "miss";
   return "unknown";
 }

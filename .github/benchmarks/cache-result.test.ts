@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { cacheResult } from "./cache-result";
+import { readFileSync } from "node:fs";
+import { cacheResult, turboTaskCacheResult } from "./cache-result";
 
 test("Vite Task distinguishes zero, full, and partial hits", () => {
   expect(cacheResult("vite-task", "vp run: 0/2 cache hit (0%), 2/2 successful. (Run `vp run --last-details` for full details)")).toBe("miss");
@@ -23,4 +24,27 @@ test("Turbo uses numeric totals and successful tasks, including colored output",
   expect(cacheResult("turbo", " Tasks:    2 successful, 2 total\nCached:    1 cached, 2 total")).toBe("partial");
   expect(cacheResult("turbo", " Tasks:    1 successful, 2 total\nCached:    1 cached, 2 total")).toBe("unknown");
   expect(cacheResult("turbo", "cache hit, replaying logs")).toBe("unknown");
+});
+
+function fixture(name: string) {
+  return readFileSync(new URL("fixtures/" + name, import.meta.url), "utf8");
+}
+
+test("recorded Vite Task reports include saved-time suffixes and partial source invalidation", () => {
+  expect(cacheResult("vite-task", fixture("vite-task-cold.log"))).toBe("miss");
+  expect(cacheResult("vite-task", fixture("vite-task-warm.log"))).toBe("hit");
+  expect(cacheResult("vite-task", fixture("vite-task-source-edit.log"))).toBe("partial");
+});
+
+test("recorded Turbo task evidence catches the documentation/build cache regression", () => {
+  const warm = fixture("turbo-unchanged.log");
+  const changed = fixture("turbo-docs-edit-regression.log");
+  for (const task of ["format:check", "lint", "build", "typecheck", "test:fast"])
+    expect(turboTaskCacheResult(warm, task)).toBe("hit");
+  expect(turboTaskCacheResult(warm, "clean:build")).toBe("miss");
+  expect(turboTaskCacheResult(changed, "format:check")).toBe("hit");
+  expect(turboTaskCacheResult(changed, "build")).toBe("miss");
+  expect(turboTaskCacheResult(changed, "typecheck")).toBe("miss");
+  expect(turboTaskCacheResult(changed, "test:fast")).toBe("miss");
+  expect(turboTaskCacheResult(changed, "missing-task")).toBe("unknown");
 });
