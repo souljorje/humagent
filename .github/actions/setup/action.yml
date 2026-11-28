@@ -15,15 +15,17 @@ runs:
       with:
         node-version: '24'
         registry-url: ${{ inputs.registry-url }}
-    - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-      with:
-        bun-version: '1.4.4'
+    - name: Install the pinned Bun canary
+      run: npm install --global "$(node -p 'require("./package.json").packageManager')"
+      shell: bash
+    - run: bun run check:toolchain
+      shell: bash
     - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       if: inputs.cache == 'true'
       with:
         path: .turbo/cache
-        key: turbo-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-bun1.4.4-${{ hashFiles('bun.lock', 'turbo.json') }}-${{ github.sha }}
+        key: turbo-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('bun.lock', 'turbo.json', 'toolchain.json', 'package.json') }}-${{ github.sha }}
         restore-keys: |
-          turbo-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-bun1.4.4-${{ hashFiles('bun.lock', 'turbo.json') }}-
+          turbo-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('bun.lock', 'turbo.json', 'toolchain.json', 'package.json') }}-
     - run: bun install --frozen-lockfile
       shell: bash

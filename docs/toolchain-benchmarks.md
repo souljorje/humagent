@@ -1,31 +1,46 @@
-# Toolchain benchmark experiment
+# Toolchain benchmarks
 
-This branch compares pinned dependencies against candidate tools in two disposable Git worktrees of the same commit. The checked-in manifest and lockfile remain the baseline. Candidate tool versions are installed with exact pins in the temporary candidate worktree. GitHub Actions runs on Linux and macOS. The workflow never publishes packages or changes the base branch.
+The adopted stack uses one pinned Bun canary for development, CI, and the application runtime. Native Bun commands format, lint, check types, and run tests. Vite builds browser assets. Humagent keeps tsrs for declarations. Turbo runs and caches tasks. Lefthook runs Git hooks. Playwright checks browser workflows.
 
-## Results
+`packageManager` selects the exact Bun npm package. `toolchain.json` records its full revision. The setup step verifies both before benchmarks run.
 
-Open the **Toolchain benchmarks** workflow run in Actions. Each matrix job has a Markdown summary and an artifact with raw trials, exit codes, logs, exact Bun revisions, candidate manifest and lockfile, build inventories, median, p95, and peak RSS. Failed candidate runs are invalid results, not speedups. Review diagnostics and artifact contracts before selecting a tool.
+## Reproducible comparisons
 
-- Installs: Bun 1.4.4, 1.4.5, and the current canary. Same original lockfile. One cold sample and five fresh installs with warm package cache.
-- Formatting: pinned, stable and canary Bun fmt versus Oxfmt 0.80. Same TS, TSX and CSS files. Restore original files before each write. Measure checks on each formatter's own normalized output.
-- Lint: original pinned Oxlint, latest Oxlint 1.95 and native canary Bun lint. Use a shared correctness policy for direct comparison. Save JSON diagnostics and test an intentional error.
-- Type checks: pinned checker, tsrs 7.1 beta, TypeScript 7.0.2, Bun check stable and canary. Preserve both Humagent configurations. Test an intentional error.
-- Build: pinned Vite, Vite 8.4 with Node, stable Bun and canary Bun. Delete dist before every trial. Verify expected outputs and record inventories.
-- Full checks: compare pinned, updated and candidate native quality gates. Keep the original task orchestration.
-- Task caching: direct build, Turbo 2.11.13 and Vite Task 1.8.0. Compare cold, unchanged, restore missing outputs, and changes to documentation, tests and source. The comparison is one real build task, not a full Vite+ migration.
-- Tests: existing Bun suites with the pinned runtime, stable, canary and different worker counts. Humagent also compares Playwright on Node and Bun, and measures actual Vite workspace readiness. Stelz runs the real local dev server smoke test, not the browser-download or public-site QA suites.
-- Packaging: npm and pinned/stable/canary Bun pack on the same Humagent build. Stelz's existing archive acceptance on baseline and candidate.
+The historical source and lockfile are fixed at `89a457c7f3e214ac713253c2d6d940a96bca6cc6`. Both the baseline and alternative tools use this source in disposable Git worktrees. The adopted stack uses the tested PR commit in another worktree. This keeps migration changes from silently changing the historical baseline.
 
-The November 28 stable versions are pinned. The canary moves, so every run records its revision. The candidate lockfile is an artifact, not a committed change.
+| Workload | Comparison |
+| --- | --- |
+| Installs | Bun 1.4.4, stable 1.4.5, and the adopted canary with the historical lockfile |
+| Formatting | Native Bun and Oxfmt 0.80 on the same source files |
+| Lint | Historical Oxlint, Oxlint 1.95, and native Bun with a shared rule policy |
+| Type checks | Historical checker, tsrs, TypeScript 7.0.2, and native Bun |
+| Builds | Historical Vite and Vite 8.4 on Node, stable Bun, and canary Bun |
+| Full checks | Historical orchestration with updated tools and native Bun gates |
+| Build caching | Turbo 2.11.13 and Vite Task 1.8.0 with identical build commands |
+| Adopted checks | Frozen install, cold checks, warm checks, restored outputs, and documentation, test, and source edits |
+| Tests | Existing suites on each runtime and selected worker counts |
+| Packaging | Humagent npm/Bun archives and Stelz archive acceptance |
 
-The small sample size for long tests and different hosted runner hardware limit statistical confidence. Compare variants within the same job. Peak RSS is not summed across worker processes. Cold installs include network variance. Formatting check inputs differ after normalization. Diagnostic parity and build inventory review are required before adoption. Do not infer a performance win from a nonzero exit or missing work.
+All runtime versions are fixed. The workflow records their actual revisions. Stable Bun and Node remain comparison tools. They do not replace the adopted application runtime.
 
-No Vitest migration is included: both existing browser workloads test the actual application or process boundary rather than an equivalent component suite. Live HMR latency and full custom-browser smoke tests require a separate dedicated experiment.
+The workflow runs on Linux and macOS. It starts for relevant PR changes or a manual dispatch. It does not publish packages.
 
-## Second round
+## Evidence
 
-The first run passed the benchmark workflow but failed some candidates. This round fixes the missing Vite CSS types in Stelz, requires formatter convergence before timing checks, and normalizes the disposable candidate before each full check. Download the generated patches to review formatting changes. It does not exclude the problematic file. A non-convergent formatter remains invalid.
+Open the **Toolchain benchmarks** workflow in Actions. Each job provides a Markdown summary and an artifact. Artifacts contain trials, logs, exit codes, manifests, lockfiles, formatter patches, build inventories, median, p95, and peak RSS.
 
-Bun stable is the native checker candidate, with Oxlint as the stable lint gate. The canary tests native lint as well. Humagent keeps tsrs for declaration generation; the native candidate no longer calls it for routine type checks. The original lockfiles remain unchanged. Diagnostic parity compares the current code and several intentionally broken fixtures using the shared rule policy, rather than assuming zero warnings means equivalence.
+A failed command has no speed result. Baseline failures, adopted check failures, and the native canary quality gate fail the job. Other alternatives remain visible as invalid results.
 
-Cache measurements require reported hits or misses and compare restored output hashes. Stelz uses a separate Turbo cache directory and explicit build inputs. The command exit status comes directly from the child process; peak RSS comes from Bun's resource usage API. A missing memory reading does not invalidate a passing command.
+Lint comparisons include intentional errors and diagnostic parity. Type checkers must reject an intentional assignment error. Formatting checks require convergence on each formatter's normalized output.
+
+Cache checks parse numeric hit counts and successful task totals. Zero hits cannot count as a hit. A miss needs positive execution evidence. Focused regression tests cover zero, complete, partial, failed, and missing reports. Restored build outputs must match the recorded SHA-256 inventory.
+
+The adopted warm checks include tasks that the project deliberately leaves uncached. Partial cache hits are valid for that workload. The separate build-cache comparison requires complete hits.
+
+## Limits
+
+The [previous completed run](https://github.com/souljorje/humagent/actions/runs/46124889470) used the earlier canary revision. The cache parser treated `0/2 cache hit` as a hit. This made the Humagent Vite Task cold result invalid. The parser now reads the numeric counts. Use the new run before comparing cache results.
+
+Long workloads use few trials. Hosted runner load and network downloads add variance. Compare alternatives within the same job. Peak RSS covers the direct child process. It does not sum concurrent workers.
+
+The browser checks use existing workflows. Humagent also measures Vite workspace readiness. Stelz measures its local development server. Live HMR latency and the full custom-browser suite are outside this comparison.

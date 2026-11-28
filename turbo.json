@@ -35,5 +35,5 @@
       "passThroughEnv": ["PLAYWRIGHT_*", "PWDEBUG"]
     }
   },
-  "globalDependencies": [".turbo/node-version"]
+  "globalDependencies": [".turbo/runtime.json", "toolchain.json"]
 }

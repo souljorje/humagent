@@ -1,0 +1,17 @@
+# Install once per clone with `bun run hooks:install`.
+# CI runs the same checks and remains the merge gate.
+no_auto_install: true
+glob_matcher: doublestar
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: format staged files
+      run: bun fmt --no-script --staged --check src test scripts vite.config.ts 'tsconfig*.json' package.json turbo.json toolchain.json lefthook.yml
+    - name: lint staged files
+      run: bun lint --no-script --staged src test scripts vite.config.ts
+
+pre-push:
+  jobs:
+    - name: check
+      run: bun run check

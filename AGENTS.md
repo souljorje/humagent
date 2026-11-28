@@ -41,11 +41,12 @@ Extract a function when code reuses it, when it handles an event, or when it is 
 
 ## Runtime
 
-- Use Bun 1.4.4 for installs, builds, and tests. Keep `bun.lock` frozen in CI.
-- Use TypeScript everywhere. Vite builds all JavaScript and declarations. `tsrs` checks types.
+- Use the Bun canary pinned in `package.json`. `toolchain.json` records its full revision. Keep `bun.lock` frozen in CI.
+- Use Bun for formatting, lint, type checks, builds, and tests. Use TypeScript everywhere.
+- Vite builds JavaScript. Its declaration plugin uses `tsrs` only to emit declarations.
 - Keep Vite out of `src/server/` and `src/cli/`.
 - Follow the [style and import rules](docs/development.md#styles).
-- Support Node.js 24+ and Bun 1.4.4+ in published code. npm users must not need Bun.
+- Keep the Node.js 24+ package as the compatibility baseline for the Bun standalone experiment.
 - Keep temporary output in `.local/`, except `.turbo/`.
 
 ## Checks

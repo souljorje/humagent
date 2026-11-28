@@ -6,6 +6,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statS
 import { cpus, platform, arch, totalmem } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
+import { cacheResult } from "./cache-result";
 
 const suite = process.argv[2];
 if (suite !== "tools" && suite !== "tests") throw Error("Use: bun .github/benchmarks/toolchain.ts tools|tests");
@@ -19,6 +20,10 @@ mkdirSync(output, { recursive: true });
 const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const hum = manifest.name === "humagent";
 if (!hum && manifest.name !== "stelz") throw Error("Unknown benchmark project.");
+// Freeze the pre-migration source and lockfile. HEAD now uses the adopted stack.
+const baselineRef = hum
+  ? "89a457c7f3e214ac713253c2d6d940a96bca6cc6"
+  : "c11f9175942163815c69d231592cb67032721b46";
 const runtimes = Object.fromEntries(["baseline", "stable", "canary"].map(name => [name, join(temp, "toolchain-bun", name, "bun")]));
 type Runtime = "baseline" | "stable" | "canary";
 type Work = { cwd: string; runtime: Runtime; cache?: string };
@@ -37,6 +42,7 @@ let serial = 0;
 const versions: Record<string, string> = {};
 const base: Work = { cwd: join(home, "baseline"), runtime: "baseline" };
 const candidate: Work = { cwd: join(home, "candidate"), runtime: "stable" };
+const adopted: Work = { cwd: join(home, "adopted"), runtime: "canary" };
 const stable = (work: Work = candidate): Work => ({ ...work, runtime: "stable" });
 const canary = (work: Work = candidate): Work => ({ ...work, runtime: "canary" });
 const bin = (work: Work, name: string) => join(work.cwd, "node_modules", ".bin", name);
@@ -110,8 +116,8 @@ async function must(args: string[], work: Work, label: string) {
   if (r.exit !== 0) throw Error(label + " failed: see " + safeName(label) + ".log");
   return r.stdout.trim();
 }
-async function worktree(work: Work) {
-  await must(["git", "worktree", "add", "--detach", work.cwd, "HEAD"], { ...work, cwd: root }, "worktree-" + work.runtime);
+async function worktree(work: Work, ref = baselineRef) {
+  await must(["git", "worktree", "add", "--detach", work.cwd, ref], { ...work, cwd: root }, "worktree-" + work.cwd.split("/").at(-1));
 }
 function cleanModules(work: Work) {
   rmSync(join(work.cwd, "node_modules"), { recursive: true, force: true });
@@ -160,6 +166,8 @@ async function prepare() {
   versions.npm = await must(["npm", "--version"], { cwd: root, runtime: "stable" }, "npm-version");
   await worktree(base);
   await worktree(candidate);
+  cpSync(join(base.cwd, "package.json"), join(output, "baseline-package.json"));
+  cpSync(join(base.cwd, "bun.lock"), join(output, "baseline-bun.lock"));
   if (suite === "tools") {
     // Exact same original lockfile and separate empty package caches.
     const installs = [base, stable(), canary()];
@@ -183,7 +191,7 @@ async function prepare() {
     ? ["vite@8.4.0", "oxlint@1.95.0", "oxfmt@0.80.0", "tsrs@7.1.0-beta.tsrs5", "typescript@7.0.2", "turbo@2.11.13"]
     : ["vite@8.4.0"];
   await must(["bun", "add", "-d", "--exact", "--ignore-scripts", ...tools], candidate, "candidate-tool-install");
-  if (hum) await must(["bun", "fmt", "package.json"], candidate, "candidate-normalize-manifest");
+  if (hum) await must(["bun", "fmt", "--no-script", "package.json"], candidate, "candidate-normalize-manifest");
   cpSync(join(candidate.cwd, "package.json"), join(output, "candidate-package.json"));
   cpSync(join(candidate.cwd, "bun.lock"), join(output, "candidate-bun.lock"));
 }
@@ -216,9 +224,9 @@ async function formatting() {
   const config = join(candidate.cwd, ".oxfmtrc.json");
   writeJson(config, { singleQuote: hum, printWidth: 80, sortPackageJson: false });
   const formatters = [
-    { name: "bun-pinned", work: { ...candidate, runtime: "baseline" as const }, command: ["bun", "fmt"] },
-    { name: "bun-stable", work: stable(), command: ["bun", "fmt"] },
-    { name: "bun-canary", work: canary(), command: ["bun", "fmt"] },
+    { name: "bun-pinned", work: { ...candidate, runtime: "baseline" as const }, command: ["bun", "fmt", "--no-script"] },
+    { name: "bun-stable", work: stable(), command: ["bun", "fmt", "--no-script"] },
+    { name: "bun-canary", work: canary(), command: ["bun", "fmt", "--no-script"] },
     { name: "oxfmt", work: stable(), command: [bin(candidate, "oxfmt")] },
   ];
   try {
@@ -375,8 +383,8 @@ async function cacheAndChecks() {
   const nativeCheck = "bun check --no-script -p tsconfig.json" + (hum ? " && bun check --no-script -p tsconfig.test.json" : "");
   const candidates = [
     { name: "updated-tools", work: stable(), native: false, nativeLint: false, required: false },
-    { name: "native-stable", work: stable(), native: true, nativeLint: false, required: true },
-    { name: "native-canary", work: canary(), native: true, nativeLint: true, required: false },
+    { name: "native-stable", work: stable(), native: true, nativeLint: false, required: false },
+    { name: "native-canary", work: canary(), native: true, nativeLint: true, required: true },
   ];
   try {
     for (const c of candidates) {
@@ -391,7 +399,7 @@ async function cacheAndChecks() {
       writeJson(path, next);
       // For Humagent tsrs remains installed because Vite's declaration plugin needs it;
       // no tsrs check is invoked by either native quality gate.
-      const ready = await normalize(c.work, ["bun", "fmt"], fmtPaths, "quality-format-" + c.name);
+      const ready = await normalize(c.work, ["bun", "fmt", "--no-script"], fmtPaths, "quality-format-" + c.name);
       await savePatch(candidate, "quality-" + c.name);
       if (!ready) console.log("Quality gate " + c.name + ": formatting did not converge; preserve failure.");
       const gate: Case = { name: "check/" + c.name + "-cold", work: c.work, args: ["bun", "run", "check"], required: c.required, env: hum ? { TURBO_FORCE: "true" } : {} };
@@ -414,18 +422,17 @@ async function cacheAndChecks() {
   await must(["bun", "add", "-d", "--exact", "--ignore-scripts", "vite-plus@1.8.0"], candidate, "vite-task-install");
   const turboCache = join(home, "turbo-build-cache");
   const cache = [
-    { name: "turbo", args: [bin(candidate, "turbo"), "run", "build", "--cache-dir=" + turboCache], clean: () => rmSync(turboCache, { recursive: true, force: true }) },
-    { name: "vite-task", args: [bin(candidate, "vp"), "run", "--cache", "build"], clean: () => rmSync(join(candidate.cwd, "node_modules/.vite/task-cache"), { recursive: true, force: true }) },
+    { name: "turbo" as const, args: [bin(candidate, "turbo"), "run", "build", "--cache-dir=" + turboCache], clean: () => rmSync(turboCache, { recursive: true, force: true }) },
+    { name: "vite-task" as const, args: [bin(candidate, "vp"), "run", "--cache", "build"], clean: () => rmSync(join(candidate.cwd, "node_modules/.vite/task-cache"), { recursive: true, force: true }) },
   ];
   await compare([{ name: "task/direct-build", work: stable(), args: ["bun", "run", "build"], before: () => cleanDist(candidate), validate: (_, exit) => exit === 0 && validBuild(candidate) }], 5);
   for (const c of cache) {
-    const hit = /cache hit/i, miss = /cache miss|force executing/i;
     let expected = "";
     const build = (name: string, mode: "hit" | "miss" | "either", before?: () => void): Case => ({
       name: "task/" + c.name + "/" + name, work: stable(), args: c.args, before,
       env: { TURBO_FORCE: "false" },
       validate: (text, exit) => exit === 0 && validBuild(candidate) &&
-        (mode === "either" || (mode === "hit" ? hit.test(text) && !miss.test(text) : !hit.test(text))) &&
+        (mode === "either" || cacheResult(c.name, text) === mode) &&
         (name !== "restore-output" || buildFingerprint(candidate) === expected),
     });
     if (!await trial(build("cold", "miss", () => { c.clean(); cleanDist(candidate); }))) continue;
@@ -441,6 +448,52 @@ async function cacheAndChecks() {
       } finally { writeFileSync(absolute, original); }
       await trial(build("reset-after-" + label, "either"));
     }
+  }
+}
+
+
+async function adoptedChecks() {
+  await worktree(adopted, "HEAD");
+  const install: Case = {
+    name: "adopted/install-frozen", work: adopted, args: ["bun", "install", "--frozen-lockfile"], required: true,
+  };
+  if (!await trial(install)) return;
+  const cache = join(home, "adopted-turbo-cache");
+  const check = (name: string, mode: "hit" | "miss" | "warm" | "either", before?: () => void): Case => ({
+    name: "adopted/check/" + name, work: adopted, args: ["bun", "run", "check"], required: true, before,
+    env: { TURBO_CACHE_DIR: cache, TURBO_FORCE: "false" },
+    validate: (text, exit) => exit === 0 && validBuild(adopted) &&
+      (mode === "either" || (mode === "warm"
+        ? ["hit", "partial"].includes(cacheResult("turbo", text))
+        : cacheResult("turbo", text) === mode)),
+  });
+  await compare([check("cold", "miss", () => {
+    rmSync(cache, { recursive: true, force: true });
+    cleanDist(adopted);
+  })], 2, false);
+  await compare([check("unchanged", "warm")], 3, false);
+  const expected = buildFingerprint(adopted);
+  const restore = check("restore-output", "warm", () => cleanDist(adopted));
+  const validate = restore.validate!;
+  restore.validate = (text, exit) => validate(text, exit) && buildFingerprint(adopted) === expected;
+  await trial(restore);
+  for (const [label, file] of [["docs-edit", "README.md"], ["test-edit", hum ? "test/text-diff.test.ts" : "tests/unit/sdk.test.ts"], ["source-edit", hum ? "src/sdk/sdk.ts" : "ui/src/main.tsx"]]) {
+    const absolute = join(adopted.cwd, file!);
+    const original = readFileSync(absolute);
+    try {
+      // A valid comment changes the hash without creating an unrelated failure.
+      const comment = label === "docs-edit" ? "<!-- benchmark -->" : "// benchmark input change";
+      writeFileSync(absolute, Buffer.concat([original, Buffer.from("\n" + comment + "\n")]));
+      const changed = check(label!, "either");
+      // Source/test edits must invalidate at least one task. Documentation may
+      // also run a dedicated links check, according to the project's task graph.
+      changed.validate = (text, exit) => {
+        const result = cacheResult("turbo", text);
+        return exit === 0 && validBuild(adopted) && result !== "unknown" &&
+          (label === "docs-edit" || result === "miss" || result === "partial");
+      };
+      await trial(changed);
+    } finally { writeFileSync(absolute, original); }
   }
 }
 
@@ -519,12 +572,13 @@ function report() {
     const memory = ok ? trials.flatMap(r => r.rssKiB === null ? [] : [r.rssKiB]) : [];
     return { name, trials: trials.length, ok, required: trials.some(r => r.required), medianMs: percentile(times, 0.5), p95Ms: percentile(times, 0.95), medianRssKiB: percentile(memory, 0.5) };
   });
-  const metadata = { project: manifest.name, suite, ref: process.env.GITHUB_SHA, platform: platform(), arch: arch(), cpu: cpus()[0]?.model, cores: cpus().length, memoryBytes: totalmem(), versions, errors };
+  const metadata = { project: manifest.name, suite, ref: process.env.GITHUB_SHA, baselineRef, adoptedPackageManager: manifest.packageManager, platform: platform(), arch: arch(), cpu: cpus()[0]?.model, cores: cpus().length, memoryBytes: totalmem(), versions, errors };
   writeJson(join(output, "results.json"), { metadata, aggregates, trials: rows });
   const number = (n: number | null) => n === null ? "—" : n.toFixed(1);
   const md = [
     "# Toolchain benchmarks: " + manifest.name + " / " + suite,
     "", "Commit: " + process.env.GITHUB_SHA + " · " + platform() + "/" + arch() + " · " + cpus().length + " CPUs",
+    "", "Historical baseline and isolated comparison source: `" + baselineRef + "`. Adopted stack: `" + manifest.packageManager + "` at the tested commit.",
     "", ...Object.entries(versions).map(([k, v]) => "- " + k + ": " + v),
     "", "| Scenario | Runs | Status | Median ms | p95 ms | Median peak RSS KiB |",
     "|---|---:|---|---:|---:|---:|",
@@ -545,6 +599,7 @@ try {
     await typechecks();
     await packaging();
     await cacheAndChecks();
+    await adoptedChecks();
   } else await tests();
 } catch (error) {
   errors.push(String(error));
