@@ -21,3 +21,11 @@ The November 28 stable versions are pinned. The canary moves, so every run recor
 The small sample size for long tests and different hosted runner hardware limit statistical confidence. Compare variants within the same job. Peak RSS is not summed across worker processes. Cold installs include network variance. Formatting check inputs differ after normalization. Diagnostic parity and build inventory review are required before adoption. Do not infer a performance win from a nonzero exit or missing work.
 
 No Vitest migration is included: both existing browser workloads test the actual application or process boundary rather than an equivalent component suite. Live HMR latency and full custom-browser smoke tests require a separate dedicated experiment.
+
+## Second round
+
+The first run passed the benchmark workflow but failed some candidates. This round fixes the missing Vite CSS types in Stelz, requires formatter convergence before timing checks, and normalizes the disposable candidate before each full check. Download the generated patches to review formatting changes. It does not exclude the problematic file. A non-convergent formatter remains invalid.
+
+Bun stable is the native checker candidate, with Oxlint as the stable lint gate. The canary tests native lint as well. Humagent keeps tsrs for declaration generation; the native candidate no longer calls it for routine type checks. The original lockfiles remain unchanged. Diagnostic parity compares the current code and several intentionally broken fixtures using the shared rule policy, rather than assuming zero warnings means equivalence.
+
+Cache measurements require reported hits or misses and compare restored output hashes. Stelz uses a separate Turbo cache directory and explicit build inputs. The command exit status comes directly from the child process; peak RSS comes from Bun's resource usage API. A missing memory reading does not invalidate a passing command.

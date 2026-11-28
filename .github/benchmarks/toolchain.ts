@@ -53,13 +53,19 @@ const safeName = (s: string) => s.replace(/[^a-zA-Z0-9._-]/g, "-");
 const installArgs = ["bun", "install", "--frozen-lockfile", "--ignore-scripts"];
 
 async function execute(args: string[], work: Work, extra: Record<string, string> = {}, timed = false) {
-  const command = timed ? ["/usr/bin/time", platform() === "darwin" ? "-l" : "-v", ...args] : args;
+  // Do not let an external timing wrapper replace the tested program's exit code.
   const start = performance.now();
-  const child = Bun.spawn(command, { cwd: work.cwd, env: envFor(work, extra), stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn(args, { cwd: work.cwd, env: envFor(work, extra), stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   const ms = performance.now() - start;
-  const match = platform() === "darwin" ? stderr.match(/(\d+)\s+maximum resident set size/) : stderr.match(/Maximum resident set size \(kbytes\):\s*(\d+)/);
-  return { stdout, stderr, exit, ms, rssKiB: match ? Math.round(Number(match[1]) / (platform() === "darwin" ? 1024 : 1)) : null };
+  let rssKiB: number | null = null;
+  if (timed) {
+    try {
+      const usage = child.resourceUsage();
+      if (usage && Number.isFinite(usage.maxRSS) && usage.maxRSS > 0) rssKiB = Math.round(usage.maxRSS / 1024);
+    } catch { /* A missing measurement must not invalidate a successful command. */ }
+  }
+  return { stdout, stderr, exit, ms, rssKiB };
 }
 
 async function trial(c: Case, record = true) {
@@ -181,14 +187,30 @@ async function prepare() {
   cpSync(join(candidate.cwd, "package.json"), join(output, "candidate-package.json"));
   cpSync(join(candidate.cwd, "bun.lock"), join(output, "candidate-bun.lock"));
 }
+// Normalize only in the disposable worktree, outside timed trials. Require a fixed
+// point rather than assuming that one formatter write is idempotent.
+async function normalize(work: Work, command: string[], paths: string[], label: string) {
+  for (let pass = 1; pass <= 5; pass++) {
+    const write = await execute([...command, ...paths], work);
+    const check = await execute([...command, "--check", ...paths], work);
+    writeFileSync(join(output, safeName(label) + "-pass-" + pass + ".log"), "WRITE " + write.exit + "\n" + write.stdout + write.stderr + "\nCHECK " + check.exit + "\n" + check.stdout + check.stderr);
+    if (write.exit !== 0) return false;
+    if (check.exit === 0) return true;
+  }
+  return false;
+}
+async function savePatch(work: Work, label: string) {
+  const diff = await execute(["git", "diff", "--", "src", "ui", "scripts", "tests", "test", "vite.config.ts", "package.json", "tsconfig.json", "tsconfig.test.json", "turbo.json"], work);
+  writeFileSync(join(output, safeName(label) + ".patch"), diff.stdout);
+}
 async function formatting() {
-  // All formatters receive identical TS/TSX/CSS inputs. No source edits survive.
   const paths: string[] = [];
   for (const item of sourcePaths()) {
     const absolute = join(candidate.cwd, item);
     if (statSync(absolute).isFile()) paths.push(item);
     else for (const file of new Bun.Glob("**/*.{ts,tsx,css}").scanSync({ cwd: absolute, onlyFiles: true })) paths.push(join(item, file));
   }
+  paths.sort();
   const originals = new Map(paths.map(path => [path, readFileSync(join(candidate.cwd, path))]));
   const restore = () => { for (const [path, data] of originals) writeFileSync(join(candidate.cwd, path), data); };
   const config = join(candidate.cwd, ".oxfmtrc.json");
@@ -201,42 +223,87 @@ async function formatting() {
   ];
   try {
     await compare(formatters.map(f => ({ name: "format/write/" + f.name, work: f.work, args: [...f.command, ...paths], before: restore })), 10);
-    // A check is meaningful only on input normalized by that formatter.
     for (const f of formatters) {
       restore();
-      if (await trial({ name: "format/normalize/" + f.name, work: f.work, args: [...f.command, ...paths] })) {
-        await compare([{ name: "format/check/" + f.name, work: f.work, args: [...f.command, "--check", ...paths] }], 10);
-        const changed = paths.filter(path => !readFileSync(join(candidate.cwd, path)).equals(originals.get(path)!));
-        writeJson(join(output, "format-" + f.name + "-changed.json"), changed);
+      const settled = await normalize(f.work, f.command, paths, "format-normalize-" + f.name);
+      const changed = paths.filter(path => !readFileSync(join(candidate.cwd, path)).equals(originals.get(path)!));
+      writeJson(join(output, "format-" + f.name + "-changed.json"), changed);
+      await savePatch(candidate, "format-" + f.name);
+      const c = { name: "format/check/" + f.name, work: f.work, args: [...f.command, "--check", ...paths] };
+      if (settled) await compare([c], 10);
+      else {
+        // Preserve the actual failure and diff for diagnosis. Never time a reduced file set.
+        await trial(c);
       }
     }
   } finally { restore(); rmSync(config, { force: true }); }
 }
+
+// Match Humagent's implicit Oxlint defaults instead of silently narrowing the rules.
+function sharedLintPolicy(work: Work) {
+  const path = join(work.cwd, ".oxlintrc.json");
+  if (!existsSync(path)) writeJson(path, {
+    plugins: ["eslint", "typescript", "unicorn", "oxc"],
+    categories: { correctness: "error" },
+  });
+  return path;
+}
+function lintReport(raw: string) {
+  const parsed = JSON.parse(raw);
+  return {
+    files: parsed.number_of_files,
+    rules: parsed.number_of_rules,
+    diagnostics: (parsed.diagnostics || []).map((d: any) => ({
+      file: d.filename, rule: d.code, severity: d.severity,
+      spans: (d.labels || []).map((l: any) => l.span),
+    })).sort((a: any, b: any) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+  };
+}
 async function linting() {
   await compare([{ name: "lint/pinned", work: base, args: ["bun", "run", "lint"], required: true }], 10);
-  // Stelz already has its policy. Humagent has implicit defaults; compare both tools
-  // with the same explicit correctness policy, and keep the pinned default result.
-  const config = join(candidate.cwd, ".oxlintrc.json");
-  const hadConfig = existsSync(config);
-  if (!hadConfig) writeJson(config, { plugins: ["eslint", "typescript"], categories: { correctness: "error" } });
+  // The candidate's explicit policy is also used by its whole-project quality gate.
+  sharedLintPolicy(candidate);
   const variants = [
     { name: "oxlint", work: stable(), args: [bin(candidate, "oxlint")] },
     { name: "bun-canary", work: canary(), args: ["bun", "lint", "--no-script"] },
   ];
+  await compare(variants.map(v => ({ name: "lint/shared-policy/" + v.name, work: v.work, args: [...v.args, ...lintPaths()] })), 10);
+  const fixture = join(candidate.cwd, "src", "__bench_lint_fixture.ts");
+  const parity: Record<string, unknown> = {};
+  let same = true;
+  async function compareReports(label: string, files: string[], expectError: boolean) {
+    const reports = [];
+    for (const v of variants) {
+      const args = [...v.args, "--format", "json", ...files];
+      const r = await execute(args, v.work);
+      writeFileSync(join(output, "lint-" + label + "-" + v.name + ".json"), r.stdout);
+      writeFileSync(join(output, "lint-" + label + "-" + v.name + ".stderr.log"), r.stderr);
+      let report;
+      try { report = lintReport(r.stdout); } catch { same = false; }
+      if (!report || r.exit !== (expectError ? 1 : 0) || (expectError && !report.diagnostics.length)) same = false;
+      reports.push({ exit: r.exit, report });
+    }
+    parity[label] = reports;
+    if (JSON.stringify(reports[0]) !== JSON.stringify(reports[1])) same = false;
+  }
+  await compareReports("repository", lintPaths(), false);
+  // Different rules, file locations and severities. No production file is changed.
+  const fixtures = {
+    unreachable: "export function broken(n: number) { if (n) return 1; throw new Error('x'); return 2; }\n",
+    duplicate: "export const broken = { a: 1, a: 2 };\n",
+    constant: "export function broken() { if (true) return 1; return 2; }\n",
+  };
   try {
-    await compare(variants.map(v => ({ name: "lint/shared-policy/" + v.name, work: v.work, args: [...v.args, ...lintPaths()] })), 10);
-    // Machine-readable reports and an intentional error test rule coverage, not just exit 0.
-    for (const v of variants) await trial({ name: "lint/diagnostics/" + v.name, work: v.work, args: [...v.args, "--format", "json", ...lintPaths()] });
-    const fixture = join(candidate.cwd, "src", "__bench_lint_fixture.ts");
-    writeFileSync(fixture, "export function broken(n: number) { if (n === n) return 1; throw new Error('x'); return 2; }\n");
-    try {
-      for (const v of variants) await trial({
-        name: "lint/seeded-error/" + v.name, work: v.work, args: [...v.args, "--format", "json", "src/__bench_lint_fixture.ts"],
-        validate: (text, exit) => exit === 1 && /no-self-compare|no-unreachable/.test(text),
-      });
-    } finally { rmSync(fixture, { force: true }); }
-  } finally { if (!hadConfig) rmSync(config, { force: true }); }
+    for (const [name, source] of Object.entries(fixtures)) {
+      writeFileSync(fixture, source);
+      await compareReports(name, ["src/__bench_lint_fixture.ts"], true);
+    }
+  } finally { rmSync(fixture, { force: true }); }
+  writeJson(join(output, "lint-parity.json"), { equivalent: same, reports: parity });
+  console.log("Lint diagnostic parity: " + (same ? "PASS (sampled rules)" : "DIFFERENCE — retain Oxlint"));
+  // A mismatch is evidence against adoption; the stable quality gate still runs.
 }
+
 async function builds() {
   const cases = [
     { name: "build/pinned", work: base, args: ["bun", "run", "build"], required: true },
@@ -275,57 +342,108 @@ async function typechecks() {
     });
   } finally { rmSync(fixture, { force: true }); }
 }
+function buildFingerprint(work: Work) {
+  const dir = join(work.cwd, "dist");
+  if (!existsSync(dir)) return "";
+  const digest = createHash("sha256");
+  const files = readdirSync(dir, { recursive: true }).map(String).filter(path => statSync(join(dir, path)).isFile()).sort();
+  for (const file of files) digest.update(file).update("\0").update(readFileSync(join(dir, file))).update("\0");
+  return digest.digest("hex");
+}
 async function cacheAndChecks() {
-  // Whole-repo check with existing orchestration. Force a real cold run in Humagent.
-  await compare([
-    { name: "check/pinned-cold", work: base, args: ["bun", "run", "check"], required: true, env: hum ? { TURBO_FORCE: "true" } : {} },
-    { name: "check/updated-tools-cold", work: stable(), args: ["bun", "run", "check"], env: hum ? { TURBO_FORCE: "true" } : {} },
-  ], 2, false);
-  // Compare the proposed native quality gates as a complete workflow.
+  await compare([{ name: "check/pinned-cold", work: base, args: ["bun", "run", "check"], required: true, env: hum ? { TURBO_FORCE: "true" } : {} }], 2, false);
   const path = join(candidate.cwd, "package.json");
   const original = readFileSync(path, "utf8");
-  const next = JSON.parse(original);
-  next.scripts.lint = "bun lint --no-script " + lintPaths().join(" ");
-  next.scripts.typecheck = "bun check --no-script -p tsconfig.json" + (hum ? " && bun check --no-script -p tsconfig.test.json" : "");
-  writeJson(path, next);
-  // Humagent's check includes package.json formatting, so normalize the changed manifest.
-  if (hum) await must(["bun", "fmt", "package.json"], canary(), "candidate-format-manifest");
+  const originalManifest = JSON.parse(original);
+  const paths = sourcePaths();
+  const fmtPaths = hum ? [...paths, "tsconfig.json", "tsconfig.test.json", "package.json", "turbo.json"] : paths;
+  // Normalize separately for each version, before timing; preserve a patch for review.
+  // Worktrees are disposable. The checked-in baseline remains unchanged.
+  const originals = new Map<string, Buffer>();
+  for (const item of fmtPaths) {
+    const absolute = join(candidate.cwd, item);
+    if (statSync(absolute).isFile()) originals.set(item, readFileSync(absolute));
+    else for (const file of new Bun.Glob("**/*.{ts,tsx,css}").scanSync({ cwd: absolute, onlyFiles: true })) {
+      const key = join(item, file);
+      originals.set(key, readFileSync(join(candidate.cwd, key)));
+    }
+  }
+  function restoreSource() {
+    for (const [file, bytes] of originals) writeFileSync(join(candidate.cwd, file), bytes);
+    writeFileSync(path, original);
+  }
+  const nativeCheck = "bun check --no-script -p tsconfig.json" + (hum ? " && bun check --no-script -p tsconfig.test.json" : "");
+  const candidates = [
+    { name: "updated-tools", work: stable(), native: false, nativeLint: false, required: false },
+    { name: "native-stable", work: stable(), native: true, nativeLint: false, required: true },
+    { name: "native-canary", work: canary(), native: true, nativeLint: true, required: false },
+  ];
   try {
-    await compare([{ name: "check/native-canary-cold", work: canary(), args: ["bun", "run", "check"], env: hum ? { TURBO_FORCE: "true" } : {} }], 2, false);
-  } finally { writeFileSync(path, original); }
+    for (const c of candidates) {
+      restoreSource();
+      const next = JSON.parse(JSON.stringify(originalManifest));
+      if (c.native) next.scripts.typecheck = nativeCheck;
+      if (c.nativeLint) next.scripts.lint = "bun lint --no-script " + lintPaths().join(" ");
+      if (!hum) {
+        // Include the new format gate in the candidate, not in the original baseline.
+        next.scripts.check = next.scripts.check.replace(" lint ", " format:check lint ");
+      }
+      writeJson(path, next);
+      // For Humagent tsrs remains installed because Vite's declaration plugin needs it;
+      // no tsrs check is invoked by either native quality gate.
+      const ready = await normalize(c.work, ["bun", "fmt"], fmtPaths, "quality-format-" + c.name);
+      await savePatch(candidate, "quality-" + c.name);
+      if (!ready) console.log("Quality gate " + c.name + ": formatting did not converge; preserve failure.");
+      const gate: Case = { name: "check/" + c.name + "-cold", work: c.work, args: ["bun", "run", "check"], required: c.required, env: hum ? { TURBO_FORCE: "true" } : {} };
+      await compare([gate], 3, false);
+    }
+  } finally { restoreSource(); }
 
-  // Same real build task and same Vite version under each scheduler.
+  // Compare an identical build using isolated caches, with an explicit input set.
+  // Exclude cache files and outputs themselves from hashing, including in linked worktrees.
   if (!hum) writeJson(join(candidate.cwd, "turbo.json"), {
-    remoteCache: { enabled: false }, tasks: { build: { outputs: ["dist/**"] } },
+    remoteCache: { enabled: false },
+    globalDependencies: ["bun.lock", "package.json"],
+    tasks: { build: {
+      inputs: ["src/**", "ui/**", "assets/brand/**", "scripts/bundled-dependencies.ts", "patches/**", "vite.config.ts", "tsconfig.json", "package.json", "bun.lock"],
+      outputs: ["dist/**"],
+    } },
   });
   mkdirSync(join(candidate.cwd, ".turbo"), { recursive: true });
   writeFileSync(join(candidate.cwd, ".turbo/node-version"), versions.node + "\n");
   await must(["bun", "add", "-d", "--exact", "--ignore-scripts", "vite-plus@1.8.0"], candidate, "vite-task-install");
+  const turboCache = join(home, "turbo-build-cache");
   const cache = [
-    { name: "turbo", args: [bin(candidate, "turbo"), "run", "build"], clean: () => rmSync(join(candidate.cwd, ".turbo/cache"), { recursive: true, force: true }) },
+    { name: "turbo", args: [bin(candidate, "turbo"), "run", "build", "--cache-dir=" + turboCache], clean: () => rmSync(turboCache, { recursive: true, force: true }) },
     { name: "vite-task", args: [bin(candidate, "vp"), "run", "--cache", "build"], clean: () => rmSync(join(candidate.cwd, "node_modules/.vite/task-cache"), { recursive: true, force: true }) },
   ];
   await compare([{ name: "task/direct-build", work: stable(), args: ["bun", "run", "build"], before: () => cleanDist(candidate), validate: (_, exit) => exit === 0 && validBuild(candidate) }], 5);
   for (const c of cache) {
-    const build = (name: string, before?: () => void): Case => ({
+    const hit = /cache hit/i, miss = /cache miss|force executing/i;
+    let expected = "";
+    const build = (name: string, mode: "hit" | "miss" | "either", before?: () => void): Case => ({
       name: "task/" + c.name + "/" + name, work: stable(), args: c.args, before,
-      validate: (_, exit) => exit === 0 && validBuild(candidate),
+      env: { TURBO_FORCE: "false" },
+      validate: (text, exit) => exit === 0 && validBuild(candidate) &&
+        (mode === "either" || (mode === "hit" ? hit.test(text) && !miss.test(text) : !hit.test(text))) &&
+        (name !== "restore-output" || buildFingerprint(candidate) === expected),
     });
-    if (!await trial(build("cold", () => { c.clean(); cleanDist(candidate); }))) continue;
-    await compare([build("unchanged")], 7, false);
-    await compare([build("restore-output", () => cleanDist(candidate))], 5, false);
-    // Mutate one input at a time in the disposable worktree. No result is a release gate.
+    if (!await trial(build("cold", "miss", () => { c.clean(); cleanDist(candidate); }))) continue;
+    expected = buildFingerprint(candidate);
+    await compare([build("unchanged", "hit")], 7, false);
+    await compare([build("restore-output", "hit", () => cleanDist(candidate))], 5, false);
     for (const [label, file] of [["docs-edit", "README.md"], ["test-edit", hum ? "test/text-diff.test.ts" : "tests/unit/sdk.test.ts"], ["source-edit", hum ? "src/sdk/sdk.ts" : "ui/src/main.tsx"]]) {
       const absolute = join(candidate.cwd, file!);
       const original = readFileSync(absolute);
       try {
         writeFileSync(absolute, Buffer.concat([original, Buffer.from("\n" + (label === "docs-edit" ? "<!-- benchmark -->" : "// benchmark input change") + "\n")]));
-        await trial(build(label!));
+        await trial(build(label!, label === "source-edit" ? "miss" : "hit"));
       } finally { writeFileSync(absolute, original); }
-      await trial(build("reset-after-" + label));
+      await trial(build("reset-after-" + label, "either"));
     }
   }
 }
+
 async function packaging() {
   if (hum) {
     const commands = [
@@ -411,7 +529,7 @@ function report() {
     "", "| Scenario | Runs | Status | Median ms | p95 ms | Median peak RSS KiB |",
     "|---|---:|---|---:|---:|---:|",
     ...aggregates.map(r => "| " + [r.name, r.trials, r.ok ? "pass" : "INVALID", number(r.medianMs), number(r.p95Ms), number(r.medianRssKiB)].join(" | ") + " |"),
-    "", "Invalid runs have no speed result. Candidate failures are evidence, not silent passes. RSS is the OS-reported maximum for the timed command, not aggregate concurrent process memory. Review raw diagnostic logs and build inventories before adopting changes.",
+    "", "Invalid runs have no speed result. Candidate failures are evidence, not silent passes. RSS is the direct child process maximum reported by Bun resourceUsage(), not aggregate concurrent process memory. Missing RSS does not change the command result. Review raw diagnostic logs and build inventories before adopting changes.",
     ...(errors.length ? ["", "Setup errors:", ...errors.map(e => "- " + e)] : []), "",
   ].join("\n");
   writeFileSync(join(output, "summary.md"), md);
