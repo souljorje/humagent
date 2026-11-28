@@ -2,7 +2,7 @@ name: Check
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, '0.3', bench/toolchain-2026-11-28]
   merge_group:
     branches: [main]
   workflow_dispatch:
@@ -54,8 +54,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Install Bun bootstrap dependency
-        run: apt-get update && apt-get install -y --no-install-recommends unzip
       - uses: ./.github/actions/setup
         with:
           cache: ${{ github.event_name == 'pull_request' }}

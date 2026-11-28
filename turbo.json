@@ -19,7 +19,8 @@
         "!test/**",
         "!tsconfig.test.json"
       ],
-      "outputs": ["dist/**"]
+      "outputs": ["dist/**"],
+      "dependsOn": ["clean:build"]
     },
     "typecheck": {
       "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!docs/**"],
@@ -33,7 +34,12 @@
       "dependsOn": ["build"],
       "cache": false,
       "passThroughEnv": ["PLAYWRIGHT_*", "PWDEBUG"]
+    },
+    "clean:build": {
+      "inputs": ["package.json"],
+      "outputs": [],
+      "cache": false
     }
   },
-  "globalDependencies": [".turbo/node-version"]
+  "globalDependencies": [".turbo/runtime.json", "toolchain.json"]
 }

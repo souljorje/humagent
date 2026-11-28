@@ -120,10 +120,11 @@ async function shutDown(runtime: Runtime, server: http.Server) {
   runtime.store.interruptWaits();
   await Promise.all(closePages(runtime));
   await closeServer(server);
-  // A later server replaces a record that this one could not remove.
   try {
     runtime.claim.release();
-  } catch {}
+  } catch {
+    // A later server replaces a record that this one could not remove.
+  }
 }
 
 export function closeRuntime(runtime: Runtime, server: http.Server) {
