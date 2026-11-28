@@ -7,14 +7,14 @@ This branch compares pinned dependencies against candidate tools in two disposab
 Open the **Toolchain benchmarks** workflow run in Actions. Each matrix job has a Markdown summary and an artifact with raw trials, exit codes, logs, exact Bun revisions, candidate manifest and lockfile, build inventories, median, p95, and peak RSS. Failed candidate runs are invalid results, not speedups. Review diagnostics and artifact contracts before selecting a tool.
 
 - Installs: Bun 1.4.4, 1.4.5, and the current canary. Same original lockfile. One cold sample and five fresh installs with warm package cache.
-- Formatting: stable and canary Bun fmt versus Oxfmt 0.80. Same TS, TSX and CSS files. Restore original files before each write. Measure checks on each formatter's own normalized output.
+- Formatting: pinned, stable and canary Bun fmt versus Oxfmt 0.80. Same TS, TSX and CSS files. Restore original files before each write. Measure checks on each formatter's own normalized output.
 - Lint: original pinned Oxlint, latest Oxlint 1.95 and native canary Bun lint. Use a shared correctness policy for direct comparison. Save JSON diagnostics and test an intentional error.
 - Type checks: pinned checker, tsrs 7.1 beta, TypeScript 7.0.2, Bun check stable and canary. Preserve both Humagent configurations. Test an intentional error.
 - Build: pinned Vite, Vite 8.4 with Node, stable Bun and canary Bun. Delete dist before every trial. Verify expected outputs and record inventories.
 - Full checks: compare pinned, updated and candidate native quality gates. Keep the original task orchestration.
 - Task caching: direct build, Turbo 2.11.13 and Vite Task 1.8.0. Compare cold, unchanged, restore missing outputs, and changes to documentation, tests and source. The comparison is one real build task, not a full Vite+ migration.
-- Tests: existing Bun suites with the pinned runtime, stable, canary and different worker counts. Humagent also compares Playwright on Node and Bun. Stelz runs the real local dev server smoke test, not the browser-download or public-site QA suites.
-- Packaging: npm and Bun pack for Humagent. Stelz's existing archive acceptance on baseline and candidate.
+- Tests: existing Bun suites with the pinned runtime, stable, canary and different worker counts. Humagent also compares Playwright on Node and Bun, and measures actual Vite workspace readiness. Stelz runs the real local dev server smoke test, not the browser-download or public-site QA suites.
+- Packaging: npm and pinned/stable/canary Bun pack on the same Humagent build. Stelz's existing archive acceptance on baseline and candidate.
 
 The November 28 stable versions are pinned. The canary moves, so every run records its revision. The candidate lockfile is an artifact, not a committed change.
 

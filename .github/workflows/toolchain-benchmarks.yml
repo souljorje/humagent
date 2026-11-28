@@ -57,7 +57,7 @@ jobs:
           cp -L "$(command -v bun)" "$RUNNER_TEMP/toolchain-bun/canary/bun"
           "$RUNNER_TEMP/toolchain-bun/canary/bun" --revision
       - name: Benchmark pinned and candidate toolchains
-        run: '"$RUNNER_TEMP/toolchain-bun/stable/bun" scripts/benchmark-toolchain.ts ${{ matrix.suite }}'
+        run: '"$RUNNER_TEMP/toolchain-bun/stable/bun" .github/benchmarks/toolchain.ts ${{ matrix.suite }}'
       - uses: actions/upload-artifact@v7
         if: always()
         with:

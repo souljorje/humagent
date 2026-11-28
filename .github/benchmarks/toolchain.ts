@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 
 const suite = process.argv[2];
-if (suite !== "tools" && suite !== "tests") throw Error("Use: bun scripts/benchmark-toolchain.ts tools|tests");
+if (suite !== "tools" && suite !== "tests") throw Error("Use: bun .github/benchmarks/toolchain.ts tools|tests");
 const root = process.cwd();
 const temp = process.env.RUNNER_TEMP;
 if (!temp) throw Error("Run this benchmark in GitHub Actions (RUNNER_TEMP is required).");
@@ -83,16 +83,19 @@ async function trial(c: Case, record = true) {
 
 // Interleave variants to reduce bias from runner load. Warmups are not timed samples.
 async function compare(cases: Case[], repeats = 5, warmup = true) {
-  const active: Case[] = [];
+  let active: Case[] = [];
+  // Record failures on the warmup as invalid, but omit successful warmup timings.
   for (const c of cases) {
     if (!warmup || await trial(c, false)) active.push(c);
-    else await trial(c); // Preserve failed candidates in the report, not a speedup.
+    else rows.push({ name: c.name, command: c.args, cwd: c.work.cwd, runtime: c.work.runtime, ms: 0, rssKiB: null, exit: -1, ok: false, required: !!c.required, log: safeName(c.name) + "-" + serial + ".log" });
   }
-  for (let i = 0; i < repeats; i++) {
-    const offset = i % (active.length || 1);
+  for (let i = 0; i < repeats && active.length; i++) {
+    const offset = i % active.length;
+    const remaining: Case[] = [];
     for (const c of [...active.slice(offset), ...active.slice(0, offset)]) {
-      if (!await trial(c)) break; // A failed repetition invalidates its entire row.
+      if (await trial(c)) remaining.push(c);
     }
+    active = remaining;
   }
 }
 async function must(args: string[], work: Work, label: string) {
@@ -174,6 +177,7 @@ async function prepare() {
     ? ["vite@8.4.0", "oxlint@1.95.0", "oxfmt@0.80.0", "tsrs@7.1.0-beta.tsrs5", "typescript@7.0.2", "turbo@2.11.13"]
     : ["vite@8.4.0"];
   await must(["bun", "add", "-d", "--exact", "--ignore-scripts", ...tools], candidate, "candidate-tool-install");
+  if (hum) await must(["bun", "fmt", "package.json"], candidate, "candidate-normalize-manifest");
   cpSync(join(candidate.cwd, "package.json"), join(output, "candidate-package.json"));
   cpSync(join(candidate.cwd, "bun.lock"), join(output, "candidate-bun.lock"));
 }
@@ -190,6 +194,7 @@ async function formatting() {
   const config = join(candidate.cwd, ".oxfmtrc.json");
   writeJson(config, { singleQuote: hum, printWidth: 80, sortPackageJson: false });
   const formatters = [
+    { name: "bun-pinned", work: { ...candidate, runtime: "baseline" as const }, command: ["bun", "fmt"] },
     { name: "bun-stable", work: stable(), command: ["bun", "fmt"] },
     { name: "bun-canary", work: canary(), command: ["bun", "fmt"] },
     { name: "oxfmt", work: stable(), command: [bin(candidate, "oxfmt")] },
@@ -324,13 +329,13 @@ async function cacheAndChecks() {
 async function packaging() {
   if (hum) {
     const commands = [
-      { name: "package/npm", args: ["npm", "pack", "--ignore-scripts", "--pack-destination"] },
-      { name: "package/bun", args: ["bun", "pm", "pack", "--ignore-scripts", "--destination"] },
+      { name: "package/npm", work: base, args: ["npm", "pack", "--ignore-scripts", "--pack-destination"] },
+      ...([ "baseline", "stable", "canary" ] as Runtime[]).map(runtime => ({ name: "package/bun-" + runtime, work: { ...base, runtime }, args: ["bun", "pm", "pack", "--ignore-scripts", "--destination"] })),
     ];
     for (const c of commands) {
       const dir = join(home, safeName(c.name));
       mkdirSync(dir, { recursive: true });
-      await compare([{ name: c.name, work: base, args: [...c.args, dir],
+      await compare([{ name: c.name, work: c.work, args: [...c.args, dir],
         before: () => { for (const f of readdirSync(dir)) rmSync(join(dir, f), { force: true }); } }], 3, false);
       const archive = readdirSync(dir).find(f => f.endsWith(".tgz"));
       if (archive) await must(["tar", "-tzf", join(dir, archive)], base, safeName(c.name) + "-contents");
@@ -357,6 +362,13 @@ async function tests() {
     ...[2, 4, 8].map(n => ({ name: "tests/bun-stable-workers-" + n, work: stable(), args: fastTestArgs(candidate, n) })),
   ], hum ? 3 : 2, false);
   if (hum) {
+    for (const work of [base, stable(), canary()]) rmSync(join(work.cwd, ".local/dev"), { recursive: true, force: true });
+    await compare([
+      { name: "dev/workspace-pinned-node", work: base, args: ["bun", ".github/benchmarks/dev-start.ts", "node"], required: true },
+      { name: "dev/workspace-latest-node", work: stable(), args: ["bun", ".github/benchmarks/dev-start.ts", "node"] },
+      { name: "dev/workspace-latest-bun", work: stable(), args: ["bun", ".github/benchmarks/dev-start.ts", "bun"] },
+      { name: "dev/workspace-latest-canary", work: canary(), args: ["bun", ".github/benchmarks/dev-start.ts", "bun"] },
+    ].map(c => ({ ...c, before: () => rmSync(join(c.work.cwd, ".local/dev"), { recursive: true, force: true }) })), 3, false);
     const cli = "node_modules/@playwright/test/cli.js";
     await must(["node", cli, "install", ...(platform() === "linux" ? ["--with-deps"] : []), "--only-shell", "chromium"], base, "install-playwright-chromium");
     await compare([
