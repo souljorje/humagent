@@ -53,7 +53,8 @@
     "check:toolchain": "bun scripts/toolchain.ts",
     "precheck": "bun run check:toolchain",
     "hooks:install": "lefthook install",
-    "prepublishOnly": "playwright install --with-deps --only-shell chromium && bun run test --force"
+    "prepublishOnly": "playwright install --with-deps --only-shell chromium && bun run test --force",
+    "clean:build": "bun -e 'require(\"node:fs\").rmSync(\"dist\", { recursive: true, force: true })'"
   },
   "devDependencies": {
     "@changesets/cli": "3.0.3",

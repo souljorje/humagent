@@ -53,7 +53,7 @@ bunx --no-install playwright install chromium
 | `bun run test` | Run all checks, including browser tests, through Turbo. |
 | `bun run check --force` | Run every main-check task without cached results. |
 
-Turbo caches successful tasks and build outputs in `.turbo/`. Source, configuration, lockfile, and runtime changes invalidate results. Markdown files and `docs/` do not invalidate results. Test files and `tsconfig.test.json` do not invalidate the build. Browser tests never reuse cached results.
+Turbo caches successful tasks and build outputs in `.turbo/`. Source, configuration, lockfile, and runtime changes invalidate results. Markdown files and `docs/` do not invalidate results. Test files and `tsconfig.test.json` do not invalidate the build. Browser tests never reuse cached results. An uncached cleanup removes old build files before Turbo restores or creates build outputs.
 
 The runtime fingerprint includes Bun's full revision, the external Node version, the operating system, and the architecture.
 
