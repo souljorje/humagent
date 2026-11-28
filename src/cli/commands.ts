@@ -47,6 +47,24 @@ async function openSource(source: string, { flags, directory }: Options) {
     ),
   );
 }
+
+/** Copy embedded example bytes without replacing files that the user changed. */
+function copyExamples(source: string, destination: string) {
+  fs.mkdirSync(destination, { recursive: true });
+  for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+    const from = path.join(source, entry.name);
+    const to = path.join(destination, entry.name);
+    if (entry.isDirectory()) copyExamples(from, to);
+    else {
+      try {
+        fs.writeFileSync(to, fs.readFileSync(from), { flag: 'wx' });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
+    }
+  }
+}
+
 export interface Command {
   flags: string[];
   /** Whether the command accepts one positional argument. */
@@ -61,7 +79,7 @@ export const commands: Record<string, Command> = {
     async run(_, options) {
       const destination = path.join(options.directory, 'demos', version);
       // Keep the files that the user already has.
-      fs.cpSync(EXAMPLES, destination, { recursive: true, force: false });
+      copyExamples(EXAMPLES, destination);
       await openSource(path.join(destination, 'index.html'), options);
     },
   },

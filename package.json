@@ -54,6 +54,8 @@
     "precheck": "bun run check:toolchain",
     "hooks:install": "lefthook install",
     "prepublishOnly": "playwright install --with-deps --only-shell chromium && bun run test --force",
+    "build:standalone": "bun run build && bun scripts/standalone/build.ts",
+    "test:standalone": "bun test/standalone.ts",
     "clean:build": "bun -e 'require(\"node:fs\").rmSync(\"dist\", { recursive: true, force: true })'"
   },
   "devDependencies": {

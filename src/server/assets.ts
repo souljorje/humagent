@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensure } from '@/shared/validate';
+import { standalone } from './version';
 
 /** Headers that stop caching and MIME sniffing of a response. */
 export const noStore = (type: string, extra: Record<string, string> = {}) => ({
@@ -15,8 +16,12 @@ export const noStore = (type: string, extra: Record<string, string> = {}) => ({
 
 /** Browser code has this path prefix on the control origin and on each page origin. */
 export const ASSET_PREFIX = '/__humagent/';
-export const CLIENT = fileURLToPath(new URL('../client/', import.meta.url));
-export const EXAMPLES = fileURLToPath(new URL('../examples/', import.meta.url));
+export const CLIENT = fileURLToPath(
+  new URL(standalone ? './client/' : '../client/', import.meta.url),
+);
+export const EXAMPLES = fileURLToPath(
+  new URL(standalone ? './examples/' : '../examples/', import.meta.url),
+);
 export const WORKSPACE = path.join(CLIENT, 'ui/index.html');
 export const MANIFEST = path.join(CLIENT, '.vite/manifest.json');
 

@@ -2,9 +2,9 @@ import { test as base, expect, type Frame, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createServer } from 'humagent';
 import type { Delivered } from 'humagent/feedback';
 import { fixture } from '../fixtures';
+import { testServer } from '../runtime';
 
 /** One server, one copy of the demo page, and the actions of a human and an agent. */
 export const test = base.extend<{
@@ -40,7 +40,7 @@ async function createHumagent(page: Page, directory: string) {
     path.dirname(file),
     { recursive: true },
   );
-  let runtime = await createServer({ directory: state });
+  let runtime = await testServer(state);
   let id = '';
   let key = '';
   let wait: Promise<Delivered> | undefined;
@@ -162,7 +162,7 @@ async function createHumagent(page: Page, directory: string) {
       }),
     async restart() {
       await runtime.close();
-      runtime = await createServer({ directory: state });
+      runtime = await testServer(state);
     },
     async close() {
       agent.abort();

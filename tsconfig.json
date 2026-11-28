@@ -5,7 +5,7 @@
     "moduleResolution": "bundler",
     "strict": true,
     "moduleDetection": "force",
-    "types": ["node", "vite/client"],
+    "types": ["node", "bun", "vite/client"],
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
